@@ -990,6 +990,9 @@
             },
             "exactAspect": {
               "type": "boolean"
+            },
+            "measureGround": {
+              "type": "boolean"
             }
           },
           "required": [

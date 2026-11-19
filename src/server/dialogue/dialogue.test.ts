@@ -218,8 +218,10 @@ describe.skipIf(!existsSync(PYTHON))("retratos, fala e fontes (cartão D1)", { t
     const ext = await run(project.id, { operation: "generate_pixel_font", providerProfileId: "simulated", mode: "extend", baseRevisionId: baseRev.id, kit: "basic_pt" }, fontAsset.id, "font:ext");
     expect(ext.error).toBeNull();
     expect(ext.planned.targetAssetId).toBe(fontAsset.id);
-    expect(ext.planned.plan.sources.every((s) => s.revisionId === baseRev.id && s.role === "style")).toBe(true);
-    expect(new Set((ext.planned.plan.params as { requiredCodepoints: number[] }).requiredCodepoints)).toEqual(new Set(baseReport.missing));
+    const extPlan = ext.planned.plan;
+    if (extPlan.operation !== "generate_pixel_font") throw new Error("Plano inesperado");
+    expect(extPlan.sources.every((s) => s.revisionId === baseRev.id && s.role === "style")).toBe(true);
+    expect(new Set(extPlan.params.requiredCodepoints)).toEqual(new Set(baseReport.missing));
     const extRev = getRevision(studio.db, project.id, ext.result!.revisionIds[0]!);
     const extPayload = FontPayload.parse(extRev.payload);
     const extended = extPayload.glyphs.filter((g) => g.origin === "extended");

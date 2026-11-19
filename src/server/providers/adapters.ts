@@ -206,6 +206,13 @@ export class OpenAIImagesAdapter implements ProviderAdapter {
 // OpenRouter Images
 // ---------------------------------------------------------------------------
 
+// Defaults for the two reference routes qualified in MODELS.md. Explicit route
+// or limit settings and custom endpoints keep their existing configuration.
+const knownOpenRouterRoutes: Record<string, z.input<typeof OpenRouterConfig>> = {
+  "google/gemini-3.1-flash-image": { maxReferences: 14, provider: { only: ["google-vertex/us"], allow_fallbacks: false } },
+  "openai/gpt-image-2.6-flare": { maxReferences: 16, transparent: true, provider: { only: ["openai"], allow_fallbacks: false } },
+};
+
 export class OpenRouterAdapter implements ProviderAdapter {
   readonly transport = "openrouter_images" as const;
   readonly idempotentSubmit = false;
@@ -217,10 +224,14 @@ export class OpenRouterAdapter implements ProviderAdapter {
     private readonly profile: AdapterProfile,
     config: unknown,
   ) {
-    this.config = OpenRouterConfig.parse(config ?? {});
-    this.route = { maxReferences: this.config.maxReferences, transparent: this.config.transparent };
     if (!profile.model) throw new DomainFailure("validation_failed", tx("Perfil OpenRouter exige o ID do modelo", "An OpenRouter profile requires the model ID"));
-    checkBaseUrl(profile.baseUrl);
+    const endpoint = checkBaseUrl(profile.baseUrl);
+    const preset = endpoint.origin === "https://openrouter.ai" ? knownOpenRouterRoutes[profile.model] : undefined;
+    const input = config ?? {};
+    this.config = OpenRouterConfig.parse(preset && typeof input === "object" && !Array.isArray(input) && !("provider" in input) && !("maxReferences" in input)
+      ? { ...preset, ...input }
+      : input);
+    this.route = { maxReferences: this.config.maxReferences, transparent: this.config.transparent };
   }
 
   capabilities(operation: PlanOperation): Capability[] {
@@ -235,7 +246,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
     const price = this.config.pricePerImageUsd;
     return price !== undefined
       ? { kind: "known", amount: { amount: Math.round(price * parts * 1e6) / 1e6, unit: "USD" }, basis: tx(`${parts} imagem(ns) × US$ ${price} (catálogo da rota)`, `${parts} image(s) × US$ ${price} (route catalog)`) }
-      : unknownCost(tx("Preço da rota não registrado no perfil; o custo real vem em usage.cost", "Route price is not set in the profile; the actual cost comes in usage.cost"));
+      : unknownCost(tx("O provedor informa o valor depois de gerar", "The provider reports the charge after generating"));
   }
 
   async submit(req: ProviderSubmitRequest, signal: AbortSignal): Promise<SubmitOutcome> {

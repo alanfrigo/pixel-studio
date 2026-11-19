@@ -91,14 +91,18 @@ export function EquipmentStudio({ projectId }: { projectId: string }) {
               )}
             </span>
           )}
-          {!data.demo.seeded && (
-            <button type="button" className="secondary" disabled={seeding} onClick={seed}>
-              {seeding ? m.seeding : m.seed}
-            </button>
-          )}
         </div>
         {message && <p className="small">{message}</p>}
         {!rig && <p className="small">{m.noRig}</p>}
+        {!data.demo.seeded && (
+          <details className="workspace-demo">
+            <summary>{m.demo}</summary>
+            <p className="muted">{m.demoHint}</p>
+            <button type="button" className="secondary" disabled={seeding} onClick={seed}>
+              {seeding ? m.seeding : m.seed}
+            </button>
+          </details>
+        )}
       </section>
       {rig && (
         <>

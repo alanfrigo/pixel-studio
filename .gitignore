@@ -34,3 +34,4 @@ __pycache__/
 # ferramentas locais
 .claude/
 *.log
+/.taste-skill/

@@ -27,6 +27,7 @@ import { Codepoint } from "./dialogue-audio";
 import { TilesetGuide } from "./world";
 import { OverlayCoverageParams } from "./equipment";
 import { ROOM_MAX_COLS, ROOM_MAX_ROWS, ROOM_PROJECTIONS, SCENE_LAYER_DEPTHS } from "./scenes";
+import { ITEM_KINDS } from "./manifest";
 import { TEMPORAL_PLAN_PARAMS } from "./temporal";
 
 /**
@@ -50,6 +51,11 @@ export const PlanSource = z.strictObject({
   role: SourceRole,
 });
 export type PlanSource = z.infer<typeof PlanSource>;
+
+const AssetReferenceSource = z.union([
+  PlanSource.extend({ fileId: Id, role: ReferenceRole }),
+  z.strictObject({ ordinal: NonNegInt, uploadId: Id, sha256: Sha256Hex, role: ReferenceRole }),
+]);
 
 /** Unidade de trabalho com chave estável (vista, trecho, estado, componente, take). */
 export const PlanPart = z.strictObject({
@@ -412,7 +418,7 @@ function plan<O extends PlanOperation>(operation: O) {
 
 export const GenerationPlan = z
   .discriminatedUnion("operation", [
-    plan("generate_asset"),
+    plan("generate_asset").extend({ sources: z.array(AssetReferenceSource).max(16) }),
     plan("animate_preset"),
     plan("animate_text"),
     plan("animate_skeleton"),
@@ -440,7 +446,7 @@ export const GenerationPlan = z
   ])
   .superRefine((p, ctx) => {
     checkOrdinals(ctx, p.sources, ["sources"]);
-    checkUnique(ctx, p.sources, (s) => `${s.revisionId}/${s.fileId}`, "Fonte", ["sources"]);
+    checkUnique<PlanSource | z.infer<typeof AssetReferenceSource>>(ctx, p.sources, (s) => "uploadId" in s ? `upload:${s.uploadId}` : `revision:${s.revisionId}/${s.fileId}`, "Fonte", ["sources"]);
     checkUnique(ctx, p.parts, (part) => part.partKey, "Parte", ["parts"]);
     checkUnique(ctx, p.requiredCapabilities, (c) => c, "Capacidade", ["requiredCapabilities"]);
     const requires = (cap: Capability) => {
@@ -455,6 +461,17 @@ export const GenerationPlan = z
       }
     }
     switch (p.operation) {
+      case "generate_asset": {
+        if (p.sources.length > 0) requires("image_references");
+        const { family, kind, transparent } = p.params;
+        if (!(family === "character" && kind === "base") && !(family === "item" && ITEM_KINDS.some((itemKind) => itemKind === kind))) {
+          ctx.addIssue({ code: "custom", message: "A geração por imagem publica em character/base ou em um tipo de item", path: ["params", "kind"] });
+        }
+        if (family === "character" && !transparent) {
+          ctx.addIssue({ code: "custom", message: "A base de personagem exige fundo transparente", path: ["params", "transparent"] });
+        }
+        break;
+      }
       case "inpaint": {
         if (p.params.mode === "native-mask") requires("native_mask");
         else requires("image_edit");

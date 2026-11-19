@@ -1,7 +1,7 @@
 import type { AssetFamily } from "@/contracts";
 import { parsePresetRevisionId } from "@/domain/animation/presets";
 import { canonicalDigest } from "@/domain/canonical-json";
-import type { CatalogFile, CatalogRevision, PlanLookup } from "@/domain/plan/references";
+import type { CatalogFile, CatalogRevision, CatalogUpload, PlanLookup } from "@/domain/plan/references";
 import type { Db } from "../db/connection";
 
 /** Adapta o catálogo SQLite à interface usada por `validatePlanReferences`. */
@@ -30,25 +30,36 @@ export function catalogLookup(db: Db): PlanLookup {
       );
       if (!rev) return presetRevision(db, revisionId);
       const files: Record<string, CatalogFile> = {};
-      for (const f of db.all<{ file_key: string; sha256: string; metadata_json: string }>(
-        `SELECT f.file_key, f.blob_sha256 AS sha256, b.metadata_json FROM revision_files f
+      for (const f of db.all<{ file_key: string; sha256: string; mime: string; metadata_json: string }>(
+        `SELECT f.file_key, f.blob_sha256 AS sha256, b.mime, b.metadata_json FROM revision_files f
          JOIN blobs b ON b.sha256 = f.blob_sha256 WHERE f.revision_id = :id`,
         { id: revisionId },
       )) {
         const meta = JSON.parse(f.metadata_json) as { width?: number; height?: number };
-        files[f.file_key] = { sha256: f.sha256, ...(meta.width ? { width: meta.width, height: meta.height } : {}) };
+        files[f.file_key] = { sha256: f.sha256, mime: f.mime, ...(meta.width ? { width: meta.width, height: meta.height } : {}) };
       }
       return { revisionId: rev.id, projectId: rev.project_id, family: rev.family, kind: rev.kind, status: rev.status, files, payloadDigest: rev.payload_digest };
     },
     upload(fileId) {
-      const up = db.get<{ id: string; project_id: string; sha256: string; metadata_json: string | null }>(
-        `SELECT u.id, u.project_id, COALESCE(u.normalized_sha256, u.blob_sha256) AS sha256, u.metadata_json
-         FROM uploads u WHERE u.id = :id AND u.status = 'ready'`,
+      const up = db.get<{
+        id: string; project_id: string; status: CatalogUpload["status"]; sha256: string;
+        normalized_raster_sha256: string | null; metadata_json: string | null;
+      }>(
+        `SELECT u.id, u.project_id, u.status, COALESCE(u.normalized_sha256, u.blob_sha256) AS sha256, u.metadata_json,
+                CASE WHEN u.modality = 'raster' AND n.modality = 'raster' AND n.mime = 'image/png' THEN n.sha256 END AS normalized_raster_sha256
+         FROM uploads u LEFT JOIN blobs n ON n.sha256 = u.normalized_sha256 WHERE u.id = :id`,
         { id: fileId },
       );
       if (!up) return undefined;
       const meta = (up.metadata_json ? JSON.parse(up.metadata_json) : {}) as { width?: number; height?: number };
-      return { fileId: up.id, projectId: up.project_id, sha256: up.sha256, ...(meta.width ? { width: meta.width, height: meta.height } : {}) };
+      return {
+        fileId: up.id,
+        projectId: up.project_id,
+        sha256: up.sha256,
+        status: up.status,
+        normalizedRasterSha256: up.normalized_raster_sha256,
+        ...(meta.width ? { width: meta.width, height: meta.height } : {}),
+      };
     },
   };
 }

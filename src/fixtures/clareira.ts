@@ -2,7 +2,7 @@ import type { GenerationPlan, Manifest, ManifestEntry, ManifestFile, StylePayloa
 import { canonicalDigest } from "@/domain/canonical-json";
 import { entryRefs } from "@/domain/manifest/refs";
 import { sha256Hex } from "@/domain/manifest/verify-files";
-import type { CatalogRevision, CatalogUpload } from "@/domain/plan/references";
+import type { CatalogFile, CatalogRevision, CatalogUpload } from "@/domain/plan/references";
 import { createImage, encodePng, fillRect, setPixel, type RgbaImage } from "@/lib/media/png";
 import {
   ATTACK_FRAMES,
@@ -724,11 +724,11 @@ export function buildClareira(): ClareiraFixture {
     { path: "references/dune.png", bytes: dune },
   ];
 
-  const fileInfo = new Map<string, { sha256: string; width?: number; height?: number }>();
-  for (const f of manifest.files) fileInfo.set(f.fileId, { sha256: f.sha256, ...("width" in f ? { width: f.width, height: f.height } : {}) });
-  fileInfo.set("metal-ref", { sha256: sha256Hex(metal), width: 16, height: 16 });
+  const fileInfo = new Map<string, CatalogFile>();
+  for (const f of manifest.files) fileInfo.set(f.fileId, { sha256: f.sha256, mime: f.mime, ...("width" in f ? { width: f.width, height: f.height } : {}) });
+  fileInfo.set("metal-ref", { sha256: sha256Hex(metal), mime: "image/png", width: 16, height: 16 });
 
-  const filesOf = (entry: ManifestEntry): Record<string, { sha256: string; width?: number; height?: number }> => {
+  const filesOf = (entry: ManifestEntry): Record<string, CatalogFile> => {
     const ids = new Set(entryRefs(entry).files.map((f) => f.fileId));
     return Object.fromEntries([...fileInfo].filter(([id]) => ids.has(id)));
   };
@@ -768,10 +768,11 @@ export function buildClareira(): ClareiraFixture {
       family: "texture",
       kind: "material",
       status: "approved",
-      files: { "dune-ref": { sha256: sha256Hex(dune), width: 16, height: 16 } },
+      files: { "dune-ref": { sha256: sha256Hex(dune), mime: "image/png", width: 16, height: 16 } },
     },
   ];
-  const uploads: CatalogUpload[] = [{ fileId: "lake-mask", projectId: PROJECT_ID, sha256: sha256Hex(mask), width: 128, height: 128 }];
+  const maskSha256 = sha256Hex(mask);
+  const uploads: CatalogUpload[] = [{ fileId: "lake-mask", projectId: PROJECT_ID, sha256: maskSha256, status: "ready", normalizedRasterSha256: maskSha256, width: 128, height: 128 }];
 
   return {
     manifest,
@@ -779,6 +780,6 @@ export function buildClareira(): ClareiraFixture {
     projectFiles,
     style: buildStyle(),
     catalog: { revisions, uploads },
-    plans: buildPlans(fileInfo, motionDigest, sha256Hex(mask)),
+    plans: buildPlans(fileInfo, motionDigest, maskSha256),
   };
 }

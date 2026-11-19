@@ -7,7 +7,7 @@ import { apiFetch, formatBytes, type Health } from "./api";
 import { usePoll } from "./use-poll";
 
 /** Avisa quando o worker ou o Python estão indisponíveis; revisar assets prontos continua possível. */
-export function HealthBanner() {
+export function HealthBanner({ warningsOnly = true }: { warningsOnly?: boolean }) {
   const locale = useLocale();
   const m = useMessages(homeMessages).health;
   const c = useMessages(commonMessages);
@@ -18,6 +18,7 @@ export function HealthBanner() {
   const problems: string[] = [];
   if (!data.worker.online) problems.push(m.workerDown);
   if (!data.python.ok) problems.push(m.pythonDown(text(data.python.error) || c.unknownError));
+  if (warningsOnly && !problems.length) return null;
   return (
     <div className={problems.length ? "banner banner-warn" : "banner banner-ok"}>
       {problems.length ? (

@@ -45,7 +45,7 @@ function snapshotText(stored: string | null): TextValue | null {
 function buildAdapter(input: ProfileInput): ProviderAdapter {
   const profile = {
     id: input.id,
-    baseUrl: "baseUrl" in input ? (input.baseUrl ?? DEFAULT_BASE_URLS[input.transport]!) : "",
+    baseUrl: ("baseUrl" in input ? input.baseUrl : undefined) ?? DEFAULT_BASE_URLS[input.transport] ?? "",
     secretRef: "secretRef" in input ? input.secretRef : null,
     model: input.model ?? null,
   };
@@ -124,18 +124,20 @@ export function capabilityMatrix(db: Db, profileId: string) {
   ).map((r) => ({ operation: r.operation, capability: r.capability, status: r.status, limits: JSON.parse(r.limits_json), contractSnapshot: snapshotText(r.contract_snapshot), verifiedAt: r.verified_at }));
 }
 
-/** Verificação gratuita, só por ação explícita do operador. Nenhuma geração é feita. */
+/** Verificação gratuita de conectividade. Nenhuma geração é feita. */
 export async function checkProfile(db: Db, registry: ProviderRegistry, profileId: string): Promise<{ ok: boolean; message: TextValue; details?: unknown }> {
   const row = getProfileRow(db, profileId);
   const signal = AbortSignal.timeout(30_000);
   try {
     const adapter = registry.adapterFor(profileId);
-    if (adapter instanceof OpenRouterAdapter) {
-      const endpoints = await adapter.discover(signal);
+    // A instância pode vir de outro bundle de rota do Next, com um protótipo diferente.
+    if (adapter.transport !== row.transport) throw new DomainFailure("capability_missing", tx("Transporte do perfil não corresponde ao adaptador", "Profile transport does not match its adapter"));
+    if (adapter.transport === "openrouter_images") {
+      const endpoints = await (adapter as OpenRouterAdapter).discover(signal);
       return { ok: endpoints.length > 0, message: endpoints.length ? tx(`${endpoints.length} rota(s) disponível(is) para ${row.model}`, `${endpoints.length} route(s) available for ${row.model}`) : tx("Modelo sem rotas de imagem", "Model has no image routes"), details: endpoints };
     }
-    if (adapter instanceof CodexCliAdapter) return await adapter.check(signal);
-    if (adapter instanceof OpenAIImagesAdapter) {
+    if (adapter.transport === "codex_cli") return await (adapter as CodexCliAdapter).check(signal);
+    if (adapter.transport === "openai_images") {
       const url = `${row.base_url!.replace(/\/+$/, "")}/models`;
       const res = await providerFetch(url, { allowedHost: new URL(url).host, signal, headers: { authorization: `Bearer ${resolveSecret(row.secret_ref)}` } });
       failOnStatus(res);

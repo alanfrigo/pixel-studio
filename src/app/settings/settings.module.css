@@ -1,0 +1,173 @@
+.page {
+  display: grid;
+  gap: 28px;
+  overflow-wrap: anywhere;
+}
+
+.page > section {
+  margin: 0;
+  padding: clamp(16px, 3vw, 28px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.page section h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.page section p {
+  margin: 6px 0 0;
+}
+
+.page .connection {
+  border-block-start: 3px solid var(--accent);
+}
+
+.connectionHeading,
+.profileHeading,
+.actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.actions {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.notConfigured {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 16px;
+}
+
+.notConfigured a {
+  margin-top: 12px;
+}
+
+.profiles {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.profile {
+  padding: 16px 0;
+  border-block-start: 1px solid var(--line);
+}
+
+.profile:last-child {
+  padding-bottom: 0;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: .78rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: var(--muted);
+  border-radius: 50%;
+}
+
+.status[data-ready="true"]::before {
+  background: #218453;
+}
+
+.disclosure,
+.diagnostics {
+  margin-top: 12px;
+}
+
+.page summary {
+  width: fit-content;
+  padding-block: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.capabilities {
+  font-size: .85rem;
+}
+
+.capabilities dt {
+  font-weight: 600;
+}
+
+.capabilities dd {
+  margin: 0 0 4px;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  margin-top: 16px;
+}
+
+.form label {
+  gap: 5px;
+}
+
+.form input,
+.form select {
+  width: 100%;
+}
+
+.formAdvanced {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.formAdvanced label {
+  margin-top: 8px;
+}
+
+.form button {
+  justify-self: start;
+}
+
+.guide dl {
+  margin: 20px 0 0;
+}
+
+.guide dl > div {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 3fr);
+  gap: 8px 20px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.guide dl > div:last-child {
+  padding-bottom: 0;
+}
+
+.guide dt {
+  font-weight: 650;
+}
+
+.guide dd {
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .form,
+  .guide dl > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

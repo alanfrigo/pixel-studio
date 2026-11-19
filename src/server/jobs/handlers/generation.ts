@@ -1,14 +1,16 @@
 import { pick, type TextValue, tx } from "@/i18n/locales";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { CostAmount, GenerationPlan } from "@/contracts";
+import { type BasePayload, type CostAmount, type GenerationPlan, GridPoint, gridPointInside } from "@/contracts";
 import { canonicalDigest } from "@/domain/canonical-json";
 import { validatePlanReferences } from "@/domain/plan/references";
-import { type AssetView, type BlobRecord, getAsset, getBlob, publishRevision, recordBlob } from "../../catalog/catalog";
+import { type AssetView, type BlobRecord, getAsset, publishRevision, recordBlob } from "../../catalog/catalog";
 import { catalogLookup } from "../../catalog/plan-lookup";
 import { DomainFailure } from "../../errors";
+import { assertPlanCapabilities } from "../../providers/plan-limits";
 import { getProfileRow } from "../../providers/registry";
-import { ProviderError, type ProviderAdapter, type ProviderResult, type SubmitOutcome } from "../../providers/types";
+import { ProviderError, type ProviderAdapter, type ProviderResult, type ProviderSubmitRequest, type SubmitOutcome } from "../../providers/types";
 import { runPython } from "../../python/bridge";
 import { iso, newId, parseJson, sleep, slugify } from "../../util";
 import { type HandlerContext, JobRequests } from "../context";
@@ -38,10 +40,7 @@ export async function generationHandler(ctx: HandlerContext): Promise<void> {
   }
   if (plan.projectId !== ctx.job.project_id) throw new DomainFailure("cross_project_reference", tx("Plano de outro projeto", "Plan from another project"));
   const adapter = ctx.providers.adapterFor(plan.providerProfileId);
-  const missing = plan.requiredCapabilities.filter((c) => !adapter.capabilities(plan.operation).includes(c));
-  if (missing.length > 0) {
-    throw new DomainFailure("capability_missing", tx(`O perfil ${plan.providerProfileId} não oferece: ${missing.join(", ")}`, `Provider profile ${plan.providerProfileId} does not offer: ${missing.join(", ")}`), { missing });
-  }
+  assertPlanCapabilities(adapter, plan);
   const refIssues = validatePlanReferences(plan, catalogLookup(ctx.db));
   if (refIssues.length > 0) {
     throw new DomainFailure(refIssues[0]!.code === "cross_project_reference" ? "cross_project_reference" : "validation_failed", refIssues[0]!.message, {
@@ -56,6 +55,7 @@ export async function generationHandler(ctx: HandlerContext): Promise<void> {
 
   // ---- envio e download por parte ----
   ctx.queue.setStage(ctx.attempt, "submit");
+  let assetReferences: ProviderSubmitRequest["references"] | undefined;
   for (const initial of ctx.queue.parts(ctx.job.id)) {
     let part = initial;
     if (part.remote_state === "completed") continue;
@@ -77,7 +77,8 @@ export async function generationHandler(ctx: HandlerContext): Promise<void> {
 
     if (part.remote_state === "not_sent") {
       ctx.checkpoint();
-      const outcome = await submitPart(ctx, adapter, plan, part);
+      const references = plan.operation === "generate_asset" ? (assetReferences ??= await loadAssetReferences(ctx, plan)) : undefined;
+      const outcome = await submitPart(ctx, adapter, plan, part, references);
       if (outcome === "stopped") return;
       part = outcome;
     }
@@ -120,9 +121,6 @@ function assertPublishable(ctx: HandlerContext, plan: GenerationPlan, asset: Ass
   if (plan.params.family !== asset.family || plan.params.kind !== asset.kind) {
     throw new DomainFailure("validation_failed", tx(`Plano gera ${plan.params.family}/${plan.params.kind}, mas o asset é ${asset.family}/${asset.kind}`, `Plan generates ${plan.params.family}/${plan.params.kind}, but the asset is ${asset.family}/${asset.kind}`));
   }
-  if (asset.family !== "item") {
-    throw new DomainFailure("capability_missing", tx(`Montagem de candidatas da família ${asset.family} entra com o cartão responsável`, `Assembling candidates for the ${asset.family} family comes with the card that owns it`));
-  }
 }
 
 function recordRun(ctx: HandlerContext, plan: GenerationPlan) {
@@ -151,15 +149,17 @@ function recordRun(ctx: HandlerContext, plan: GenerationPlan) {
     if (inserted.changes === 1) {
       plan.sources.forEach((s) =>
         ctx.db.run(
-          "INSERT INTO run_inputs (run_id, ordinal, revision_id, file_key, sha256, role) VALUES (:run, :o, :rev, :key, :sha, :role)",
-          { run: id, o: s.ordinal, rev: s.revisionId, key: s.fileId, sha: s.sha256, role: s.role },
+          "INSERT INTO run_inputs (run_id, ordinal, revision_id, upload_id, file_key, sha256, role) VALUES (:run, :o, :rev, :upload, :key, :sha, :role)",
+          "uploadId" in s
+            ? { run: id, o: s.ordinal, rev: null, upload: s.uploadId, key: null, sha: s.sha256, role: s.role }
+            : { run: id, o: s.ordinal, rev: s.revisionId, upload: null, key: s.fileId, sha: s.sha256, role: s.role },
         ),
       );
     }
   });
 }
 
-async function submitPart(ctx: HandlerContext, adapter: ProviderAdapter, plan: GenerationPlan, part: PartRow): Promise<PartRow | "stopped"> {
+async function submitPart(ctx: HandlerContext, adapter: ProviderAdapter, plan: GenerationPlan, part: PartRow, assetReferences: ProviderSubmitRequest["references"] | undefined): Promise<PartRow | "stopped"> {
   // Intenção registrada ANTES da chamada remota.
   ctx.queue.updatePart(ctx.attempt, part.part_key, { remote_state: "sending", error_json: null }, { countSubmission: true });
   let outcome: SubmitOutcome;
@@ -170,7 +170,7 @@ async function submitPart(ctx: HandlerContext, adapter: ProviderAdapter, plan: G
         operation: plan.operation,
         prompt: plan.prompt.compiled,
         params: plan.params as Record<string, unknown>,
-        references: PIPELINES[plan.operation] ? await PIPELINES[plan.operation]!.loadInputs(ctx, plan, adapter, part) : await loadReferences(ctx, plan),
+        references: assetReferences ?? await PIPELINES[plan.operation]!.loadInputs(ctx, plan, adapter, part),
       },
       ctx.signal,
     );
@@ -202,23 +202,24 @@ async function submitPart(ctx: HandlerContext, adapter: ProviderAdapter, plan: G
   return storeResults(ctx, part.part_key, outcome, null);
 }
 
-/** Fontes congeladas no plano, em ordem, com bytes conferidos pelo hash. */
 /** Lado mínimo enviado: sprites pequenos sobem por fator inteiro (vizinho mais próximo, sem detalhe novo). */
 const MIN_REFERENCE_SIDE = 256;
 const MAX_REFERENCE_SIDE = 2048;
 
 /** Fontes congeladas no plano, em ordem, com bytes conferidos pelo hash. */
-async function loadReferences(ctx: HandlerContext, plan: GenerationPlan) {
-  const refs = [];
+async function loadAssetReferences(ctx: HandlerContext, plan: Extract<GenerationPlan, { operation: "generate_asset" }>): Promise<ProviderSubmitRequest["references"]> {
+  const refs: ProviderSubmitRequest["references"] = [];
+  const key = plan.params.backgroundKey ?? null;
   for (const source of plan.sources) {
-    if (source.fileId === null) continue; // revisões só de dados (ex.: movimento) seguem nos parâmetros
-    const blob = getBlob(ctx.db, source.sha256);
-    const { width = 0, height = 0 } = (blob?.metadata ?? {}) as { width?: number; height?: number };
+    const blob = mustBlob(ctx.db, source.sha256);
+    const { width = 0, height = 0 } = blob.metadata as { width?: number; height?: number };
     let bytes = await ctx.blobs.read(source.sha256);
-    const key = plan.operation === "generate_asset" ? (plan.params.backgroundKey ?? null) : null;
+    if (createHash("sha256").update(bytes).digest("hex") !== source.sha256) {
+      throw new DomainFailure("storage_failed", tx("Os bytes da referência divergem do hash congelado", "Reference bytes do not match the frozen hash"), { sha256: source.sha256 });
+    }
     // Alguns provedores exigem os dois lados ≥ 256 px (Black Forest Labs: 422 abaixo disso).
     const small = width > 0 && Math.min(width, height) < MIN_REFERENCE_SIDE;
-    if (blob?.mime === "image/png" && width > 0 && (small || key)) {
+    if (blob.mime === "image/png" && width > 0 && (small || key)) {
       const factor = small ? Math.max(1, Math.min(Math.ceil(MIN_REFERENCE_SIDE / Math.min(width, height)), Math.floor(MAX_REFERENCE_SIDE / Math.max(width, height)))) : 1;
       const dir = path.join(ctx.workDir, "refs", String(source.ordinal));
       await mkdir(path.join(dir, "in"), { recursive: true });
@@ -237,7 +238,7 @@ async function loadReferences(ctx: HandlerContext, plan: GenerationPlan) {
       if (scaled.status === "error") throw new DomainFailure("internal", withText(scaled.message, (m) => `Falha ao ampliar referência: ${m}`, (m) => `Failed to upscale reference: ${m}`));
       bytes = new Uint8Array(await readFile(scaled.outputs[0]!.absolutePath));
     }
-    refs.push({ role: source.role, mime: blob?.mime ?? "image/png", bytes });
+    refs.push({ role: source.role, mime: blob.mime, bytes });
   }
   return refs;
 }
@@ -337,6 +338,7 @@ async function storeResults(ctx: HandlerContext, partKey: string, result: Provid
 export async function processProviderImage(env: PipelineEnv, plan: GenerationPlan, sha256: string, dir: string) {
   if (plan.operation !== "generate_asset") throw new Error("inalcançável");
   const [lw, lh] = plan.params.logicalSize;
+  const character = plan.params.family === "character";
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
   if (ingest.status === "error") {
     throw new DomainFailure("validation_failed", withText(ingest.message, (m) => `Resposta do provedor não é uma imagem utilizável: ${m}`, (m) => `Provider response is not a usable image: ${m}`), { code: ingest.code });
@@ -386,13 +388,25 @@ export async function processProviderImage(env: PipelineEnv, plan: GenerationPla
     );
   }
   const isolated = Boolean(key) || plan.params.transparent;
+  let groundOrigin: GridPoint | undefined;
   if (out.width !== lw || out.height !== lh || isolated) {
-    // 3. Ícone isolado: alfa binário, recorte ao conteúdo e escala lógica (ampliação só inteira).
+    // A base preserva a margem da pose. O ícone maximiza o conteúdo dentro da célula.
     fit = await step(
       "fit_logical",
-      { version: 1, targetSize: [lw, lh], ...(isolated ? { cropToContent: { padding: 0 }, alphaThreshold: 128 } : {}) },
+      {
+        version: 1,
+        targetSize: [lw, lh],
+        ...(character ? { measureGround: true, alphaThreshold: 128 } : isolated ? { cropToContent: { padding: 0 }, alphaThreshold: 128 } : {}),
+      },
       "fitted",
     );
+    if (character) {
+      const ground = GridPoint.safeParse(fit.groundOrigin);
+      if (!ground.success || !gridPointInside(ground.data, [lw, lh])) {
+        throw new DomainFailure("internal", tx("A etapa de ajuste não mediu o apoio da base", "The fitting step did not measure the character's ground contact"));
+      }
+      groundOrigin = ground.data;
+    }
   }
   const stored = await env.blobs.putFile(out.absolutePath);
   const processed: ProcessedPart = {
@@ -402,6 +416,7 @@ export async function processProviderImage(env: PipelineEnv, plan: GenerationPla
     ...(out.rgbaSha256 ? { rgbaSha256: out.rgbaSha256 } : {}),
     partialAlpha: Boolean(ingest.report.partialAlpha),
     receivedSize: ingest.report.size as [number, number],
+    ...(groundOrigin ? { groundOrigin } : {}),
     fit,
     steps,
     warnings,
@@ -458,20 +473,32 @@ function publishPart(ctx: HandlerContext, plan: GenerationPlan, asset: AssetView
   return rows.slice(0, perPart).map((row) => {
     const processed = parseJson<ProcessedPart>(row.processed_json)!;
     const [w, h] = [processed.width, processed.height];
+    let base: BasePayload | undefined;
+    if (plan.params.family === "character") {
+      if (!processed.groundOrigin) throw new DomainFailure("internal", tx("A origem no chão da base não foi medida", "The character base ground origin was not measured"));
+      base = {
+        logicalSize: [w, h],
+        groundOrigin: processed.groundOrigin,
+        subject: "character",
+        state: "default",
+        predecessorRevisionId: null,
+        views: [{ direction: "S", fileId: "image", rect: [0, 0, w, h], sourceOffset: [0, 0] }],
+      };
+    }
     const revision = publishRevision(ctx.db, ctx.clock, {
       projectId: ctx.job.project_id,
       assetId: asset.id,
       origin: "generation",
       styleRevisionId: plan.styleRevisionId,
       jobAttemptId: ctx.attempt.id,
-      payload: {
+      payload: base ?? {
         itemKey: slugify(asset.name),
         representations: [
           { role: "icon", state: "default", fileId: "image", rect: [0, 0, w, h], sourceOffset: [0, 0], logicalSize: [w, h], pivot: [Math.floor(w / 2), Math.floor(h / 2)] },
         ],
       },
       files: [
-        { fileKey: "image", role: "normalized", idx: 0, blob: mustBlob(ctx.db, processed.normalizedSha256) },
+        { fileKey: "image", role: base ? "view" : "normalized", idx: 0, blob: mustBlob(ctx.db, processed.normalizedSha256) },
         { fileKey: "raw", role: "raw", idx: 0, blob: mustBlob(ctx.db, row.blob_sha256) },
       ],
       technicalReport: {

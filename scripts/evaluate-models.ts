@@ -1,7 +1,8 @@
 /**
- * Avaliação de modelos e prompts para ícones de item (03 §3 · ensaio A1).
+ * Avaliação de modelos e prompts para ícones de item e identidade de personagens.
  *
  *   npx tsx scripts/evaluate-models.ts [--size=32] [--max-usd=4] [--models=a,b] [--yes]
+ *   npx tsx scripts/evaluate-models.ts --suite=character [--max-usd=0.55] [--yes]
  *
  * Matriz modelos × tarefas × idioma do prompt, executada pelo pipeline real
  * (fila, worker, normalização, grade, cor-chave, ajuste). Sem --yes, só estima.
@@ -17,7 +18,7 @@ import { importPortablePackage } from "@/server/export/import";
 import { JobRunner } from "@/server/jobs/runner";
 import { OpenRouterAdapter } from "@/server/providers/adapters";
 import { saveProfile } from "@/server/providers/profiles";
-import { buildGenerationPlan, submitJob } from "@/server/services";
+import { buildGenerationPlan, ingestUpload, submitJob, type PlanInput } from "@/server/services";
 import { openStudio } from "@/server/studio";
 import { iso, sleep, slugify } from "@/server/util";
 import { readZip, writeZip } from "@/lib/zip";
@@ -25,7 +26,10 @@ import { runMigrations } from "./migrate";
 
 loadDotEnv();
 const arg = (name: string, fallback: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=")[1] ?? fallback;
-const SIZE = Number(arg("size", "32"));
+const suite = arg("suite", "icons");
+if (suite !== "icons" && suite !== "character") throw new Error(`Suíte desconhecida: ${suite}`);
+const character = suite === "character";
+const SIZE = Number(arg("size", character ? "64" : "32"));
 const MAX_USD = Number(arg("max-usd", "4"));
 const CONFIRMED = process.argv.includes("--yes");
 const CONCURRENCY = Number(arg("concurrency", "4"));
@@ -58,18 +62,24 @@ const DEFAULT_MODELS: ModelSpec[] = [
   { model: "qwen/qwen-image-2.1-turbo", resolution: "1K" },
   { model: "microsoft/mai-image-2.7-flash", tokenEstimateUsd: 0.05 },
 ];
-const selected = arg("models", "");
+const characterModels = "openai/gpt-image-2.6-flare,openai/gpt-image-1-mini,google/gemini-3.1-flash-image";
+const selected = arg("models", character ? characterModels : "");
+if (selected && selected.split(",").some((model) => !DEFAULT_MODELS.some((spec) => spec.model === model))) {
+  throw new Error("Há um modelo desconhecido em --models");
+}
 const MODELS = selected ? DEFAULT_MODELS.filter((m) => selected.split(",").includes(m.model)) : DEFAULT_MODELS;
 
 type Lang = "pt-BR" | "en";
+const characterFiles = { knight: "knight.png", ranger: "ranger.png" } as const;
+type RefKey = "potion" | "warrior" | keyof typeof characterFiles;
 interface TaskSpec {
   key: string;
   label: string;
   brief: Record<Lang, string>;
-  refs: { ref: "potion" | "warrior"; role: "identity" | "palette"; instruction: Record<Lang, string> }[];
+  refs: { ref: RefKey; role: "identity" | "palette"; instruction: Record<Lang, string> }[];
   languages: Lang[];
 }
-const TASKS: TaskSpec[] = [
+const ICON_TASKS: TaskSpec[] = [
   {
     key: "texto",
     label: "Poção só por texto",
@@ -102,6 +112,35 @@ const TASKS: TaskSpec[] = [
     languages: ["en"],
   },
 ];
+const CHARACTER_TASKS: TaskSpec[] = [
+  {
+    key: "knight-cape",
+    label: "Mesma identidade, capa azul",
+    brief: {
+      "pt-BR": "O mesmo cavaleiro da imagem 1, com a mesma pose. Mude apenas a capa para azul-cobalto. Mantenha a pluma do elmo vermelha.",
+      en: "The same knight as image 1 in the same pose. Recolor only the cape to cobalt blue. Keep the helmet plume red.",
+    },
+    refs: [{ ref: "knight", role: "identity", instruction: {
+      "pt-BR": "Preserve a silhueta, proporções, elmo, armadura, ornamentos e espada da imagem",
+      en: "Preserve the pictured silhouette, proportions, helmet, armor, trim, and sword",
+    } }],
+    languages: ["en"],
+  },
+  {
+    key: "ranger-hood",
+    label: "Mesma identidade, capuz bordô",
+    brief: {
+      "pt-BR": "A mesma pessoa guarda-florestal da imagem 1, na mesma pose. Mude apenas o capuz para bordô. Mantenha a capa e o restante da roupa nas cores originais.",
+      en: "The same forest ranger as image 1 in the same pose. Recolor only the hood to burgundy. Keep the cloak and the rest of the outfit in their original colors.",
+    },
+    refs: [{ ref: "ranger", role: "identity", instruction: {
+      "pt-BR": "Preserve rosto, cabelo, silhueta, proporções, roupa, arco e aljava da imagem",
+      en: "Preserve the pictured face, hair, silhouette, proportions, outfit, bow, and quiver",
+    } }],
+    languages: ["en"],
+  },
+];
+const TASKS = character ? CHARACTER_TASKS : ICON_TASKS;
 
 function log(msg: string) {
   console.log(`[avaliação] ${msg}`);
@@ -143,6 +182,10 @@ interface Run {
 const runs: Run[] = routes
   .flatMap((route) => TASKS.flatMap((task) => task.languages.map((language) => ({ route, task, language }))))
   .filter((r) => CASES.length === 0 || CASES.includes(`${r.route.spec.model}|${r.task.key}|${r.language}`));
+if (!runs.length) throw new Error("Nenhum caso selecionado");
+if (character && (routes.length !== MODELS.length || runs.some(({ route, task }) => route.maxReferences < task.refs.length))) {
+  throw new Error("A comparação requer uma rota com referências para todos os modelos selecionados");
+}
 const estimate = (r: Run) => (r.route.priceImage ?? r.route.spec.tokenEstimateUsd ?? 0.15) + r.route.priceRef * r.task.refs.length;
 const maxCost = runs.reduce((n, r) => n + estimate(r), 0);
 for (const r of routes) {
@@ -161,12 +204,29 @@ if (!CONFIRMED) {
 runMigrations();
 const studio = openStudio({ config: loadConfig() });
 const today = iso(studio.clock.now()).slice(0, 10);
-const project = createProject(studio.db, studio.clock, { name: `Avaliação de modelos · ícones ${SIZE}px · ${today}${LABEL ? ` · ${LABEL}` : ""}` });
-const fixture = buildClareira();
-const { revisionMap } = await importPortablePackage(studio, project.id, readZip(writeZip(fixture.packageFiles.map((f) => ({ path: f.path, bytes: f.bytes, compress: false })))), {
-  approve: true,
-});
-const REFS = { potion: { revisionId: revisionMap["potion-v1"]!, fileKey: "potion-sheet" }, warrior: { revisionId: revisionMap["warrior-base-v1"]!, fileKey: "warrior-base-s" } };
+const subject = character ? "personagens" : "ícones";
+const project = createProject(studio.db, studio.clock, { name: `Avaliação de modelos · ${subject} ${SIZE}px · ${today}${LABEL ? ` · ${LABEL}` : ""}` });
+const refs = new Map<RefKey, { uploadId: string } | { revisionId: string; fileKey: string }>();
+const characterInputs = new Map<string, Buffer>();
+if (character) {
+  const ingest = new JobRunner({ ...studio, log: () => undefined }, { workerId: "avaliacao-ingest", heartbeatMs: 10_000 });
+  for (const key of ["knight", "ranger"] as const) {
+    const file = characterFiles[key];
+    const bytes = await readFile(path.join(REPO_ROOT, "public", "examples", file));
+    const { upload, job } = await ingestUpload(studio, project.id, { name: file, bytes });
+    await ingest.runOnce();
+    if (studio.queue.get(job.id)?.state !== "succeeded") throw new Error(`Não foi possível preparar ${file}`);
+    refs.set(key, { uploadId: upload.id });
+    characterInputs.set(file, bytes);
+  }
+} else {
+  const fixture = buildClareira();
+  const { revisionMap } = await importPortablePackage(studio, project.id, readZip(writeZip(fixture.packageFiles.map((f) => ({ path: f.path, bytes: f.bytes, compress: false })))), {
+    approve: true,
+  });
+  refs.set("potion", { revisionId: revisionMap["potion-v1"]!, fileKey: "potion-sheet" });
+  refs.set("warrior", { revisionId: revisionMap["warrior-base-v1"]!, fileKey: "warrior-base-s" });
+}
 
 function profileFor(route: Route, resolution = route.spec.resolution) {
   const id = `eval-${slugify(route.spec.model).replaceAll("_", "-")}`.slice(0, 64);
@@ -195,8 +255,11 @@ log(`projeto "${project.name}" (${project.id}) · ${routes.length} perfis`);
 interface Result {
   projectId: string;
   model: string;
+  route: string | null;
   task: string;
   language: Lang;
+  brief: string;
+  sourceSha256: string[];
   state: string;
   seconds: number;
   cost: number | null;
@@ -211,10 +274,11 @@ const results: Result[] = [];
 
 async function execute(run: Run, retry = false): Promise<void> {
   const profileId = profiles.get(run.route.spec.model)!;
+  const format = character ? { family: "character", kind: "base" } as const : { family: "item", kind: "consumable" } as const;
+  const params: PlanInput["params"] = { ...format, logicalSize: [SIZE, SIZE], transparent: true, variants: 1 };
   const asset = createAsset(studio.db, studio.clock, {
     projectId: project.id,
-    family: "item",
-    kind: "consumable",
+    ...format,
     name: `${run.task.key} · ${run.language} · ${run.route.spec.model}`.slice(0, 120),
   });
   const planned = buildGenerationPlan(studio, project.id, {
@@ -222,8 +286,8 @@ async function execute(run: Run, retry = false): Promise<void> {
     providerProfileId: profileId,
     brief: run.task.brief[run.language],
     language: run.language,
-    params: { family: "item", kind: "consumable", logicalSize: [SIZE, SIZE], transparent: true, variants: 1 },
-    references: run.task.refs.map((r) => ({ ...REFS[r.ref], role: r.role, instruction: r.instruction[run.language] })),
+    params,
+    references: run.task.refs.map((r) => ({ ...refs.get(r.ref)!, role: r.role, instruction: r.instruction[run.language] })),
   });
   const started = Date.now();
   const { job } = submitJob(studio, project.id, { kind: "generation", request: { plan: planned.plan, planDigest: planned.digest, targetAssetId: asset.id } }, `eval:${asset.id}`);
@@ -244,8 +308,11 @@ async function execute(run: Run, retry = false): Promise<void> {
   results.push({
     projectId: project.id,
     model: run.route.spec.model,
+    route: run.route.tag,
     task: run.task.key,
     language: run.language,
+    brief: run.task.brief[run.language],
+    sourceSha256: planned.plan.sources.map((source) => source.sha256),
     state: final.state,
     seconds: (Date.now() - started) / 1000,
     cost: result?.cost?.find((c) => c.unit === "USD")?.amount ?? null,
@@ -278,8 +345,9 @@ submitting = false;
 await pump;
 
 // ---- 4. Resultados ----
-const outDir = path.join(REPO_ROOT, "reports", "avaliacao", `${today}-icones-${SIZE}px${LABEL ? `-${LABEL}` : ""}`);
+const outDir = path.join(REPO_ROOT, "reports", "avaliacao", `${today}-${character ? "personagens" : "icones"}-${SIZE}px${LABEL ? `-${LABEL}` : ""}`);
 await mkdir(path.join(outDir, "img"), { recursive: true });
+for (const [file, bytes] of characterInputs) await writeFile(path.join(outDir, "img", `reference-${file}`), bytes);
 for (const r of results) {
   const base = `${r.task}-${r.language}-${slugify(r.model).replaceAll("_", "-")}`;
   if (r.rawSha) await writeFile(path.join(outDir, "img", `${base}-bruta.png`), await readFile(studio.blobs.pathFor(r.rawSha)));

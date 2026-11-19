@@ -2,6 +2,7 @@ import { tx } from "@/i18n/locales";
 import type { TextValue } from "@/i18n/locales";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { GridPoint } from "@/contracts";
 import { type BlobRecord, getBlob } from "../../../catalog/catalog";
 import type { Db } from "../../../db/connection";
 import { DomainFailure } from "../../../errors";
@@ -20,6 +21,7 @@ export interface ProcessedPart {
   rgbaSha256?: string;
   partialAlpha?: boolean;
   receivedSize?: [number, number];
+  groundOrigin?: GridPoint;
   /** Relatório da redução para a escala lógica, quando houve. */
   fit?: Record<string, unknown> | null;
   /** Etapas locais aplicadas (grade, remoção da cor-chave, ajuste), com seus relatórios. */

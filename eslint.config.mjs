@@ -5,5 +5,8 @@ import { defineConfig, globalIgnores } from "eslint/config";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts", "plan/**", "data/**", "schemas/**", "fixtures/**"]),
+  globalIgnores([
+    ".next/**", "out/**", "build/**", "next-env.d.ts", "plan/**", "data/**", "schemas/**", "fixtures/**",
+    ".taste-skill/**", "public/assets/{effects,moments,motion}/**",
+  ]),
 ]);

@@ -38,9 +38,11 @@ export const equipmentMessages = defineMessages({
       view: (d: string) => `Vista ${d}`,
       rigInfo: (cell: string, slots: string, sockets: string, stances: string, tolerance: number) =>
         `célula ${cell} · slots ${slots} · sockets ${sockets} · posturas ${stances} · tolerância ${tolerance} px`,
-      seeding: "Semeando…",
-      seed: "Semear demonstração do guerreiro",
-      noRig: "Nenhum rig de equipamento aprovado neste projeto. Semeie a demonstração ou importe/aprove um rig (character/rig) com slots, sockets e partes.",
+      seeding: "Adicionando exemplo…",
+      seed: "Adicionar exemplo ao projeto",
+      demo: "Exemplo de equipamento",
+      demoHint: "Adiciona um guerreiro de demonstração com roupas, armas e clipes prontos. Não gera imagens nem limita os seus personagens.",
+      noRig: "Equipamentos precisam de uma estrutura (rig) aprovada, com pontos de encaixe para roupas e acessórios.",
       tabs: { loadouts: "Conjuntos", pieces: "Peças", create: "Criar peça" },
     },
     coverage: {
@@ -316,9 +318,11 @@ export const equipmentMessages = defineMessages({
       view: (d: string) => `View ${d}`,
       rigInfo: (cell: string, slots: string, sockets: string, stances: string, tolerance: number) =>
         `cell ${cell} · slots ${slots} · sockets ${sockets} · stances ${stances} · tolerance ${tolerance} px`,
-      seeding: "Seeding…",
-      seed: "Seed the warrior demo",
-      noRig: "No approved equipment rig in this project. Seed the demo, or import and approve a rig (character/rig) with slots, sockets and parts.",
+      seeding: "Adding example…",
+      seed: "Add example to project",
+      demo: "Equipment example",
+      demoHint: "Adds a demo warrior with ready-made outfits, weapons and clips. It does not generate images or limit your characters.",
+      noRig: "Equipment requires an approved rig with attachment points for clothes and accessories.",
       tabs: { loadouts: "Loadouts", pieces: "Pieces", create: "Create piece" },
     },
     coverage: {

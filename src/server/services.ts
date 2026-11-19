@@ -5,7 +5,7 @@ import { AssetFamily, Capability, type GenerationPlan, Id, Insets, ITEM_KINDS, N
 import { colorName } from "@/domain/color-names";
 import { entryRefs } from "@/domain/manifest/refs";
 import { canonicalDigest } from "@/domain/canonical-json";
-import { validatePlanReferences } from "@/domain/plan/references";
+import { resolveGenerationUpload, validatePlanReferences } from "@/domain/plan/references";
 import {
   type BlobRecord,
   getAsset,
@@ -27,6 +27,7 @@ import { PIPELINES } from "./jobs/handlers/pipelines";
 import type { LocalProcessResult } from "./jobs/handlers/local-process";
 import { type JobRow, toJobView } from "./jobs/queue";
 import { sniff } from "./media/inspect";
+import { assertPlanCapabilities, assetReferenceLimits } from "./providers/plan-limits";
 import { getProfileRow, listProfiles } from "./providers/registry";
 import { pythonInfo, type PythonInfo } from "./python/bridge";
 import type { Studio } from "./studio";
@@ -75,27 +76,34 @@ export async function ingestUpload(studio: Studio, projectId: string, file: { na
 }
 
 // ---------------------------------------------------------------------------
-// Planos de geração (versão mínima do F1: ícone por texto; I1/U1 ampliam)
+// Planos de geração por texto e referências: ícones de item e bases de personagem
 // ---------------------------------------------------------------------------
+
+const generatedAssetInput = {
+  logicalSize: Size,
+  variants: z.number().int().min(1).max(4),
+};
+
+const referenceContext = {
+  role: ReferenceRole,
+  instruction: z.string().trim().max(300).optional(),
+};
 
 export const PlanInput = z.strictObject({
   operation: z.literal("generate_asset"),
   providerProfileId: Id,
   brief: z.string().trim().min(1).max(2000),
-  params: z.strictObject({
-    family: z.literal("item"),
-    kind: z.enum(ITEM_KINDS),
-    logicalSize: Size,
-    transparent: z.boolean(),
-    variants: z.number().int().min(1).max(4),
-  }),
+  params: z.discriminatedUnion("family", [
+    z.strictObject({ ...generatedAssetInput, family: z.literal("character"), kind: z.literal("base"), transparent: z.literal(true) }),
+    z.strictObject({ ...generatedAssetInput, family: z.literal("item"), kind: z.enum(ITEM_KINDS), transparent: z.boolean() }),
+  ]),
   /** Idioma do texto enviado (o briefing do artista segue literal). Padrão: idioma do estilo. */
   language: z.enum(["pt-BR", "en"]).optional(),
-  /** Referências opcionais e ordenadas: revisões aprovadas do projeto, com papel explícito. */
-  references: z
-    .array(z.strictObject({ revisionId: Id, fileKey: z.string().min(1).max(128), role: ReferenceRole, instruction: z.string().trim().max(300).optional() }))
-    .max(16)
-    .default([]),
+  /** Referências ordenadas: arquivos de revisões aprovadas e uploads raster normalizados. */
+  references: z.array(z.union([
+    z.strictObject({ ...referenceContext, revisionId: Id, fileKey: z.string().min(1).max(128) }),
+    z.strictObject({ ...referenceContext, uploadId: Id }),
+  ])).max(16).default([]),
 });
 export type PlanInput = z.input<typeof PlanInput>;
 
@@ -163,6 +171,35 @@ export function compileIconPrompt(o: {
   ].join(" ");
 }
 
+function compileCharacterPrompt(o: Parameters<typeof compileIconPrompt>[0]): string {
+  const colors = [...new Set(o.palette.map((hex) => colorName(hex, o.language)))].join(", ");
+  const [w, h] = o.size;
+  if (o.language === "en") {
+    return [
+      `Create one full-body pixel art character sprite for a ${w}×${h} game cell. Character brief: ${o.brief}`,
+      "Follow the brief for the subject and its anatomy; do not add outfits, gear, or props that the brief does not call for. Draw a single front-facing (south) idle pose at rest, with a readable silhouette and clear ground contact at the feet or base. Center the whole subject with a small clear margin and keep every part in view.",
+      o.backgroundKey
+        ? `Use a completely uniform, flat ${KEY_NAMES[o.backgroundKey]?.en ?? "solid"} background. Keep the character opaque and do not use the background color in the sprite.`
+        : "Use a transparent background and an opaque character silhouette.",
+      "No floor, cast shadow, scene, labels, borders, or additional poses. Use crisp square pixels, no anti-aliasing or blur.",
+      ...o.references.map((r, i) => `Image ${i + 1}: ${ROLE_LABEL_EN[r.role] ?? r.role}${r.instruction ? ` — ${r.instruction}` : ""}.`),
+      `${o.outline.widthPx}px dark outline, light from the ${o.lightFrom}, ${o.detail} detail.`,
+      `${o.strictPalette ? "Use only" : "Prefer"} these colors: ${colors}.`,
+    ].join(" ");
+  }
+  return [
+    `Crie um único sprite de personagem de corpo inteiro em pixel art para uma célula de jogo de ${w}×${h}. Descrição do personagem: ${o.brief}`,
+    "Siga a descrição para definir o sujeito e sua anatomia; não acrescente roupas, equipamento ou acessórios não pedidos. Desenhe uma pose única de repouso, de frente (sul), com silhueta clara e apoio no chão visível nos pés ou na base. Centralize o sujeito inteiro com uma pequena margem livre, sem cortar nenhuma parte.",
+    o.backgroundKey
+      ? `Use um fundo ${KEY_NAMES[o.backgroundKey]?.["pt-BR"] ?? "sólido"} chapado e totalmente uniforme. O personagem deve ser opaco e não deve usar a cor do fundo.`
+      : "Use fundo transparente e silhueta opaca.",
+    "Sem piso, sombra projetada, cenário, texto, moldura ou poses adicionais. Use pixels quadrados e nítidos, sem anti-aliasing nem desfoque.",
+    ...o.references.map((r, i) => `Imagem ${i + 1}: ${ROLE_LABEL[r.role] ?? r.role}${r.instruction ? ` — ${r.instruction}` : ""}.`),
+    `Contorno escuro de ${o.outline.widthPx} px, luz vinda de ${o.lightFrom}, densidade de detalhe ${o.detail}.`,
+    `${o.strictPalette ? "Use apenas" : "Prefira"} estas cores: ${colors}.`,
+  ].join(" ");
+}
+
 /** Cor-chave longe de todas as cores da paleta (magenta, ciano ou verde-limão). */
 export function chooseKeyColor(palette: string[]): string {
   const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
@@ -192,38 +229,42 @@ export function buildGenerationPlan(studio: Studio, projectId: string, rawInput:
   studio.providers.assertReady(input.providerProfileId);
   const adapter = studio.providers.adapterFor(input.providerProfileId);
   // Transparência pedida numa rota sem alfa: fundo de cor-chave + remoção local, em vez de bloquear.
-  const alphaReferences = adapter.limits?.("generate_asset").alphaReferences;
-  const nativeAlpha =
-    adapter.capabilities("generate_asset").includes("alpha_output") && (alphaReferences === undefined || alphaReferences === input.references.length);
+  const capabilities = adapter.capabilities("generate_asset");
+  const alphaReferences = assetReferenceLimits(adapter, input.providerProfileId, input.references.length)?.alphaReferences;
+  const nativeAlpha = capabilities.includes("alpha_output") && (alphaReferences === undefined || alphaReferences === input.references.length);
   const backgroundKey = input.params.transparent && !nativeAlpha ? chooseKeyColor(style.palette.colors.map((c) => c.hex)) : null;
   const required: Capability[] = [
     "text_to_image",
     ...(input.params.transparent && nativeAlpha ? (["alpha_output"] as const) : []),
     ...(input.references.length > 0 ? (["image_references"] as const) : []),
   ];
-  // Limite real da rota explicado antes de cobrar (08 §verificação integrada · texto e referências).
-  const maxReferences = adapter.limits?.("generate_asset").maxReferences;
-  if (input.references.length > 0 && maxReferences !== undefined && input.references.length > maxReferences) {
-    throw new DomainFailure("capability_missing", tx(`O perfil ${input.providerProfileId} aceita até ${maxReferences} referência(s); o pedido tem ${input.references.length}`, `Provider profile ${input.providerProfileId} accepts up to ${maxReferences} reference(s); the request has ${input.references.length}`), {
-      maxReferences,
-      requested: input.references.length,
-    });
+  const missing = required.filter((c) => !capabilities.includes(c));
+  if (missing.length > 0) {
+    throw new DomainFailure("capability_missing", tx(`O perfil ${input.providerProfileId} não oferece: ${missing.join(", ")}`, `Provider profile ${input.providerProfileId} does not offer: ${missing.join(", ")}`), { missing });
   }
+  const lookup = catalogLookup(studio.db);
   const sources = input.references.map((ref, ordinal) => {
+    if ("uploadId" in ref) {
+      const resolved = resolveGenerationUpload(lookup, projectId, ref.uploadId, ["references", ordinal, "uploadId"]);
+      if ("issue" in resolved) {
+        const { issue } = resolved;
+        throw new DomainFailure(issue.code === "upload_not_ready" ? "validation_failed" : "not_found", issue.message, { issues: [issue] });
+      }
+      return { ordinal, uploadId: ref.uploadId, sha256: resolved.sha256, role: ref.role };
+    }
     const revision = getRevision(studio.db, projectId, ref.revisionId);
     const file = revision.files.find((f) => f.fileKey === ref.fileKey);
     if (!file) throw new DomainFailure("not_found", tx(`Arquivo ${ref.fileKey} não existe na revisão ${ref.revisionId}`, `File ${ref.fileKey} does not exist in revision ${ref.revisionId}`));
     if (revision.status !== "approved") throw new DomainFailure("source_not_approved", tx(`Referência r${revision.number} ainda não foi aprovada`, `Reference r${revision.number} has not been approved yet`));
+    if (!file.mime.startsWith("image/")) throw new DomainFailure("validation_failed", tx(`${ref.fileKey} não é uma imagem`, `${ref.fileKey} is not an image`));
     return { ordinal, revisionId: revision.id, fileId: ref.fileKey, sha256: file.sha256, role: ref.role };
   });
-  const missing = required.filter((c) => !adapter.capabilities("generate_asset").includes(c));
-  if (missing.length > 0) {
-    throw new DomainFailure("capability_missing", tx(`O perfil ${input.providerProfileId} não oferece: ${missing.join(", ")}`, `Provider profile ${input.providerProfileId} does not offer: ${missing.join(", ")}`), { missing });
-  }
   const [w, h] = input.params.logicalSize;
   const submissions = Math.max(1, Math.min(input.params.variants, adapter.submissionsFor?.("generate_asset", input.params.variants) ?? input.params.variants));
   const language = input.language ?? (style.briefLanguage === "en" ? "en" : "pt-BR");
-  const compiled = compileIconPrompt({
+  const isCharacter = input.params.family === "character";
+  const compilePrompt = isCharacter ? compileCharacterPrompt : compileIconPrompt;
+  const compiled = compilePrompt({
     language,
     size: [w, h],
     brief: input.brief,
@@ -241,14 +282,14 @@ export function buildGenerationPlan(studio: Studio, projectId: string, rawInput:
     projectId,
     operation: "generate_asset",
     styleRevisionId: project.activeStyleRevisionId,
-    recipeRevisionId: "builtin-item-icon-v1",
+    recipeRevisionId: isCharacter ? "builtin-character-base-v1" : "builtin-item-icon-v1",
     providerProfileId: input.providerProfileId,
     prompt: { brief: input.brief, compiled, language },
     sources,
     requiredCapabilities: required,
     parts: Array.from({ length: submissions }, (_, i) => ({ partKey: `image:v${i + 1}`, unit: "image" as const, label: submissions === input.params.variants ? `Variante ${i + 1}` : `Envio ${i + 1}` })),
     limits: { maxSubmissions: submissions, costCeiling: null, estimate: adapter.estimate("generate_asset", submissions) },
-    params: { family: "item", kind: input.params.kind, logicalSize: [w, h], transparent: input.params.transparent, variants: input.params.variants, backgroundKey },
+    params: { ...input.params, backgroundKey },
   };
   const profile = getProfileRow(studio.db, input.providerProfileId);
   return {
@@ -330,9 +371,7 @@ export function submitJob(studio: Studio, projectId: string, input: z.infer<type
     }
     // Falta de capacidade ou de credencial bloqueia antes de qualquer cobrança.
     studio.providers.assertReady(plan.providerProfileId);
-    const adapter = studio.providers.adapterFor(plan.providerProfileId);
-    const missing = plan.requiredCapabilities.filter((c) => !adapter.capabilities(plan.operation).includes(c));
-    if (missing.length > 0) throw new DomainFailure("capability_missing", tx(`O perfil não oferece: ${missing.join(", ")}`, `The provider profile does not offer: ${missing.join(", ")}`), { missing });
+    assertPlanCapabilities(studio.providers.adapterFor(plan.providerProfileId), plan);
   }
   let request: unknown = input.request;
   if (input.kind === "local_process") {

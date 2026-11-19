@@ -3,27 +3,29 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import type { GenerationPlan, ReferenceRole } from "@/contracts";
-import type { AssetView, ProjectView, RevisionView, UploadView } from "@/server/catalog/catalog";
+import type { GenerationPlan } from "@/contracts";
+import type { AssetView, RevisionView, UploadView } from "@/server/catalog/catalog";
 import type { ExportView } from "@/server/export/exports";
 import type { JobView } from "@/server/jobs/queue";
-import type { ProviderProfileView } from "@/server/providers/registry";
 import { ApiError, apiFetch, errorMessage, formatBytes, newKey } from "@/app/client/api";
 import { costText, estimateText } from "@/app/client/cost";
+import { type CreationProfile, creationModelLabel, creationModelReason, creationReferenceLimit, recommendCreation } from "@/app/client/model-guidance";
 import { usePoll } from "@/app/client/use-poll";
+import { studioTemplates } from "@/app/examples/templates";
 import { useLocale, useMessages, useText } from "@/i18n/client";
-import type { TextValue } from "@/i18n/locales";
+import { pick, type TextValue } from "@/i18n/locales";
 import { commonMessages, labelOf } from "@/i18n/messages/common";
 import { workspaceMessages } from "@/i18n/messages/workspace";
-import { dialogueMessages } from "@/i18n/messages/dialogue";
-import { uiKitMessages } from "@/i18n/messages/ui-kit";
+import { studioMessages } from "@/i18n/messages/studio";
+import { ReferenceField, type ReferenceChoice } from "./reference-field";
+import "./composer.css";
 import { type PreviewBg, RevisionCompare } from "./revision-compare";
 import { StylePanel } from "./style-panel";
+import projectStyles from "./project-layout.module.css";
 
 type Lineage = Record<string, { revisionId: string; assetName: string; number: number; role: string; runtime: boolean }[]>;
 
 interface Snapshot {
-  project: ProjectView;
   palette: string[];
   briefLanguage: "pt-BR" | "en";
   jobs: JobView[];
@@ -34,16 +36,14 @@ interface Snapshot {
 
 const ACTIVE = new Set(["queued", "running"]);
 
-export function Workspace({ projectId }: { projectId: string }) {
-  const nav = useMessages(workspaceMessages).nav;
-  const dialogueNav = useMessages(dialogueMessages).nav;
-  const uiKitNav = useMessages(uiKitMessages).nav;
+export function Workspace({ projectId, view, templateId }: { projectId: string; view: "create" | "library" | "activity" | "export" | "style"; templateId?: string }) {
+  const m = useMessages(studioMessages);
   const c = useMessages(commonMessages);
   const base = `/projects/${projectId}`;
   const { data, error, refresh } = usePoll<Snapshot>(
     async () => {
-      const [{ project, style }, { jobs }, { uploads }, { assets }, { exports }] = await Promise.all([
-        apiFetch<{ project: ProjectView; style: { payload: { palette: { colors: { hex: string }[] }; briefLanguage: string } } | null }>(base),
+      const [{ style }, { jobs }, { uploads }, { assets }, { exports }] = await Promise.all([
+        apiFetch<{ style: { payload: { palette: { colors: { hex: string }[] }; briefLanguage: string } } | null }>(base),
         apiFetch<{ jobs: JobView[] }>(`${base}/jobs`),
         apiFetch<{ uploads: UploadView[] }>(`${base}/uploads`),
         apiFetch<{ assets: AssetView[] }>(`${base}/assets`),
@@ -51,7 +51,6 @@ export function Workspace({ projectId }: { projectId: string }) {
       ]);
       const detailed = await Promise.all(assets.map((a) => apiFetch<{ asset: AssetView; revisions: RevisionView[]; lineage: Lineage }>(`${base}/assets/${a.id}`)));
       return {
-        project,
         palette: style?.payload.palette.colors.map((c) => c.hex) ?? [],
         briefLanguage: style?.payload.briefLanguage === "en" ? "en" : "pt-BR",
         jobs,
@@ -66,37 +65,79 @@ export function Workspace({ projectId }: { projectId: string }) {
   if (error && !data) return <p className="error">{error}</p>;
   if (!data) return <p className="muted">{c.loading}</p>;
 
+  let pending: RevisionView | undefined;
+  let approved: RevisionView | undefined;
+  let preview: { fileId: string; name: string; createdAt: string } | undefined;
+  for (const { asset, revisions } of data.assets) {
+    const characterBase = asset.family === "character" && asset.kind === "base";
+    if (characterBase || asset.family === "item") pending ??= revisions.find((r) => r.status === "candidate");
+    if (characterBase) approved ??= revisions.find((r) => r.id === asset.approvedRevisionId);
+    if (view !== "create" || (!characterBase && asset.family !== "item")) continue;
+    for (const revision of revisions) {
+      if (revision.origin !== "generation" || (revision.status !== "candidate" && revision.id !== asset.approvedRevisionId)) continue;
+      if (preview && revision.createdAt <= preview.createdAt) continue;
+      const file = revision.files.find((f) => f.role === "view" || f.role === "normalized");
+      if (file) preview = { fileId: file.id, name: asset.name, createdAt: revision.createdAt };
+    }
+  }
+  const running = data.jobs.some((j) => j.kind === "generation" && ACTIVE.has(j.state));
+  const templateQuery = templateId ? `&template=${encodeURIComponent(templateId)}` : "";
+  const next = pending
+    ? { title: m.reviewTitle, description: m.reviewDescription, action: m.reviewAction, href: `${base}?view=library${templateQuery}#review` }
+    : running
+      ? { title: m.jobsTitle, description: m.jobsDescription, action: m.jobsAction, href: `${base}?view=activity${templateQuery}` }
+      : approved
+        ? { title: m.animateTitle, description: m.animateDescription, action: m.animateAction, href: `${base}/animation` }
+        : null;
+  const title = view === "library" ? m.assets : view === "activity" ? m.activity : view === "style" ? m.style : m.exportStep;
+
   return (
     <>
-      <h1>{data.project.name}</h1>
-      <nav className="row small" aria-label={nav.label}>
-        <Link href={`/projects/${projectId}/animation`}>{nav.animation}</Link>
-        <span className="muted">·</span>
-        <Link href={`/projects/${projectId}/equipment`}>{nav.equipment}</Link>
-        <span className="muted">·</span>
-        <Link href={`/projects/${projectId}/world`}>{nav.world}</Link>
-        <span className="muted">·</span>
-        <Link href={`/projects/${projectId}/scenes`}>{nav.scenes}</Link>
-        <span className="muted">·</span>
-        <Link href={`/projects/${projectId}/dialogue`}>{dialogueNav}</Link>
-        <span className="muted">·</span>
-        <Link href={`/projects/${projectId}/ui`}>{uiKitNav.link}</Link>
-      </nav>
-      <div className="grid2">
-        <GeneratePanel projectId={projectId} library={data.assets} defaultLanguage={data.briefLanguage} onChange={refresh} />
-        <UploadPanel projectId={projectId} uploads={data.uploads} onChange={refresh} />
+      {view !== "create" && <h1>{title}</h1>}
+      <div className="create-flow" hidden={view !== "create"}>
+        <GeneratePanel key={templateId} projectId={projectId} library={data.assets} uploads={data.uploads} defaultLanguage={data.briefLanguage} templateId={templateId} onChange={refresh} />
+        {(next || preview) && (
+          <div className={projectStyles.next}>
+            {next && (
+              <div className={projectStyles.nextText}>
+                <span className="studio-kicker">{m.next}</span>
+                <h2>{next.title}</h2>
+                <p className="muted">{next.description}</p>
+                <Link className="button secondary" href={next.href}>{next.action} <span aria-hidden="true">→</span></Link>
+              </div>
+            )}
+            {preview && (
+              <div className={projectStyles.preview}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/api/v1/projects/${projectId}/media/${preview.fileId}`} alt={preview.name} width={64} height={64} loading="lazy" />
+                <span>{m.generatedPreview}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      <JobsPanel projectId={projectId} jobs={data.jobs} assetOfRevision={new Map(data.assets.flatMap((a) => a.revisions.map((r) => [r.id, a.asset.id] as const)))} onChange={refresh} />
-      <StylePanel projectId={projectId} onChange={refresh} />
-      <AssetsPanel projectId={projectId} assets={data.assets} palette={data.palette} onChange={refresh} />
-      <UiComponentsPanel projectId={projectId} assets={data.assets.map((a) => a.asset)} onChange={refresh} />
-      <ExportPanel projectId={projectId} assets={data.assets.map((a) => a.asset)} exports={data.exports} onChange={refresh} />
+      {view === "library" && (
+        <div id="review" className="workspace-library">
+          <AssetsPanel projectId={projectId} assets={data.assets} palette={data.palette} onChange={refresh} />
+          {approved && !pending && (
+            <div className="workspace-review-next">
+              <span>{m.animateTitle}</span>
+              <Link className="button secondary" href={`${base}/animation`}>{m.animateAction} <span aria-hidden="true">→</span></Link>
+            </div>
+          )}
+          <UploadPanel projectId={projectId} uploads={data.uploads} onChange={refresh} />
+          <UiComponentsPanel projectId={projectId} assets={data.assets.map((a) => a.asset)} onChange={refresh} />
+        </div>
+      )}
+      {view === "activity" && <JobsPanel projectId={projectId} jobs={data.jobs} assetOfRevision={new Map(data.assets.flatMap((a) => a.revisions.map((r) => [r.id, a.asset.id] as const)))} onChange={refresh} />}
+      {view === "style" && <StylePanel projectId={projectId} onChange={refresh} />}
+      {view === "export" && <ExportPanel projectId={projectId} assets={data.assets.map((a) => a.asset)} exports={data.exports} onChange={refresh} />}
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Geração por texto puro
+// Compositor de sprites
 // ---------------------------------------------------------------------------
 
 interface PlanPreview {
@@ -105,248 +146,279 @@ interface PlanPreview {
   destination: { profileId: string; name: string; transport: string; simulated: boolean };
 }
 
-/** Papéis de referência na ordem do seletor (rótulos em `workspaceMessages.referenceRole`). */
-const ROLES: ReferenceRole[] = ["identity", "style", "palette", "silhouette", "material", "pose", "equipment", "composition"];
-
-interface RefChoice {
-  revisionId: string;
-  fileKey: string;
-  fileId: string;
-  label: string;
-  role: ReferenceRole;
-  instruction: string;
-}
-
 function GeneratePanel({
   projectId,
   library,
+  uploads,
   defaultLanguage,
+  templateId,
   onChange,
 }: {
   projectId: string;
   library: { asset: AssetView; revisions: RevisionView[] }[];
+  uploads: UploadView[];
   defaultLanguage: "pt-BR" | "en";
+  templateId?: string;
   onChange: () => void;
 }) {
   const locale = useLocale();
   const m = useMessages(workspaceMessages).generate;
-  const roleLabel = useMessages(workspaceMessages).referenceRole;
+  const text = useText();
   const base = `/projects/${projectId}`;
-  const assets = library.map((l) => l.asset);
-  const { data: providers } = usePoll(
-    () => apiFetch<{ profiles: (ProviderProfileView & { capabilities: Record<string, string[]>; unavailable: TextValue | null })[] }>("/settings/providers"),
-    { active: () => false, slowMs: 60_000 },
+  const template = studioTemplates.find((candidate) => candidate.id === templateId);
+  const { data: providers, error: providerError } = usePoll(
+    () => apiFetch<{ profiles: CreationProfile[] }>("/settings/providers?for=creation"),
+    { active: () => false, fastMs: 60_000, slowMs: 60_000 },
   );
-  const [target, setTarget] = useState<string>("new");
-  const [name, setName] = useState(m.defaultName);
-  const [brief, setBrief] = useState(m.defaultBrief);
-  const [size, setSize] = useState(16);
-  const [variants, setVariants] = useState(2);
-  const [profileId, setProfileId] = useState("simulated");
+  const [family, setFamily] = useState<"character" | "item">(template?.family ?? "character");
+  const [target, setTarget] = useState("new");
+  const [name, setName] = useState(() => pick(template?.name, locale));
+  const [brief, setBrief] = useState(() => pick(template?.brief, defaultLanguage));
+  const [size, setSize] = useState(template?.size ?? 32);
+  const [variants, setVariants] = useState(1);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [language, setLanguage] = useState<"pt-BR" | "en" | null>(null);
-  const [refs, setRefs] = useState<RefChoice[]>([]);
-  const [preview, setPreview] = useState<PlanPreview | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  // Uma intenção = uma chave de idempotência + um asset alvo. Cliques repetidos reutilizam ambos.
-  const intent = useRef<{ digest: string; key: string; asset: Promise<string> | null } | null>(null);
+  const [refs, setRefs] = useState<ReferenceChoice[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [review, setReview] = useState<{ formKey: string; preview: PlanPreview } | null>(null);
+  const confirmation = useRef<{ formKey: string; key: string } | null>(null);
+  const [result, setResult] = useState<{ formKey: string; text: string; queued?: true } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  // Uma intenção guarda o asset e a mesma chave de idempotência até outro envio deliberado.
+  const intent = useRef<{ formKey: string; digest: string; key: string; assetId: string | null; submitted: boolean } | null>(null);
 
-  const itemAssets = assets.filter((a) => a.family === "item");
-  const input = () => ({
-    operation: "generate_asset" as const,
-    providerProfileId: profileId,
-    brief,
-    language: language ?? defaultLanguage,
-    params: { family: "item" as const, kind: "consumable" as const, logicalSize: [size, size] as [number, number], transparent: true, variants },
-    references: refs.map((r) => ({ revisionId: r.revisionId, fileKey: r.fileKey, role: r.role, ...(r.instruction.trim() ? { instruction: r.instruction.trim() } : {}) })),
-  });
-  // Só revisões aprovadas servem de referência (o plano recusa as demais).
-  const refOptions = library.flatMap(({ asset, revisions }) =>
-    revisions
-      .filter((r) => r.status === "approved")
-      .flatMap((r) =>
-        r.files
-          .filter((f) => f.mime.startsWith("image/") && f.metadata.width)
-          .map((f) => ({ key: `${r.id}|${f.fileKey}`, revisionId: r.id, fileKey: f.fileKey, fileId: f.id, label: `${asset.name} · r${r.number} · ${f.fileKey}` })),
-      ),
-  );
-  const updateRefs = (next: RefChoice[]) => (setRefs(next), setPreview(null));
-  const moveRef = (i: number, delta: number) => {
-    const next = [...refs];
-    const [item] = next.splice(i, 1);
-    next.splice(i + delta, 0, item!);
-    updateRefs(next);
-  };
-
-  async function loadPreview(): Promise<PlanPreview> {
-    const p = await apiFetch<PlanPreview>(`${base}/generation-plans`, { method: "POST", json: input() });
-    setPreview(p);
-    if (intent.current?.digest !== p.digest) intent.current = { digest: p.digest, key: newKey("gen"), asset: null };
-    return p;
+  const character = family === "character";
+  const targets = library.flatMap(({ asset }) => asset.family === family && (!character || asset.kind === "base") ? [asset] : []);
+  const targetAsset = targets.find((asset) => asset.id === target);
+  const kind = targetAsset?.kind ?? (character ? "base" : "consumable");
+  const uploadById = new Map(uploads.map((upload) => [upload.id, upload]));
+  const { recommended, available } = recommendCreation(providers?.profiles ?? [], family, refs.length);
+  const selected = profileId === null ? recommended : available.find((profile) => profile.id === profileId);
+  const manualProfile = profileId === null ? undefined : providers?.profiles.find((profile) => profile.id === profileId);
+  const referenceUploads = refs.flatMap(({ source }) => "uploadId" in source ? [uploadById.get(source.uploadId)] : []);
+  const rejectedReferences = referenceUploads.some((upload) => upload?.status === "rejected");
+  const loadingReferences = referenceUploads.some((upload) => upload?.status !== "rejected" && !upload?.normalizedSha256);
+  const blocked = !selected || uploading || loadingReferences || rejectedReferences;
+  const firstPerModel = new Set<string>();
+  const modelOptions: CreationProfile[] = [];
+  const otherProfiles: CreationProfile[] = [];
+  for (const profile of available) {
+    const key = `${profile.transport}:${profile.model ?? profile.name}`;
+    if (firstPerModel.has(key)) otherProfiles.push(profile);
+    else { firstPerModel.add(key); modelOptions.push(profile); }
   }
+  const selectedLabel = selected?.simulated ? m.simulated : selected ? creationModelLabel(selected) : "";
+  const billing = selected?.simulated ? m.offline : selected?.transport === "codex_cli" ? m.quota : m.credits;
+  const limit = selected ? creationReferenceLimit(selected) : 0;
+  const request = {
+    operation: "generate_asset",
+    providerProfileId: selected?.id ?? "",
+    brief: brief.trim(),
+    language: language ?? defaultLanguage,
+    params: { family, kind, logicalSize: [size, size], transparent: true, variants },
+    references: refs.map(({ source, role, instruction }) => ({
+      ...("uploadId" in source ? { uploadId: source.uploadId } : { revisionId: source.revisionId, fileKey: source.fileKey }),
+      role, ...(instruction.trim() ? { instruction: instruction.trim() } : {}),
+    })),
+  };
+  const formKey = JSON.stringify([request, targetAsset?.id ?? null, targetAsset ? null : name.trim(), selected?.transport, selected?.model]);
+  const preview = review?.formKey === formKey ? review.preview : null;
+  const message = result?.formKey === formKey ? result : null;
+  const refOptions = library.flatMap(({ asset, revisions }) =>
+    revisions.filter((r) => r.status === "approved").flatMap((r) => r.files
+      .filter((f) => f.mime.startsWith("image/") && f.metadata.width && f.role !== "raw")
+      .map((f) => ({
+        key: f.id, source: { revisionId: r.id, fileKey: f.fileKey, fileId: f.id },
+        label: `${asset.name} · r${r.number} · ${f.fileKey}`,
+      }))),
+  );
 
-  async function generate(newVariation: boolean) {
-    setMessage(null);
+  async function submit(mode: "review" | "confirm" | "generate" | "variation") {
+    if (pending.current || blocked || !selected || (mode === "confirm" && !preview)) return;
+    if ((!targetAsset && !name.trim()) || !request.brief) {
+      setResult({ formKey, text: m.missingText });
+      return;
+    }
+    pending.current = true;
+    setBusy(true);
+    setResult(null);
     try {
-      const p = preview && intent.current?.digest === preview.digest ? preview : await loadPreview();
-      if (newVariation || !intent.current) intent.current = { digest: p.digest, key: newKey("gen"), asset: null };
-      const current = intent.current;
-      current.asset ??=
-        target === "new"
-          ? apiFetch<{ asset: AssetView }>(`${base}/assets`, { method: "POST", json: { family: "item", kind: "consumable", name } }).then((r) => r.asset.id)
-          : Promise.resolve(target);
-      const assetId = await current.asset;
+      const p = (mode === "variation" ? null : preview) ?? await apiFetch<PlanPreview>(`${base}/generation-plans`, { method: "POST", json: request });
+      if (mode === "review" || (!p.destination.simulated && mode !== "confirm")) {
+        if (mode === "variation" || confirmation.current?.formKey !== formKey) {
+          confirmation.current = { formKey, key: newKey("gen") };
+        }
+        setReview({ formKey, preview: p });
+        return;
+      }
+      const previous = intent.current;
+      const sameRun = previous?.formKey === formKey && previous.digest === p.digest;
+      const key = mode === "confirm" ? confirmation.current?.key : mode === "variation" && previous?.submitted ? newKey("gen") : undefined;
+      const current = sameRun && (!key || key === previous.key)
+        ? previous
+        : { formKey, digest: p.digest, key: key ?? newKey("gen"), assetId: sameRun ? previous.assetId : targetAsset?.id ?? null, submitted: false };
+      intent.current = current;
+      if (current.assetId === null) {
+        const { asset } = await apiFetch<{ asset: AssetView }>(`${base}/assets`, {
+          method: "POST",
+          json: { family, kind, name: name.trim() },
+        });
+        current.assetId = asset.id;
+      }
       const res = await apiFetch<{ job: JobView; created: boolean }>(`${base}/jobs`, {
         method: "POST",
-        headers: { "idempotency-key": `${current.key}:${assetId}` },
-        json: { kind: "generation", request: { plan: p.plan, planDigest: p.digest, targetAssetId: assetId } },
+        headers: { "idempotency-key": `${current.key}:${current.assetId}` },
+        json: { kind: "generation", request: { plan: p.plan, planDigest: p.digest, targetAssetId: current.assetId } },
       });
-      setMessage(res.created ? m.queued(res.job.id) : m.duplicate(res.job.id));
+      current.submitted = true;
+      setReview(null);
+      setResult({ formKey, text: res.created ? m.queued : m.duplicate, queued: true });
       onChange();
     } catch (err) {
-      setMessage(err instanceof ApiError ? `${err.message} (${err.code})` : String(err));
+      setResult({ formKey, text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      pending.current = false;
+      setBusy(false);
     }
   }
 
-  const invalidate = () => setPreview(null);
+  const actionLabel = selected?.simulated
+    ? character ? m.generateCharacter : m.generateItem
+    : m.planPreview;
 
   return (
-    <section>
-      <h2>{m.title}</h2>
-      <form onSubmit={(e) => e.preventDefault()}>
-        <label>
-          {m.asset}
-          <select value={target} onChange={(e) => (setTarget(e.target.value), (intent.current = null))}>
-            <option value="new">{m.newAsset}</option>
-            {itemAssets.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        {target === "new" && (
+    <section id="create" className="composer">
+      <header className="composer-head">
+        <h1>{m.title}</h1>
+        <p>{m.intro}</p>
+      </header>
+      <form className="composer-form" aria-busy={busy} onSubmit={(event) => {
+        event.preventDefault();
+        if (!preview || selected?.simulated) void submit(selected?.simulated ? "generate" : "review");
+      }}>
+        <fieldset className="composer-families" disabled={busy}>
+          <legend>{m.type}</legend>
+          {(["character", "item"] as const).map((value) => (
+            <label className="composer-family" key={value}>
+              <input
+                type="radio"
+                name="sprite-family"
+                value={value}
+                checked={family === value}
+                onChange={() => { setFamily(value); setTarget("new"); }}
+              />
+              <strong>{value === "character" ? m.character : m.item}</strong>
+              <span>{value === "character" ? m.characterCaption : m.itemCaption}</span>
+            </label>
+          ))}
+        </fieldset>
+        <div className="composer-fields">
+          {!targetAsset ? (
+            <label>
+              {m.name}
+              <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required disabled={busy} />
+            </label>
+          ) : <p className="small">{m.asset}: <strong>{targetAsset.name}</strong></p>}
           <label>
-            {m.name}
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
+            {m.brief}
+            <textarea value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={2000} rows={4} aria-describedby="composer-brief-hint" required disabled={busy} />
           </label>
+          <p id="composer-brief-hint" className="small muted">{character ? m.characterHint : m.itemHint}</p>
+        </div>
+        <ReferenceField projectId={projectId} refs={refs} uploads={uploadById} library={refOptions} setRefs={setRefs} disabled={busy} uploading={uploading} setUploading={setUploading} onUpload={onChange} />
+        <div className="composer-controls composer-generation-options">
+          <label>
+            {m.provider}
+            <select value={profileId ?? ""} disabled={busy || (!providers && !providerError)} onChange={(e) => setProfileId(e.target.value || null)} aria-describedby="composer-model-note">
+              <option value="">{recommended ? m.automaticModel(recommended.simulated ? m.simulated : creationModelLabel(recommended)) : providers ? m.automaticUnavailable : m.chooseModel}</option>
+              {profileId && !selected && <option value={profileId} disabled>{manualProfile ? creationModelLabel(manualProfile) : profileId}{m.unavailableSuffix}</option>}
+              {modelOptions.map((profile) => <option key={profile.id} value={profile.id}>
+                {profile.simulated ? m.simulated : creationModelLabel(profile)}
+                {profile.transport === "codex_cli" ? ` · ${m.quota}` : profile.simulated ? ` · ${m.offline}` : ` · ${m.credits}`}
+              </option>)}
+              {otherProfiles.length > 0 && <optgroup label={m.otherProfiles}>
+                {otherProfiles.map((profile) => <option key={profile.id} value={profile.id}>{creationModelLabel(profile)} · {profile.name}</option>)}
+              </optgroup>}
+            </select>
+          </label>
+          <label>
+            {m.size}
+            <select value={size} disabled={busy} onChange={(e) => setSize(Number(e.target.value))}>
+              {[16, 24, 32, 48, 64].map((n) => <option key={n} value={n}>{n} × {n}</option>)}
+            </select>
+          </label>
+          <div className="composer-model-note" id="composer-model-note" aria-live="polite">
+            {selected ? <>
+              <p>{text(creationModelReason(selected, refs.length))}</p>
+              <small>{billing}{limit > 0 ? ` · ${m.referenceLimit(limit).toLowerCase()}` : ""}</small>
+            </> : <p className="error">{profileId ? m.incompatibleModel : providerError ?? (providers ? m.noModel : m.chooseModel)}</p>}
+          </div>
+        </div>
+        {preview && (
+          <div className="composer-preview" role="region" aria-label={m.reviewTitle}>
+            <h2>{m.reviewTitle}</h2>
+            <p><strong>{selectedLabel || preview.destination.name}</strong> · {m.parts(preview.plan.parts.length)} · {m.estimate(estimateText(preview.plan, locale))}</p>
+            <p className="small muted">{m.references(refs.length)}</p>
+            {!preview.destination.simulated && <p className="small">{m.reviewPrivacy}</p>}
+            <details>
+              <summary>{m.compiledPrompt}</summary>
+              <pre>{preview.plan.prompt.compiled}</pre>
+              {preview.plan.operation === "generate_asset" && preview.plan.params.backgroundKey && <p className="muted small">{m.noAlphaRoute(preview.plan.params.backgroundKey)}</p>}
+            </details>
+          </div>
         )}
-        <label>
-          {m.size}
-          <select value={size} onChange={(e) => (setSize(Number(e.target.value)), invalidate())}>
-            {[16, 24, 32, 48, 64].map((n) => (
-              <option key={n} value={n}>
-                {n} × {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {m.promptLanguage}
-          <select value={language ?? defaultLanguage} onChange={(e) => (setLanguage(e.target.value as "pt-BR" | "en"), invalidate())}>
-            <option value="pt-BR">pt-BR</option>
-            <option value="en">en</option>
-          </select>
-        </label>
-        <label>
-          {m.variants}
-          <select value={variants} onChange={(e) => (setVariants(Number(e.target.value)), invalidate())}>
-            {[1, 2, 3, 4].map((n) => (
-              <option key={n}>{n}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {m.provider}
-          <select value={profileId} onChange={(e) => (setProfileId(e.target.value), invalidate())}>
-            {providers?.profiles.map((p) => (
-              <option key={p.id} value={p.id} disabled={Boolean(p.unavailable)}>
-                {p.name}
-                {p.unavailable ? m.unavailableSuffix : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={{ flexBasis: "100%" }}>
-          {m.brief}
-          <textarea value={brief} onChange={(e) => (setBrief(e.target.value), invalidate())} maxLength={2000} />
-        </label>
-        <div style={{ flexBasis: "100%" }}>
-          <div className="small muted">{m.referencesHint}</div>
-          <ol className="list">
-            {refs.map((r, i) => (
-              <li key={`${r.revisionId}|${r.fileKey}|${i}`} className="row">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="pixel" alt="" src={`/api/v1/projects/${projectId}/media/${r.fileId}`} style={{ maxWidth: 48, maxHeight: 48 }} />
-                <span className="small">
-                  <strong>{m.image(i + 1)}</strong> · {r.label}
-                </span>
-                <select aria-label={m.imageRole(i + 1)} value={r.role} onChange={(e) => updateRefs(refs.map((x, j) => (j === i ? { ...x, role: e.target.value as ReferenceRole } : x)))}>
-                  {ROLES.map((value) => (
-                    <option key={value} value={value}>
-                      {roleLabel[value]}
-                    </option>
-                  ))}
+        {rejectedReferences
+          ? <p className="small error" role="status">{m.referenceRejected}</p>
+          : loadingReferences && <p className="small muted" role="status">{m.waitingReferences}</p>}
+        <div className="composer-actions">
+          {preview && !preview.destination.simulated && !message?.queued ? <>
+            <button type="button" disabled={busy || blocked} onClick={() => void submit("confirm")}>{busy ? m.busy : m.confirmGeneration}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => setReview(null)}>{m.dismissReview}</button>
+          </> : message?.queued ? (
+            <button type="button" className="secondary" disabled={busy || blocked} onClick={() => void submit("variation")}>{m.newVariation}</button>
+          ) : (
+            <button type="submit" disabled={busy || blocked}>{busy ? m.busy : actionLabel}</button>
+          )}
+          <div className="composer-model-links">
+            <Link href={`/examples?project=${encodeURIComponent(projectId)}#examples-results`}>{m.compareModels}</Link>
+            <Link href="/settings">{m.modelSettings}</Link>
+          </div>
+        </div>
+        <div className="composer-status small" role="status">
+          {message && <p className={message.queued ? undefined : "error"}>{message.text} {message.queued && <Link href={`${base}?view=library#review`}>{m.openLibrary}</Link>}</p>}
+        </div>
+        <details className="composer-advanced">
+          <summary>{m.advanced}</summary>
+          <div className="composer-controls">
+            {targets.length > 0 && (
+              <label>
+                {m.asset}
+                <select value={targetAsset?.id ?? "new"} disabled={busy} onChange={(e) => setTarget(e.target.value)}>
+                  <option value="new">{m.newAsset}</option>
+                  {targets.map((asset) => <option key={asset.id} value={asset.id}>{asset.name}</option>)}
                 </select>
-                <input
-                  aria-label={m.imageInstruction(i + 1)}
-                  placeholder={m.instructionPlaceholder}
-                  value={r.instruction}
-                  maxLength={300}
-                  onChange={(e) => updateRefs(refs.map((x, j) => (j === i ? { ...x, instruction: e.target.value } : x)))}
-                />
-                <button type="button" className="secondary" aria-label={m.moveUp} disabled={i === 0} onClick={() => moveRef(i, -1)}>
-                  ↑
-                </button>
-                <button type="button" className="secondary" aria-label={m.moveDown} disabled={i === refs.length - 1} onClick={() => moveRef(i, 1)}>
-                  ↓
-                </button>
-                <button type="button" className="secondary" aria-label={m.remove} onClick={() => updateRefs(refs.filter((_, j) => j !== i))}>
-                  ×
-                </button>
-              </li>
-            ))}
-          </ol>
-          <select
-            aria-label={m.addReference}
-            value=""
-            disabled={refOptions.length === 0}
-            onChange={(e) => {
-              const o = refOptions.find((x) => x.key === e.target.value);
-              if (o) updateRefs([...refs, { revisionId: o.revisionId, fileKey: o.fileKey, fileId: o.fileId, label: o.label, role: refs.length === 0 ? "identity" : "style", instruction: "" }]);
-            }}
-          >
-            <option value="">{refOptions.length ? m.addApprovedReference : m.noApprovedReference}</option>
-            {refOptions.map((o) => (
-              <option key={o.key} value={o.key}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button type="button" className="secondary" onClick={() => loadPreview().catch((e) => setMessage(String(e.message ?? e)))}>
-          {m.planPreview}
-        </button>
-        <button type="button" onClick={() => generate(false)}>
-          {m.generate}
-        </button>
-        <button type="button" className="secondary" onClick={() => generate(true)}>
-          {m.newVariation}
-        </button>
+              </label>
+            )}
+            <label>
+              {m.promptLanguage}
+              <select value={language ?? defaultLanguage} disabled={busy} onChange={(e) => setLanguage(e.target.value as "pt-BR" | "en")}>
+                <option value="pt-BR">pt-BR</option>
+                <option value="en">en</option>
+              </select>
+            </label>
+            <label>
+              {m.variants}
+              <select value={variants} disabled={busy} onChange={(e) => setVariants(Number(e.target.value))}>
+                {[1, 2, 3, 4].map((n) => <option key={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="composer-actions">
+            {!preview && selected?.simulated && <button type="button" className="secondary" disabled={busy || blocked} onClick={() => void submit("review")}>{m.planPreview}</button>}
+          </div>
+        </details>
       </form>
-      {message && <p className="small">{message}</p>}
-      {preview && (
-        <div className="small">
-          <p>
-            {m.destination} <strong>{preview.destination.name}</strong>
-            {preview.destination.simulated && m.staysLocal} · {m.parts(preview.plan.parts.length)} · {m.estimate(estimateText(preview.plan, locale))}
-          </p>
-          <pre>{preview.plan.prompt.compiled}</pre>
-          <p className="muted">
-            {m.plan(preview.digest.slice(0, 12))} · {m.references(refs.length)}
-            {preview.plan.operation === "generate_asset" && preview.plan.params.backgroundKey ? m.noAlphaRoute(preview.plan.params.backgroundKey) : ""}
-          </p>
-        </div>
-      )}
     </section>
   );
 }

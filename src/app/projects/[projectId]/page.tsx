@@ -1,19 +1,14 @@
-import Link from "next/link";
-import { commonMessages } from "@/i18n/messages/common";
-import { serverMessages } from "@/i18n/server";
 import { HealthBanner } from "@/app/client/health-banner";
 import { Workspace } from "./workspace";
 
-export default async function ProjectPage({ params }: { params: Promise<{ projectId: string }> }) {
-  const { projectId } = await params;
-  const c = await serverMessages(commonMessages);
+export default async function ProjectPage({ params, searchParams }: PageProps<"/projects/[projectId]">) {
+  const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  const view = query.view === "library" || query.view === "activity" || query.view === "export" || query.view === "style" ? query.view : "create";
+  const templateId = typeof query.template === "string" ? query.template : undefined;
   return (
-    <main>
-      <p className="small">
-        <Link href="/">{c.backToProjects}</Link>
-      </p>
+    <>
       <HealthBanner />
-      <Workspace projectId={projectId} />
-    </main>
+      <Workspace key={projectId} projectId={projectId} view={view} templateId={templateId} />
+    </>
   );
 }

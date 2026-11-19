@@ -38,7 +38,7 @@ function sheetOf(plan: GenerationPlan, part?: PartRow): { sheet: UiStateSheet; i
   return { sheet, index };
 }
 
-function baseSha(plan: GenerationPlan, sheet: UiStateSheet): string {
+function baseSha(plan: StatesPlan, sheet: UiStateSheet): string {
   const source = plan.sources.find((s) => s.revisionId === sheet.componentRevisionId);
   if (!source) throw new DomainFailure("internal", tx("Estado-base não congelado nas fontes do plano", "Base state not frozen in the plan sources"));
   return source.sha256;
@@ -48,7 +48,7 @@ async function loadStatesInputs(ctx: HandlerContext, plan: GenerationPlan, _adap
   const p = statesPlan(plan);
   const { sheet, index } = sheetOf(plan, part);
   const cells = stateSheetCells(sheet, sheet.states.length + 1);
-  const run = await pythonWith(envOf(ctx), path.join(ctx.workDir, `ui-state-guide-${index}`), "ui_state_guide", [{ role: "source", sha256: baseSha(plan, sheet) }], {
+  const run = await pythonWith(envOf(ctx), path.join(ctx.workDir, `ui-state-guide-${index}`), "ui_state_guide", [{ role: "source", sha256: baseSha(p, sheet) }], {
     version: 1,
     sheetSize: sheet.sheetSize,
     scale: guideScale(sheet.sheetSize),
@@ -70,7 +70,7 @@ async function processStates(env: PipelineEnv, plan: GenerationPlan, sha256: str
     path.join(dir, "check"),
     "ui_state_sheet",
     [
-      { role: "source", sha256: baseSha(plan, sheet) },
+      { role: "source", sha256: baseSha(p, sheet) },
       { role: "candidate", sha256: result.stored.sha256 },
     ],
     {

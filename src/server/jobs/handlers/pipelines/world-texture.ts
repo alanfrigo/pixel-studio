@@ -34,7 +34,7 @@ const MIN_SIDE = 256;
 export async function scaledReferences(ctx: HandlerContext, plan: GenerationPlan, opts: { flattenOnto?: string; minSide?: number; roles?: string[] } = {}) {
   const refs = [];
   for (const source of plan.sources) {
-    if (source.fileId === null || (opts.roles && !opts.roles.includes(source.role))) continue;
+    if (("fileId" in source && source.fileId === null) || (opts.roles && !opts.roles.includes(source.role))) continue;
     const blob = getBlob(ctx.db, source.sha256);
     const { width = 0, height = 0 } = (blob?.metadata ?? {}) as { width?: number; height?: number };
     let bytes = await ctx.blobs.read(source.sha256);

@@ -53,7 +53,7 @@ Pixel Studio is provider-agnostic: every AI route is a **provider profile** (Ope
 | Task | Default | Alternative |
 |---|---|---|
 | Text-to-icon, cheap, batches | `openai/gpt-image-1-mini` | `microsoft/mai-image-2.7-flash` |
-| Variation from reference images | `openai/gpt-image-2.6-flare` | `google/gemini-3.1-flash-image` |
+| Variation from reference images (fidelity first) | `google/gemini-3.1-flash-image` | `openai/gpt-image-2.6-flare` (less expensive, native alpha) |
 | Cheap reference route | `black-forest-labs/flux-3-image-klein` (review outlines) | — |
 
 **Prompt findings:**
@@ -61,6 +61,15 @@ Pixel Studio is provider-agnostic: every AI route is a **provider profile** (Ope
 - Phrases like "inventory icon" make models draw slot frames and borders. Ask for an **isolated item sprite, no frame, no slot, no border, no text**.
 - On chroma-key routes, glass and other transparent materials let the key color show through. Asking for a **fully opaque object, glass painted with its own colors** fixed it on Seedream 4.5, Gemini and Qwen.
 - English and Portuguese prompts performed the same within seed variation.
+
+**Same-brief follow-up (2026-11-19).** The same two English icon briefs ran once each on Flare (OpenAI route) and Gemini (Vertex US). Gemini preserved a cleaner outline and returned a single object in both trials. Flare reproduced both sizes of the reference flask in the two-image trial. At 32×32, Gemini used local background removal; Flare returned native alpha.
+
+| Route | 1 reference | 2 references |
+|---|---:|---:|
+| Gemini 3.1 Flash Image | 11.0 s · US$0.0746 | 132.2 s · US$0.0752 |
+| GPT Image 2.6 Flare | 10.5 s · US$0.0482 | 9.0 s · US$0.0504 |
+
+These four samples cost US$0.2486 and are in **Examples and templates**. The recommendation is a starting point, not a ranking for every sprite type or a latency forecast.
 
 ## 2. Inpainting (masked edit with exact RGBA protection)
 
@@ -248,6 +257,22 @@ These features run end to end with the simulated provider and are covered by tes
 
 They use the same generic route (image + references, with a raster guide) as the benchmarked tasks, so `gpt-image-2.6-flare` or the Codex CLI are the expected starting points.
 
+## 12. Character identity from image references
+
+Two 64×64 front-view sprites, one reference image per request, sent as a real upload through Pixel Studio. The knight brief changes only the cape to cobalt blue and keeps the plume red. The ranger brief changes only the hood to burgundy and keeps the cloak green. Each route gets the same English brief and source PNG for each character; the Studio uses native alpha where available and local background removal otherwise.
+
+Visual review separates the requested recolor from identity: compare proportions, head and face, unedited outfit and colors, and weapons or accessories against the reference. This is one output per model and brief, not a view-change, pose-change, or animation test.
+
+![Side-by-side 64×64 output: original sprite, GPT Image 2.6 Flare, GPT Image 1 Mini and Gemini 3.1 Flash Image for the knight and ranger](docs/images/character-identity.png)
+
+| OpenRouter model | Knight: cape recolor | Ranger: hood recolor | Observed cost and latency per image |
+|---|---|---|---|
+| **GPT Image 2.6 Flare** (OpenAI) | Keeps the red plume and collar, silver armor, and diagonal sword while turning the cape blue. | Keeps the face and hair, green cloak, bow and quiver; the bow is thicker and some costume details change. | US$0.0467 · 10.0–10.5 s |
+| GPT Image 1 Mini (OpenAI) | Changes the helmet and proportions and moves the sword out to the side. | Broadens the figure and simplifies the face, clothing and bow. | US$0.0091 · 13.6–14.1 s |
+| Gemini 3.1 Flash Image (Vertex US) | Keeps the knight recognizable but turns the red collar blue too. | Closely matches the proportions, face and outfit, but some magenta from the background key remains in the final sprite. Magenta also remains in the knight. | US$0.0747 · 11.5–131.8 s |
+
+**Result (2026-11-19):** Flare is the better starting point for a usable identity-preserving recolor in this trial. Gemini is competitive on visual identity, especially on the ranger, but left background residue. Mini is the budget option when a reinterpretation is acceptable. All six jobs completed (US$0.2609 total). The local `reports/avaliacao/2026-11-19-personagens-64px-identidade/results.json` records the input hashes, route, cost, and processing results. This does not change the separate icon recommendation.
+
 ## Reproduce
 
 Every paid script estimates first and only spends with `--yes`. It enforces `--max-usd` and checks the key's remaining limit before sending anything.
@@ -256,6 +281,8 @@ Every paid script estimates first and only spends with `--yes`. It enforces `--m
 npx tsx scripts/qualify-openrouter.ts --model=bytedance-seed/seedream-4.5   # qualify one model on a profile
 npx tsx scripts/evaluate-models.ts                                          # models × tasks × prompt language (dry run)
 npx tsx scripts/evaluate-models.ts --yes --max-usd=3
+npx tsx scripts/evaluate-models.ts --suite=character --max-usd=0.55 --concurrency=2 --label=identidade        # 2 characters × 3 routes (dry run)
+npx tsx scripts/evaluate-models.ts --suite=character --max-usd=0.55 --concurrency=2 --label=identidade --yes  # paid character identity trial
 npx tsx scripts/reprocess-eval.ts <results-folder>                          # re-run local processing on paid outputs, free
 npx tsx scripts/inpaint-real.ts --yes --max-usd=1                           # real inpainting trial with independent RGBA check
 npx tsx scripts/animation-real.ts                                           # animation modes + new view (dry run)

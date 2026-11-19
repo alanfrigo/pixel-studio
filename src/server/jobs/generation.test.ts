@@ -1,9 +1,11 @@
 import { chmodSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getAsset, listRevisions, reviewRevision } from "../catalog/catalog";
+import { runAnimation } from "../animation/service";
+import { createAsset, createProject, getAsset, listRevisions, reviewRevision } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import type { ProviderAdapter } from "../providers/types";
+import { buildGenerationPlan, submitJob } from "../services";
 import { makeTestStudio, seedIconJob, type TestStudio } from "../testing";
 import { type HandlerContext, makeCheckpoint } from "./context";
 import { generationHandler } from "./handlers/generation";
@@ -93,6 +95,54 @@ function enqueue(request: unknown, projectId: string, key = "clique-1") {
 }
 
 describe.skipIf(!hasPython)("geração com provedor simulado", () => {
+  it("gera uma base de personagem, mede o apoio e usa a candidata aprovada na animação", async () => {
+    studio = makeTestStudio();
+    const project = createProject(studio.db, studio.clock, { name: "Criaturas" });
+    const asset = createAsset(studio.db, studio.clock, { projectId: project.id, family: "character", kind: "base", name: "Marsh Bot" });
+    const brief = "A friendly robot with a moss-covered head";
+    const { plan, digest } = buildGenerationPlan(studio, project.id, {
+      operation: "generate_asset",
+      providerProfileId: "simulated",
+      brief,
+      language: "en",
+      params: { family: "character", kind: "base", logicalSize: [32, 32], transparent: true, variants: 1 },
+    });
+    expect(plan.recipeRevisionId).toBe("builtin-character-base-v1");
+    expect(plan.prompt.compiled).toContain(brief);
+    expect(plan.prompt.compiled).toContain("front-facing (south) idle pose");
+    const generated = submitJob(studio, project.id, { kind: "generation", request: { plan, planDigest: digest, targetAssetId: asset.id } }, "new-character");
+    await studio.runner().runOnce();
+    expect(studio.queue.get(generated.job.id)?.state).toBe("succeeded");
+    const [candidate] = listRevisions(studio.db, project.id, asset.id);
+    expect(candidate).toMatchObject({
+      status: "candidate",
+      payload: {
+        subject: "character",
+        logicalSize: [32, 32],
+        groundOrigin: [19, 28],
+        state: "default",
+        predecessorRevisionId: null,
+        views: [{ direction: "S", fileId: "image", rect: [0, 0, 32, 32], sourceOffset: [0, 0] }],
+      },
+    });
+    reviewRevision(studio.db, studio.clock, {
+      projectId: project.id,
+      assetId: asset.id,
+      revisionId: candidate!.id,
+      decision: "approve",
+      reason: null,
+      expectedActiveRevisionId: null,
+    });
+    const animated = runAnimation(studio, project.id, {
+      plan: { operation: "animate_text", providerProfileId: "simulated", baseRevisionId: candidate!.id, direction: "S", actionText: "Blink once", durationsMs: [120, 160], playback: "once" },
+    });
+    await studio.runner().runOnce();
+    expect(studio.queue.get(animated.job.id)?.state).toBe("succeeded");
+    const [clip] = listRevisions(studio.db, project.id, animated.targetAssetId);
+    expect(clip?.payload).toMatchObject({ pivot: [19, 28], direction: "S" });
+    expect(clip?.technicalReport).toMatchObject({ baseRevisionId: candidate!.id });
+  });
+
   it("duplo clique gera um job, uma chamada por parte e uma publicação", async () => {
     studio = makeTestStudio();
     const { project, asset, request } = seedIconJob(studio, { variants: 2 });

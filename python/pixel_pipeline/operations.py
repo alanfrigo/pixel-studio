@@ -636,6 +636,22 @@ def fit_logical(request: Json, workdir: Path) -> Json:
         keep = alpha.point(lambda a: 255 if a >= threshold else 0)
         image = Image.composite(image, Image.new("RGBA", image.size, (0, 0, 0, 0)), keep)
         image.putalpha(keep)
+    measure_ground = recipe.get("measureGround", False)
+    if measure_ground and image.getchannel("A").getextrema()[0] == 255:
+        raise PipelineError("unsupported_input", tx("A base precisa de um fundo transparente", "The character base needs a transparent background"))
+
+    def finish(out: Image.Image, report: Json) -> Json:
+        if measure_ground:
+            alpha = out.getchannel("A")
+            bounds = alpha.getbbox()
+            if bounds is None:
+                raise PipelineError("unsupported_input", tx("Nada visível na base ajustada", "Nothing visible in the fitted character base"))
+            x0, _, x1, ground_y = bounds
+            # Measure the actual support row, not the width of a hat, hair, or an extended arm.
+            left, _, right, _ = alpha.crop((x0, ground_y - 1, x1, ground_y)).getbbox()
+            report["groundOrigin"] = [x0 + (left + right + 1) // 2, ground_y]
+        return respond([write_png(workdir, out, "out/fitted.png", "fitted")], report, warnings)
+
     crop = recipe.get("cropToContent")
     cropped_from = None
     if crop is not None:
@@ -661,7 +677,7 @@ def fit_logical(request: Json, workdir: Path) -> Json:
                 "sourceSize": list(image.size), "targetSize": [tw, th], "factor": 1 / k, "method": "nearest_upscale" if k > 1 else "center",
                 "lossless": True, "fittedSize": list(scaled.size), "offset": list(offset), "contentRect": cropped_from, "alphaBinarized": binarized,
             }
-            return respond([write_png(workdir, out, "out/fitted.png", "fitted")], report, warnings)
+            return finish(out, report)
         # Maior que o alvo: canvas com a proporção do alvo, conteúdo centralizado, depois reduz.
         scale = max(side_w / tw, side_h / th)
         canvas = Image.new("RGBA", (max(1, round(tw * scale)), max(1, round(th * scale))), (0, 0, 0, 0))
@@ -705,7 +721,7 @@ def fit_logical(request: Json, workdir: Path) -> Json:
     report = {"sourceSize": [w, h], "targetSize": [tw, th], "factor": factor, "method": method, "lossless": lossless, "fittedSize": list(fitted.size), "offset": list(offset), "contentRect": cropped_from}
     if threshold is not None:
         report["alphaBinarized"] = binarized
-    return respond([write_png(workdir, out, "out/fitted.png", "fitted")], report, warnings)
+    return finish(out, report)
 
 
 def encode_mask(request: Json, workdir: Path) -> Json:

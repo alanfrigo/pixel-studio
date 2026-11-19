@@ -3,13 +3,14 @@ import type { AssetFamily, GenerationPlan } from "@/contracts";
 
 /**
  * Validação de referências de um plano contra o catálogo (02a): toda revisão
- * citada existe, pertence ao mesmo projeto, fontes estão aprovadas e os hashes
- * congelados conferem com os arquivos vinculados. A máscara é um upload do
- * projeto com a mesma grade da fonte.
+ * citada existe, pertence ao mesmo projeto, fontes estão aprovadas ou são
+ * uploads raster normalizados e os hashes congelados conferem. A máscara é um
+ * upload do projeto com a mesma grade da fonte.
  */
 
 export interface CatalogFile {
   sha256: string;
+  mime: string;
   width?: number;
   height?: number;
 }
@@ -25,9 +26,11 @@ export interface CatalogRevision {
   payloadDigest?: string;
 }
 
-export interface CatalogUpload extends CatalogFile {
+export interface CatalogUpload extends Omit<CatalogFile, "mime"> {
   fileId: string;
   projectId: string;
+  status: "pending" | "ready" | "rejected";
+  normalizedRasterSha256: string | null;
 }
 
 export interface PlanLookup {
@@ -41,6 +44,7 @@ export type PlanIssueCode =
   | "source_not_approved"
   | "source_file_mismatch"
   | "wrong_reference_kind"
+  | "upload_not_ready"
   | "mask_size_mismatch";
 
 export interface PlanIssue {
@@ -48,6 +52,7 @@ export interface PlanIssue {
   message: LocalizedText;
   path: (string | number)[];
   revisionId?: string;
+  uploadId?: string;
 }
 
 interface ParamRef {
@@ -104,6 +109,17 @@ export function planParamRefs(plan: GenerationPlan): ParamRef[] {
   return refs;
 }
 
+export function resolveGenerationUpload(lookup: PlanLookup, projectId: string, uploadId: string, path: (string | number)[]): { sha256: string } | { issue: PlanIssue } {
+  const upload = lookup.upload(uploadId);
+  if (!upload || upload.projectId !== projectId) {
+    return { issue: { code: upload ? "cross_project_reference" : "not_found", message: tx("Upload não encontrado neste projeto", "Upload not found in this project"), path, uploadId } };
+  }
+  if (upload.status !== "ready" || upload.normalizedRasterSha256 === null) {
+    return { issue: { code: "upload_not_ready", message: tx(`Upload ${uploadId} não é uma imagem normalizada pronta para usar como referência`, `Upload ${uploadId} is not a normalized image ready for use as a reference`), path, uploadId } };
+  }
+  return { sha256: upload.normalizedRasterSha256 };
+}
+
 export function validatePlanReferences(plan: GenerationPlan, lookup: PlanLookup): PlanIssue[] {
   const issues: PlanIssue[] = [];
 
@@ -127,12 +143,26 @@ export function validatePlanReferences(plan: GenerationPlan, lookup: PlanLookup)
     return rev;
   };
 
+  const readyMask = (fileId: string) => {
+    const upload = lookup.upload(fileId);
+    return upload?.status === "ready" ? upload : undefined;
+  };
+
   resolve(plan.styleRevisionId, ["styleRevisionId"], { approved: true, family: "style" });
 
   plan.sources.forEach((source, i) => {
     const path = ["sources", i];
+    if ("uploadId" in source) {
+      const resolved = resolveGenerationUpload(lookup, plan.projectId, source.uploadId, [...path, "uploadId"]);
+      if ("issue" in resolved) {
+        issues.push(resolved.issue);
+      } else if (resolved.sha256 !== source.sha256) {
+        issues.push({ code: "source_file_mismatch", message: tx("Hash congelado da referência diverge do upload normalizado", "Frozen reference hash does not match the normalized upload"), path, uploadId: source.uploadId });
+      }
+      return;
+    }
     if (source.role === "edit_mask") {
-      const upload = source.fileId === null ? undefined : lookup.upload(source.fileId);
+      const upload = source.fileId === null ? undefined : readyMask(source.fileId);
       if (!upload) {
         issues.push({ code: "not_found", message: tx(`Máscara inexistente: ${source.fileId}`, `Mask does not exist: ${source.fileId}`), path });
       } else if (upload.projectId !== plan.projectId) {
@@ -150,9 +180,11 @@ export function validatePlanReferences(plan: GenerationPlan, lookup: PlanLookup)
       }
       return;
     }
-    const file = rev.files[source.fileId];
+    const file = Object.hasOwn(rev.files, source.fileId) ? rev.files[source.fileId] : undefined;
     if (!file) {
       issues.push({ code: "source_file_mismatch", message: tx(`${source.fileId} não pertence a ${source.revisionId}`, `${source.fileId} does not belong to ${source.revisionId}`), path, revisionId: source.revisionId });
+    } else if (plan.operation === "generate_asset" && !file.mime.startsWith("image/")) {
+      issues.push({ code: "wrong_reference_kind", message: tx(`${source.fileId} não é uma imagem`, `${source.fileId} is not an image`), path, revisionId: source.revisionId });
     } else if (file.sha256 !== source.sha256) {
       issues.push({ code: "source_file_mismatch", message: tx(`Hash congelado de ${source.fileId} diverge da revisão`, `Frozen hash of ${source.fileId} does not match the revision`), path, revisionId: source.revisionId });
     }
@@ -164,7 +196,7 @@ export function validatePlanReferences(plan: GenerationPlan, lookup: PlanLookup)
 
   if (plan.operation === "inpaint") {
     const source = lookup.revision(plan.params.sourceRevisionId)?.files[plan.params.sourceFileId];
-    const mask = lookup.upload(plan.params.editMaskFileId);
+    const mask = readyMask(plan.params.editMaskFileId);
     if (source && mask && (source.width !== mask.width || source.height !== mask.height)) {
       issues.push({
         code: "mask_size_mismatch",

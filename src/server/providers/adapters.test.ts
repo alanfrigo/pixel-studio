@@ -8,6 +8,8 @@ import { createImage, encodePng, fillRect } from "@/lib/media/png";
 import { listRevisions } from "../catalog/catalog";
 import { makeTestStudio, seedIconJob, type TestStudio } from "../testing";
 import { OpenAIImagesAdapter, OpenRouterAdapter } from "./adapters";
+import { saveProfile as saveDefaultProfile } from "./profiles";
+import { ProviderRegistry as Registry } from "./registry";
 import { ProviderError, type ProviderSubmitRequest } from "./types";
 
 /** Servidor HTTP local que imita os provedores: sem rede, sem custo, sem credencial real. */
@@ -234,6 +236,15 @@ describe("cadastro de perfis", () => {
     const check = await checkProfile(studio.db, new ProviderRegistry(studio.db, studio.config), "or");
     expect(check).toMatchObject({ ok: true, message: { "pt-BR": expect.stringContaining("1 rota(s)"), en: expect.stringContaining("1 route(s)") } });
     expect(requests.every((r) => r.method === "GET")).toBe(true);
+  });
+
+  it("accepts the default OpenRouter endpoint when no base URL is entered", async () => {
+    studio = makeTestStudio();
+    const profile = saveDefaultProfile(studio.db, studio.clock, {
+      id: "default-or", name: "OpenRouter", transport: "openrouter_images",
+      secretRef: "TEST_PROVIDER_KEY", model: "openai/gpt-image-2.6-flare", config: {},
+    });
+    expect(new Registry(studio.db, studio.config).adapterFor(profile.id).limits?.("generate_asset").maxReferences).toBe(16);
   });
 
   it("recusa http remoto, configuração inválida, segredo em vez de nome e ID reservado", async () => {

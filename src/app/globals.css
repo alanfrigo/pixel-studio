@@ -1,31 +1,56 @@
-:root {
-  --bg: #f6f5f1;
-  --panel: #ffffff;
-  --text: #1d1d22;
-  --muted: #6b6b74;
-  --border: #dddcd5;
-  --accent: #3c5aa0;
-  --ok: #2f7d32;
-  --warn: #9a6400;
-  --error: #b3261e;
-  --checker-a: #e7e6e1;
-  --checker-b: #ffffff;
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("/fonts/instrument-sans.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-stretch: 75% 100%;
+  font-display: swap;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16161a;
-    --panel: #1f1f25;
-    --text: #ececf0;
-    --muted: #a0a0aa;
-    --border: #34343c;
-    --accent: #8fa8e6;
-    --ok: #7cc97f;
-    --warn: #e0b45c;
-    --error: #f2877f;
-    --checker-a: #2a2a31;
-    --checker-b: #34343c;
-  }
+@font-face {
+  font-family: "DM Mono";
+  src: url("/fonts/dm-mono.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --p-bg: #ffffff; --p-surface: #f4f4f4; --p-ink: #111111; --p-muted: #6b6b6b;
+  --p-accent: #1a4be0; --p-accent-ink: #ffffff; --p-action: #1a4be0; --p-action-ink: #ffffff;
+  --p-inv-bg: #111111; --p-inv-surface: #1e1e1e; --p-inv-ink: #ffffff; --p-inv-muted: #9a9a9a;
+  --p-inv-accent: #ffffff; --p-inv-accent-ink: #111111; --p-inv-action: #ffffff; --p-inv-action-ink: #111111;
+  --font-display: "Instrument Sans", system-ui, sans-serif;
+  --font-text: "Instrument Sans", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --display-weight: 500;
+  --display-tracking: -0.028em;
+  --display-tracking-xl: -0.036em;
+  --display-stretch: 96%;
+  --ly-scale: 1.04;
+  --bg: var(--p-bg);
+  --panel: var(--p-bg);
+  --surface: var(--p-surface);
+  --ink: var(--p-ink);
+  --text: var(--ink);
+  --fg: var(--ink);
+  --muted: var(--p-muted);
+  --border: #dedfe1;
+  --line: var(--border);
+  --accent: var(--p-accent);
+  --action: var(--p-action);
+  --action-ink: var(--p-action-ink);
+  --line-strong: #a9acb1;
+  --ok: #236a42;
+  --warn: #845006;
+  --error: #b3261e;
+  --checker-a: #eef0ed;
+  --checker-b: #fafbf9;
+  --studio-width: 1200px;
+  --studio-edge: clamp(16px, 4vw, 56px);
+  --studio-radius: 8px;
+  --studio-header: 68px;
+  color-scheme: light;
 }
 
 * {
@@ -36,22 +61,26 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.45 system-ui, sans-serif;
+  font: 15px/1.5 var(--font-text);
 }
 
 main {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 16px;
+  width: 100%;
+  max-width: calc(var(--studio-width) + 2 * var(--studio-edge));
+  margin-inline: auto;
+  padding: clamp(28px, 4vw, 56px) var(--studio-edge) 64px;
 }
 
 h1 {
-  font-size: 22px;
-  margin: 8px 0 16px;
+  font: var(--display-weight) clamp(32px, 4vw, 54px)/1.06 var(--font-display);
+  letter-spacing: var(--display-tracking);
+  overflow-wrap: anywhere;
+  margin: 0 0 16px;
 }
 
 h2 {
-  font-size: 16px;
+  font: 600 clamp(18px, 2vw, 24px)/1.2 var(--font-display);
+  letter-spacing: -0.02em;
   margin: 0 0 12px;
 }
 
@@ -62,14 +91,14 @@ a {
 section {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+  border-radius: var(--studio-radius);
+  padding: clamp(16px, 2.4vw, 32px);
+  margin-bottom: 20px;
 }
 
 .grid2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 16px;
 }
 
@@ -84,9 +113,9 @@ form,
 label {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
-  color: var(--muted);
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink);
 }
 
 input,
@@ -97,33 +126,67 @@ button {
   color: inherit;
 }
 
-input,
+input:not([type="checkbox"], [type="radio"], [type="range"]),
 select,
 textarea {
-  background: var(--bg);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 8px;
+  border-radius: 6px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
 }
 
 textarea {
   width: 100%;
-  min-height: 60px;
+  min-height: 88px;
+  resize: vertical;
 }
 
-button {
-  background: var(--accent);
-  color: #fff;
-  border: 0;
-  border-radius: 4px;
-  padding: 6px 12px;
+button, a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--p-action-ink);
+  background: var(--p-action);
+  text-align: center;
+  text-decoration: none;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
 }
 
-button.secondary {
-  background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--accent);
+button.secondary, a.button.secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--border);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :is(button:not(:disabled), a.button):hover {
+    background: color-mix(in srgb, var(--p-action), var(--ink) 14%);
+    transform: translateY(-1px);
+  }
+  :is(button.secondary:not(:disabled), a.button.secondary):hover {
+    background: color-mix(in srgb, var(--surface), var(--ink) 8%);
+    border-color: var(--muted);
+  }
+  :is(button:not(:disabled), a.button):active { transform: translateY(1px) scale(.985); }
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+summary { cursor: pointer; }
+[hidden] { display: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a.button) { transition: none; }
+  :is(button:not(:disabled), a.button):is(:hover, :active) { transform: none; }
 }
 
 button:disabled {
@@ -273,21 +336,6 @@ pre {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-/* Link com aparência de botão (navegação, não ação). */
-a.button {
-  display: inline-block;
-  border-radius: 4px;
-  padding: 6px 12px;
-  text-decoration: none;
-  background: var(--accent);
-  color: #fff;
-}
-
-a.button.secondary {
-  background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--accent);
-}
 
 /* Animação (cartão S1): abas, presets, timeline de quadros/poses e grade de vistas. */
 .anim-tabs {
@@ -602,21 +650,3 @@ a.button.secondary {
   font-size: 12px;
 }
 
-/*
- * Seletor de idioma (i18n): faixa própria acima do <main>, alinhada à direita
- * da mesma coluna. Fica no fluxo para nunca cobrir títulos, abas ou editores.
- */
-.locale-switch {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 8px 16px 0;
-  display: flex;
-  justify-content: flex-end;
-}
-.locale-switch select {
-  font-size: 12px;
-  padding: 2px 4px;
-}
-.locale-switch + main {
-  padding-top: 4px;
-}

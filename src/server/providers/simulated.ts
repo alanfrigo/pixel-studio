@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Capability, CostEstimate, JointPose, MotionPayload, Skeleton } from "@/contracts";
 import { drawPose } from "@/domain/animation/pose-guide";
-import { createImage, encodePng, readPngInfo, type RgbaImage, setPixel } from "@/lib/media/png";
+import { createImage, encodePng, fillRect, readPngInfo, type Rgba, type RgbaImage, setPixel } from "@/lib/media/png";
 import type { PlanOperation } from "@/contracts";
 import { ProviderError, type ProviderAdapter, type ProviderResult, type ProviderSubmitRequest, type RemoteStatus, type SubmitOutcome } from "./types";
 import { genericWorldCapabilities, isWorldOperation } from "../world/provider-caps";
@@ -36,6 +36,7 @@ export interface SimulatedRemoteJob {
   createdAt: number;
   readyAt: number;
   cancelled: boolean;
+  character?: boolean;
   /** Animação simulada (S1): quantos quadros devolver e, no esqueleto, as poses recebidas como dados. */
   animation?: { frames: number; skeleton?: Skeleton; poses?: Record<string, JointPose>[] };
   /** Mundo simulado (T1): material repetível ou eco do gabarito do tileset. */
@@ -152,6 +153,7 @@ export class SimulatedProvider implements ProviderAdapter {
     const id = `sim_${randomUUID().slice(0, 8)}`;
     const now = this.now();
     state.jobs[id] = { id, idempotencyKey: request.idempotencyKey, prompt: request.prompt, size, createdAt: now, readyAt: now + this.options.delayMs, cancelled: false };
+    if (request.operation === "generate_asset" && request.params.family === "character") state.jobs[id].character = true;
     if (animation?.job) state.jobs[id].animation = animation.job;
     const world = simulatedWorldJob(request);
     if (world) state.jobs[id].world = world;
@@ -193,7 +195,8 @@ export class SimulatedProvider implements ProviderAdapter {
     if (job.dialogue) return { images: [{ bytes: new Uint8Array(Buffer.from(job.dialogue.png, "base64")), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
     if (job.equipment) return { images: [{ bytes: new Uint8Array(Buffer.from(job.equipment.png, "base64")), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
     if (job.temporal) return { images: simulatedTemporalImages(job.temporal, job.prompt).map((bytes) => ({ bytes, mime: "image/png" })), cost: { amount: 1, unit: "generations" } };
-    return { images: [{ bytes: simulatedImage(job.prompt, job.size), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
+    const bytes = job.character ? simulatedCharacter(`${job.prompt}\n${job.idempotencyKey}`, job.size) : simulatedImage(job.prompt, job.size);
+    return { images: [{ bytes, mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
   }
 
   async cancel(remoteId: string): Promise<void> {
@@ -204,6 +207,29 @@ export class SimulatedProvider implements ProviderAdapter {
       this.store.write(state);
     }
   }
+}
+
+/** Sprite de teste neutro: exercita a célula, o alfa e o apoio, sem fingir interpretar o briefing. */
+function simulatedCharacter(seed: string, [w, h]: [number, number]): Uint8Array {
+  const digest = createHash("sha256").update(seed).digest();
+  const fill = [80 + digest[0]! % 135, 80 + digest[1]! % 135, 80 + digest[2]! % 135, 255] as const;
+  const ink = [31, 38, 50, 255] as const;
+  const light = [232, 242, 226, 255] as const;
+  const img = createImage(w, h);
+  const rect = (left: number, top: number, right: number, bottom: number, color: Rgba) => {
+    const x = Math.floor((left * w) / 16);
+    const y = Math.floor((top * h) / 16);
+    fillRect(img, x, y, Math.max(1, Math.floor((right * w) / 16) - x), Math.max(1, Math.floor((bottom * h) / 16) - y), color);
+  };
+  rect(5, 3, 12, 8, ink);
+  rect(6, 4, 11, 7, fill);
+  rect(7, 5, 8, 6, light);
+  rect(9, 5, 10, 6, light);
+  rect(4, 8, 13, 12, ink);
+  rect(6, 8, 11, 11, fill);
+  rect(6, 12, 8, 14, ink);
+  rect(10, 12, 13, 14, ink);
+  return encodePng(img);
 }
 
 /** Imagem determinística derivada do prompt: losango colorido com contorno, fundo transparente. */

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { BasePayload, ClipPayload, Direction, MotionPayload, ProjectionKind } from "@/contracts";
 import { BUILTIN_PRESETS, presetText } from "@/domain/animation/presets";
@@ -10,6 +11,7 @@ import { usePoll } from "@/app/client/use-poll";
 import { useLocale, useMessages, useText } from "@/i18n/client";
 import type { TextValue } from "@/i18n/locales";
 import { animationMessages } from "@/i18n/messages/animation";
+import { studioMessages } from "@/i18n/messages/studio";
 import { commonMessages, labelOf } from "@/i18n/messages/common";
 import { ClipPlayer } from "./clip-player";
 import { type AssetEntry, DIRS, errorText, estimateText, type Overview, type PlanPreview, type ProfileInfo, review, type RunResult, viewUrl } from "./shared";
@@ -54,6 +56,7 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
   const m = useMessages(animationMessages);
   const s = m.studio;
   const c = useMessages(commonMessages);
+  const studio = useMessages(studioMessages);
   const text = useText();
   const { data, error, refresh } = usePoll(() => apiFetch<Overview>(`/projects/${projectId}/animation`), {
     active: (d) => d.jobs.some((j) => j.state === "queued" || j.state === "running"),
@@ -100,7 +103,8 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
       <h1>{s.title}</h1>
       {bases.length === 0 ? (
         <section>
-          <p className="error">{s.noBases}</p>
+          <p className="muted">{s.noBases}</p>
+          <Link href={`/projects/${projectId}#create`} className="button">{studio.startWithCharacter}</Link>
         </section>
       ) : (
         <section>
@@ -153,7 +157,7 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
           {!hasView(direction) && <p className="small error">{s.missingView(direction)}</p>}
         </section>
       )}
-      <nav className="row anim-tabs">
+      <nav className="row anim-tabs" aria-label={s.title}>
         {(
           [
             ["preset", s.tabs.preset],

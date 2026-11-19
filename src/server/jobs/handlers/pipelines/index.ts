@@ -16,7 +16,7 @@ import { uiStatesPipeline } from "./ui-states";
 import { uiTemplatePipeline } from "./ui-template";
 
 /**
- * Pipelines por operação do plano. `generate_asset` (ícone de item) fica no
+ * Pipelines por operação do plano. `generate_asset` (base ou ícone) fica no
  * próprio handler de geração; cada cartão novo registra aqui a sua operação.
  */
 export const PIPELINES: Partial<Record<PlanOperation, OperationPipeline>> = {

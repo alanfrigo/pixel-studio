@@ -47,7 +47,7 @@ export interface FrameSpec {
   presetKey: string | null;
 }
 
-function frozenMotion(db: Db, projectId: string, plan: GenerationPlan): MotionPayload | null {
+function frozenMotion(db: Db, projectId: string, plan: AnimationPlan): MotionPayload | null {
   const source = plan.sources.find((s) => s.role === "motion");
   if (!source) return null;
   const revision = getRevision(db, projectId, source.revisionId);

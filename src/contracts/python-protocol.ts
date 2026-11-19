@@ -163,6 +163,8 @@ const recipes = {
      * diferente disso falha em vez de centralizar ou esticar.
      */
     exactAspect: z.boolean().optional(),
+    /** Measured support point of a cutout on the final logical pixel grid. */
+    measureGround: z.boolean().optional(),
   }),
   /**
    * Detecta a grade aparente da arte (célula possivelmente fracionária) e
