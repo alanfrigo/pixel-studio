@@ -833,3 +833,23 @@ def test_screen_layout_scales_nine_slice_and_resolves_menu_slot_and_portrait_art
         assert image.getpixel((9, 5)) == BLUE and image.getpixel((10, 5)) == TRANSPARENT  # portrait only
         assert image.getpixel((22, 0)) == RED and image.getpixel((23, 0)) == TRANSPARENT  # unstretched button
         assert image.getpixel((1, 8)) == TRANSPARENT  # hidden ancestor
+
+
+def test_screen_keeps_art_when_background_revision_has_no_drawable_region(tmp_path, manifest):
+    # This reference can arrive in a package from outside Studio: the
+    # character stores directional views, not a single background image.
+    screen = entry(manifest, "hud-v1")
+    backdrop = {"revisionId": "warrior-base-v1", "exported": True}
+    screen["payload"]["background"] = backdrop
+    screen["dependencies"].append({"role": "background", "revisionId": backdrop["revisionId"]})
+
+    out, by_id = read_entries(tmp_path, manifest)
+    hud = by_id["hud-v1"]
+    assert hud["background"] == backdrop
+    icon = next(r for r in by_id["potion-v1"]["representations"] if r["role"] == "icon")
+    with (
+        Image.open(out / hud["files"]["320x180"]) as image,
+        Image.open(out / icon["file"]) as sprite,
+    ):
+        assert image.getpixel((0, 0)) == TRANSPARENT
+        assert image.crop((256, 156, 272, 172)).tobytes() == sprite.tobytes()
