@@ -14,7 +14,7 @@
   <img alt="Tests" src="https://img.shields.io/badge/tests-377%20TS%20%2B%20103%20Python-brightgreen">
 </p>
 
-<p align="center"><a href="#local-installation">Install locally</a> · <a href="MODELS.md#12-character-identity-from-image-references">Compare character references</a></p>
+<p align="center"><a href="#local-installation">Install locally</a> · <a href="#agent-skill">Install the agent skill</a> · <a href="MODELS.md#12-character-identity-from-image-references">Compare character references</a></p>
 
 <p align="center">
   <img src="docs/images/hero.png" alt="AI-generated pixel art scene: knight, wizard, ranger and slime by a campfire, oak trees, a stone well, a cobblestone path and an inventory bar of twelve item icons" width="1024">
@@ -339,6 +339,18 @@ Each image is one headless `codex exec` turn with these properties:
 
 The cost is counted in **generations** of your plan quota, not dollars.
 
+## Agent skill
+
+Install the [Pixel Studio skill](skills/pixel-studio/SKILL.md) in your game project to use the local Studio API from a compatible coding agent (such as Codex, Claude Code, or OpenCode):
+
+```sh
+npx skills add alanfrigo/pixel-studio --skill pixel-studio
+```
+
+Run the command from your game project's directory. The CLI installs the skill there; add `-g` for a user-wide install. To try an unpublished checkout, use `npx skills add /path/to/pixel-studio --skill pixel-studio` instead.
+
+Start Pixel Studio separately with [`npm run dev`](#local-installation). The skill includes the API reference and workflows for sprites with image references, animation and equipment, tilesets and maps, scenes and room kits, game UI, portraits, lip-sync timing, bitmap fonts, and portable ZIP export. An example request for your agent: “Use Pixel Studio to generate three 32×32 potion icons as candidates in my RPG project. Show the plan and estimate before using a paid model.”
+
 ## Examples
 
 ### Generate a 32×32 icon over the HTTP API
@@ -372,8 +384,8 @@ The worker downloads each image, recovers the pixel grid, removes the background
 ### Inpainting
 
 1. Upload a black-and-white mask PNG the same size as the source (255 = edit, 0 = protect).
-2. Request a plan with `"operation": "inpaint"`, a `"mode"` of `"native-mask"` or `"candidate-composite"`, and an `instruction`.
-3. Submit it as a job, as above.
+2. Preview `operation: "inpaint"` at `/generation-plans` with `providerProfileId`, `sourceRevisionId`, `sourceFileKey`, `maskUploadId`, `instruction`, and `mode` (`native-mask` or `candidate-composite`).
+3. Submit the returned plan and digest to `/jobs` with the source asset as the target. See the [skill's inpainting workflow](skills/pixel-studio/references/core.md#inpaint-an-approved-revision).
 
 An empty mask is rejected with zero provider calls. A full mask is reported as full regeneration.
 
@@ -439,6 +451,7 @@ python/          pixel_pipeline (raster operations over a JSON stdio protocol) +
 consumers/       independent reader of the portable package (no Studio imports)
 schemas/v1/      exported JSON Schemas for external tools
 fixtures/        "Clareira" demo scene used by tests (characters, tileset, UI, audio, font)
+skills/          installable Pixel Studio agent skill and API references
 scripts/         dev launcher, migrations, fixtures, benchmarks and real-model trials
 ```
 
@@ -450,6 +463,12 @@ npm test                 # Vitest only
 npm run test:python      # pytest only
 npm run schemas:export   # regenerate schemas/v1 after changing a contract
 npm run fixtures:build   # regenerate the deterministic fixture scene
+```
+
+After changing an API route, update the skill's matching route table. After changing a generation preview or local recipe contract, regenerate the bundled schema snapshot:
+
+```sh
+npx tsx scripts/export-skill-schemas.ts > skills/pixel-studio/references/schemas.json
 ```
 
 Design rules the code follows:
