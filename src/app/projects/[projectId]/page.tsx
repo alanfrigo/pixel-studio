@@ -1,4 +1,5 @@
 import { HealthBanner } from "@/app/client/health-banner";
+import { EXPORT_PROFILES } from "@/server/export/profiles";
 import { Workspace } from "./workspace";
 
 export default async function ProjectPage({ params, searchParams }: PageProps<"/projects/[projectId]">) {
@@ -8,7 +9,7 @@ export default async function ProjectPage({ params, searchParams }: PageProps<"/
   return (
     <>
       <HealthBanner />
-      <Workspace key={projectId} projectId={projectId} view={view} templateId={templateId} />
+      <Workspace key={projectId} projectId={projectId} view={view} templateId={templateId} exportProfiles={view === "export" ? Object.values(EXPORT_PROFILES) : []} />
     </>
   );
 }

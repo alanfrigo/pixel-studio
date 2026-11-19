@@ -8,5 +8,6 @@ export default defineConfig([
   globalIgnores([
     ".next/**", "out/**", "build/**", "next-env.d.ts", "plan/**", "data/**", "schemas/**", "fixtures/**",
     ".taste-skill/**", "public/assets/{effects,moments,motion}/**",
+    "coverage/**", "playwright-report/**", "test-results/**", "python/.venv/**",
   ]),
 ]);

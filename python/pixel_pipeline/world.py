@@ -897,7 +897,7 @@ def iso_check(request: Json, workdir: Path) -> Json:
         center = (top_x + (fw - fh) * dw / 4, top_y + (fw + fh) * dh / 4 - elevation * step)
         x, y = center[0] - p["supportPoint"][0], center[1] - p["supportPoint"][1]
         items.append((i + j + fw - 1 + fh - 1, elevation, 2, crops[pr["key"]], x, y, ("prop", pr["key"])))
-        placements.append({"key": pr["key"], "cell": [i, j], "drawAt": [_r(x), _r(y)], "supportScreen": [_r(x + p["supportPoint"][0]), _r(y + p["supportPoint"][1])], "cellCenter": [_r(center[0]), _r(center[1])]})
+        placements.append({"key": pr["key"], "cell": [i, j], "drawAt": [_r(x), _r(y)], "cellCenter": [_r(center[0]), _r(center[1])]})
     # Personagem de teste: alto o bastante para cruzar a base do prop vindo de trás ou da frente.
     probe = Image.new("RGBA", (max(6, dw // 6), max(12, dh * 3 // 2)), (0, 0, 0, 0))
     ImageDraw.Draw(probe).rectangle([0, 0, probe.width - 1, probe.height - 1], fill=(250, 210, 60, 255), outline=(20, 20, 28, 255))
@@ -933,7 +933,10 @@ def iso_check(request: Json, workdir: Path) -> Json:
             if coverage[yy][xx] > 1:
                 overlaps += 1
     for pl in placements:
-        pl["supportScreen"] = [_r(pl["supportScreen"][0] + ox), _r(pl["supportScreen"][1] + oy)]
+        # Use the same quantization as the composited patch, not the ideal placement.
+        x, y = pl["drawAt"]
+        sx, sy = pieces[pl["key"]]["supportPoint"]
+        pl["supportScreen"] = [round(x + ox) + sx, round(y + oy) + sy]
         pl["cellCenter"] = [_r(pl["cellCenter"][0] + ox), _r(pl["cellCenter"][1] + oy)]
         pl["ok"] = pl["supportScreen"] == pl["cellCenter"]
 

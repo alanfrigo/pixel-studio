@@ -7,11 +7,11 @@ import { validateManifest } from "@/domain/manifest/validate";
 import { sha256Hex } from "@/domain/manifest/verify-files";
 import { buildClareira } from "@/fixtures/clareira";
 import { readZip, writeZip } from "@/lib/zip";
-import { createAsset, createProject, getAsset, listRevisions, publishRevision } from "../catalog/catalog";
+import { createAsset, createProject, getAsset, getBlob, getRevision, listRevisions, publishRevision, reviewRevision } from "../catalog/catalog";
 import { getUpload } from "../catalog/catalog";
 import { ingestUpload } from "../services";
 import { makeTestStudio, type TestStudio } from "../testing";
-import { exportFilePath, getExport, requestExport } from "./exports";
+import { exportFilePath, getExport, listExports, requestExport } from "./exports";
 import { importPortablePackage } from "./import";
 
 const PYTHON = path.join(process.cwd(), "python", ".venv", "bin", "python");
@@ -130,6 +130,47 @@ describe("exportação portátil", () => {
     expect(Object.keys(reopened.revisionMap)).toHaveLength(manifest.entries.length);
     const blobs = new Set(studio.db.all<{ sha: string }>("SELECT blob_sha256 AS sha FROM revision_files WHERE project_id = :p", { p: other.id }).map((r) => r.sha));
     for (const f of manifest.files) expect(blobs.has(f.sha256)).toBe(true);
+  });
+
+  it("preserva os dois PNGs quando assets de famílias distintas têm o mesmo nome e chave local", async () => {
+    const { project, fixture, map } = await seedClareira();
+    const expected: string[] = [];
+    const selected: string[] = [];
+    for (const id of ["warrior-base-v1", "potion-v1"]) {
+      const original = fixture.manifest.entries.find((e) => e.revisionId === id)!;
+      if (original.family !== "item" && (original.family !== "character" || original.kind !== "base")) throw new Error(`Fixture inesperada: ${id}`);
+      const file = getRevision(studio.db, project.id, map[id]!).files[0]!;
+      expected.push(file.sha256);
+      const asset = createAsset(studio.db, studio.clock, { projectId: project.id, family: original.family, kind: original.kind, name: "Mesmo nome" });
+      const payload = original.family === "character"
+        ? { ...original.payload, views: original.payload.views.map((view) => ({ ...view, fileId: "image" })) }
+        : { ...original.payload, representations: original.payload.representations.map((representation) => ({ ...representation, fileId: "image" })) };
+      const rev = publishRevision(studio.db, studio.clock, {
+        projectId: project.id, assetId: asset.id, payload, origin: "import", styleRevisionId: null,
+        files: [{ fileKey: "image", role: "original", idx: 0, blob: getBlob(studio.db, file.sha256)! }],
+      });
+      reviewRevision(studio.db, studio.clock, { projectId: project.id, assetId: asset.id, revisionId: rev.id, expectedActiveRevisionId: null, decision: "approve", reason: null });
+      selected.push(rev.id);
+    }
+    const { ready, zip } = await exportAndRun(project.id, selected);
+    expect(ready.state).toBe("ready");
+    const archive = readZip(zip);
+    const result = validateManifest(JSON.parse(new TextDecoder().decode(archive.read("manifest.json"))));
+    expect(result.issues).toEqual([]);
+    expect(result.manifest?.files.map((file) => sha256Hex(archive.read(file.path))).sort()).toEqual(expected.sort());
+  });
+});
+
+describe("seleção de formato nativo", () => {
+  it("recusa seleção mista antes de enfileirar, em vez de descartar o item incompatível", async () => {
+    const { project, map } = await seedClareira();
+    expect(() => requestExport(studio, project.id, {
+      revisionIds: [map["warrior-attack-osh-s-v1"]!, map["potion-v1"]!], profile: "gif-v1",
+    })).toThrow(expect.objectContaining({
+      code: "coverage_incomplete",
+      details: { problems: [{ revisionId: map["potion-v1"], message: expect.objectContaining({ en: expect.stringContaining("asset type not supported") }) }] },
+    }));
+    expect(listExports(studio.db, project.id)).toEqual([]);
   });
 });
 

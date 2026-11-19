@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,15 @@ def test_compose_recompoe_quadros_do_atlas_e_monta_folha_achatada(pipe: Pipeline
     assert sheet.getchannel("A").getextrema() == (255, 255)
     assert [f["key"] for f in res["report"]["frames"]] == ["a", "b"]
     assert res["report"]["frames"][0]["rgbaSha256"] != res["report"]["frames"][1]["rgbaSha256"]
+
+
+def test_compose_without_sheet_keeps_individually_addressable_frames(pipe):
+    source = atlas()
+    result = pipe.run("compose_frames", frames_recipe(), [("layer", source)])
+    assert result["report"]["sheet"] is None
+    assert [(output["role"], output["key"]) for output in result["outputs"]] == [("frame", "a"), ("frame", "b")]
+    with Image.open(pipe.workdir / "run1" / "in" / "0-layer.png") as original:
+        assert pipe.image(result, "frame", "b").tobytes() == original.crop((32, 0, 64, 32)).tobytes()
 
 
 def test_compose_recusa_camada_fora_da_celula(pipe: Pipeline) -> None:
@@ -149,3 +159,106 @@ def test_conteudo_atravessando_a_grade_gera_alerta(pipe: Pipeline) -> None:
     res = pipe.run("animation_sheet", recipe(["a", "b"], 2, 2), [("candidate", png(img)), ("source", base_view())])
     assert res["status"] == "needs_review"
     assert any("atravessa a divisão da grade" in w["pt-BR"] and "crosses the grid divisions" in w["en"] for w in res["warnings"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code", "message"),
+    [
+        ("input", 1, "invalid_request", "Frame a: layer 0 references missing input 1"),
+        ("rect", [40, 0, 32, 32], "geometry_mismatch", "Frame a: rectangle [40, 0, 32, 32] outside the 64×32 file"),
+    ],
+)
+def test_compose_rejects_invalid_frame_layer(pipe, field, value, code, message):
+    recipe = frames_recipe()
+    recipe["frames"][0]["layers"][0][field] = value
+    result = pipe.run("compose_frames", recipe, [("layer", atlas())])
+    assert result["error"]["code"] == code
+    assert result["error"]["message"]["en"] == message
+
+
+def test_compose_sheet_only_preserves_transparency_and_rejects_overflowing_grid(pipe):
+    sheet = {"columns": 2, "rows": 1, "scale": 1, "flattenOnto": None}
+    inputs = [("layer", atlas())]
+    result = pipe.run("compose_frames", frames_recipe(sheet, emit=False), inputs)
+    assert [o["role"] for o in result["outputs"]] == ["sheet"]
+    assert result["report"]["sheet"] == {"grid": [2, 1], "scale": 1, "size": [64, 32], "flattenedOnto": None}
+    with Image.open(BytesIO(inputs[0][1])) as original:
+        assert pipe.image(result, "sheet").tobytes() == original.tobytes()
+    overflow = pipe.run("compose_frames", frames_recipe({**sheet, "columns": 1}), inputs)
+    assert overflow["error"]["code"] == "geometry_mismatch"
+    assert overflow["error"]["message"]["en"] == "2 frames for 1 cells"
+
+
+@pytest.mark.parametrize(
+    ("original_size", "code", "message"),
+    [
+        (None, "invalid_request", "1 frames requested and 0 originals"),
+        ((6, 5), "geometry_mismatch", "Original a is 6×5; the cell is 6×6"),
+    ],
+)
+def test_sheet_match_checks_count_and_cell_geometry_of_originals(pipe, original_size, code, message):
+    recipe = {"columns": 1, "rows": 1, "frameIds": ["a"], "cell": [6, 6], "alphaThreshold": 128, "scaleTolerance": 0.1}
+    inputs = [("candidate", png(Image.new("RGBA", (6, 6))))]
+    if original_size is not None:
+        inputs.append(("layer", png(Image.new("RGBA", original_size))))
+    result = pipe.run("sheet_match", recipe, inputs)
+    assert result["error"]["code"] == code
+    assert result["error"]["message"]["en"] == message
+
+
+def test_sheet_match_reports_crossings_empty_frames_leftovers_and_clipped_pixels(pipe):
+    red = (180, 50, 30, 255)
+    sheet = Image.new("RGBA", (30, 6))
+    sheet.paste(red, (0, 0, 6, 6))
+    sheet.paste(red, (17, 1, 19, 4))
+    orig = Image.new("RGBA", (6, 6))
+    orig.paste(red, (0, 2, 1, 6))
+    blank = png(Image.new("RGBA", (6, 6)))
+    recipe = {"columns": 5, "rows": 1, "frameIds": ["wide", "empty"], "cell": [6, 6], "alphaThreshold": 128, "scaleTolerance": 0.1}
+    result = pipe.run("sheet_match", recipe, [("candidate", png(sheet)), ("layer", png(orig)), ("layer", blank)])
+    assert result["report"]["scale"] == {"factor": 1, "resampled": False, "scaleBy": "sheet"}
+    assert result["report"]["frames"] == [
+        {"frameId": "wide", "cell": 0, "regionRect": [0, 0, 6, 6], "empty": False,
+         "offset": [-2, 0], "clippedPixels": 12, "anchoredTo": "original"},
+        {"frameId": "empty", "cell": 1, "regionRect": [6, 0, 6, 6], "empty": True, "offset": None, "clippedPixels": 0},
+    ]
+    assert [w["en"] for w in result["warnings"]] == [
+        "Content crosses the grid divisions (column 3|4 (3 px)): the model did not respect the cells; frames may come out clipped — review them",
+        "Frame wide: 12 pixel(s) fell outside the 6×6 cell; enlarge the canvas",
+        "Frame empty came out empty in the sheet",
+        "Sheet cell 3 has content but matches no requested frame",
+        "Sheet cell 4 has content but matches no requested frame",
+    ]
+    assert pipe.image(result, "frame", "wide").getbbox() == (0, 0, 4, 6)
+    assert pipe.image(result, "frame", "empty").getbbox() is None
+
+
+def test_sheet_match_without_measurable_original_uses_default_cell_anchor(pipe):
+    source = Image.new("RGBA", (6, 6))
+    source.paste((80, 100, 120, 255), (0, 0, 3, 2))
+    recipe = {"columns": 1, "rows": 1, "frameIds": ["new"], "cell": [6, 6], "alphaThreshold": 128, "scaleTolerance": 0.1, "scaleBy": "width"}
+    result = pipe.run("sheet_match", recipe, [("candidate", png(source)), ("layer", png(Image.new("RGBA", source.size)))])
+    assert result["status"] == "ok"
+    assert result["report"]["scale"] == {"factor": 1, "resampled": False, "scaleBy": "width"}
+    frame = result["report"]["frames"][0]
+    assert frame["anchoredTo"] == "typical" and frame["offset"] == [2, 4] and frame["clippedPixels"] == 0
+    assert pipe.image(result, "frame", "new").getbbox() == (2, 4, 5, 6)
+
+
+def test_mirror_without_probe_has_no_asymmetry_measurement_and_requires_frames(pipe):
+    source = Image.new("RGBA", (4, 2))
+    source.putpixel((0, 1), (20, 40, 60, 255))
+    recipe = {"asymmetryThreshold": 0.1}
+    result = pipe.run("mirror_frames", recipe, [("layer", png(source))])
+    assert result["report"] == {"mirrored": 1, "asymmetry": None, "asymmetric": None}
+    assert pipe.image(result, "mirrored", "0").getbbox() == (3, 1, 4, 2)
+    missing = pipe.run("mirror_frames", recipe, [("source", png(source))])
+    assert missing["error"]["code"] == "invalid_request"
+    assert missing["error"]["message"]["en"] == "Mirror requires at least one image (layer role)"
+
+
+def test_canvas_fit_rejects_fully_offscreen_source(pipe):
+    source = Image.new("RGBA", (2, 2), (70, 80, 90, 255))
+    result = pipe.run("canvas_fit", {"size": [3, 3], "offset": [3, 0]}, [("source", png(source))])
+    assert result["error"]["code"] == "geometry_mismatch"
+    assert result["error"]["message"]["en"] == "The 3×3 canvas with offset 3,0 would clip 4 visible pixel(s)"

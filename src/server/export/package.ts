@@ -170,6 +170,7 @@ export async function buildPortablePackage(db: Db, blobs: BlobStore, projectId: 
   const contents: PackageFile[] = [];
   const bySha = new Map<string, string>();
   const usedPaths = new Set<string>();
+  const usedFileIds = new Set<string>();
   const entries: ManifestEntry[] = [];
   const families: Partial<Record<AssetFamily, number>> = {};
 
@@ -194,11 +195,12 @@ export async function buildPortablePackage(db: Db, blobs: BlobStore, projectId: 
       const measured = await measure(bytes, base);
       let fileId = base;
       let path = `${FAMILY_DIRS[asset.family]}/${base}.${EXTENSIONS[measured.mime]}`;
-      for (let n = 2; usedPaths.has(path.toLowerCase()); n++) {
+      for (let n = 2; usedFileIds.has(fileId.toLowerCase()) || usedPaths.has(path.toLowerCase()); n++) {
         fileId = `${base}-${n}`;
         path = `${FAMILY_DIRS[asset.family]}/${fileId}.${EXTENSIONS[measured.mime]}`;
       }
       usedPaths.add(path.toLowerCase());
+      usedFileIds.add(fileId.toLowerCase());
       bySha.set(link.sha256, fileId);
       fileMap.set(ref.fileId, fileId);
       files.push({ fileId, path, bytes: bytes.length, sha256: link.sha256, ...measured } as ManifestFile);

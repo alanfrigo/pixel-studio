@@ -147,3 +147,39 @@ def test_folha_de_contato(pipe: Pipeline) -> None:
     assert sheet_img.getpixel((0, 0)) == (32, 32, 36, 255)
     bad = pipe.run("animation_contact_sheet", {"cell": [16, 16], "zoom": 2, "background": None, "columns": 2, "gap": 0}, [("layer", frames[0])])
     assert bad["error"]["code"] == "geometry_mismatch"
+
+
+def test_animation_rejects_empty_base_and_more_frames_than_grid_can_hold(pipe):
+    candidate = sheet(1, 1, 32, [(16, 2, 20)])
+    empty = pipe.run("animation_sheet", recipe(["a"], 1, 1),
+                     [("candidate", candidate), ("source", png(Image.new("RGBA", (32, 32))))])
+    assert empty["error"]["code"] == "unsupported_input"
+    assert empty["error"]["message"]["en"] == "Base view is empty"
+    overflow = pipe.run("animation_sheet", recipe(["a", "b"], 1, 1),
+                        [("candidate", candidate), ("source", base_view())])
+    assert overflow["error"]["code"] == "geometry_mismatch"
+    assert overflow["error"]["message"]["en"] == "2 frames for 1 cells"
+
+
+def test_animation_ignores_unused_transparent_grid_cell_without_warning(pipe):
+    candidate = sheet(2, 1, 32, [(16, 2, 24), None])
+    result = pipe.run("animation_sheet", recipe(["a"], 2, 1), [("candidate", candidate), ("source", base_view())])
+    assert result["status"] == "ok"
+    assert [f["frameId"] for f in result["report"]["frames"]] == ["a"]
+    assert pipe.image(result, "frame", "a").getbbox() == (12, 6, 20, 30)
+
+
+def test_contact_sheet_transparent_pixels_show_checkerboard_and_cells_are_integer_zoomed(pipe):
+    frame = Image.new("RGBA", (4, 3))
+    frame.putpixel((2, 1), BODY)
+    recipe = {"cell": [4, 3], "zoom": 2, "columns": 2, "gap": 1, "background": None}
+    result = pipe.run("animation_contact_sheet", recipe, [("layer", png(frame))])
+    assert result["report"] == {"frames": 1, "zoom": 2, "grid": [1, 1], "size": [10, 8]}
+    contact = pipe.image(result, "contact")
+    assert contact.crop((5, 3, 7, 5)).tobytes() == Image.new("RGBA", (2, 2), BODY).tobytes()
+    assert contact.getpixel((0, 0)) == (236, 236, 232, 255)
+    assert contact.getpixel((4, 0)) == (204, 204, 198, 255)
+    assert contact.getpixel((9, 7)) == (204, 204, 198, 255)
+    missing = pipe.run("animation_contact_sheet", recipe, [])
+    assert missing["error"]["code"] == "invalid_request"
+    assert missing["error"]["message"]["en"] == "Contact sheet needs at least one frame (layer role)"

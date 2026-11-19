@@ -13,6 +13,9 @@ import pytest
 from jsonschema import Draft202012Validator
 from PIL import Image
 
+from pixel_pipeline.operations import composite_protected
+from pixel_pipeline.protocol import PipelineError
+
 REPO = Path(__file__).resolve().parents[2]
 REQUEST_SCHEMA = json.loads((REPO / "schemas" / "v1" / "python-request.schema.json").read_text())
 RESPONSE_SCHEMA = json.loads((REPO / "schemas" / "v1" / "python-response.schema.json").read_text())
@@ -33,7 +36,7 @@ class Pipeline:
         self.workdir = workdir
         self.n = 0
 
-    def run(self, operation: str, recipe: dict, inputs: list[tuple[str, bytes]]) -> dict:
+    def run(self, operation: str, recipe: dict, inputs: list[tuple[str, bytes]], *, validate_request=True, input_hashes=None) -> dict:
         self.n += 1
         work = self.workdir / f"run{self.n}"
         (work / "in").mkdir(parents=True)
@@ -41,9 +44,11 @@ class Pipeline:
         for ordinal, (role, data) in enumerate(inputs):
             rel = f"in/{ordinal}-{role}.png"
             (work / rel).write_bytes(data)
-            entries.append({"ordinal": ordinal, "role": role, "sha256": hashlib.sha256(data).hexdigest(), "relPath": rel})
+            sha = (input_hashes or {}).get(ordinal, hashlib.sha256(data).hexdigest())
+            entries.append({"ordinal": ordinal, "role": role, "sha256": sha, "relPath": rel})
         request = {"protocolVersion": 1, "jobId": "job_1", "attemptId": "att_1", "operation": operation, "inputs": entries, "recipe": {"version": 1, **recipe}}
-        Draft202012Validator(REQUEST_SCHEMA).validate(request)
+        if validate_request:
+            Draft202012Validator(REQUEST_SCHEMA).validate(request)
         proc = subprocess.run([sys.executable, "-I", "-m", "pixel_pipeline"], input=json.dumps(request).encode(), cwd=work, capture_output=True, timeout=60, check=True)
         response = json.loads(proc.stdout)
         Draft202012Validator(RESPONSE_SCHEMA).validate(response)
@@ -259,6 +264,33 @@ def test_protected_pixels_restored_exactly(pipe):
             expected = candidate.getpixel((x, y)) if mask.getpixel((x, y)) == 255 else source.getpixel((x, y))
             assert out.getpixel((x, y)) == expected, (x, y)
     assert r["report"]["editedPixels"] == 15
+
+
+def test_composite_rejects_corruption_in_protected_rgb_even_under_zero_alpha(tmp_path, monkeypatch):
+    source = Image.new("RGBA", (2, 1), (11, 22, 33, 0))
+    candidate = Image.new("RGBA", source.size, GREEN)
+    mask = Image.new("L", source.size)
+    mask.putpixel((1, 0), 255)
+    inputs = []
+    for role, image in (("source", source), ("candidate", candidate), ("editMask", mask)):
+        path = tmp_path / f"{role}.png"
+        image.save(path)
+        inputs.append({"role": role, "relPath": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+
+    pillow_composite = Image.composite
+
+    def corrupt_protected_rgb(first, second, edit_mask):
+        output = pillow_composite(first, second, edit_mask)
+        if edit_mask.getpixel((1, 0)) == 255:
+            output.putpixel((0, 0), (55, 66, 77, 0))
+        return output
+
+    monkeypatch.setattr(Image, "composite", corrupt_protected_rgb)
+    with pytest.raises(PipelineError) as raised:
+        composite_protected({"recipe": {"version": 1}, "inputs": inputs}, tmp_path)
+    assert raised.value.code == "internal"
+    assert raised.value.message["en"] == "Protected pixels differ from the source after compositing"
+    assert not (tmp_path / "out").exists()
 
 
 def test_protected_composite_edge_cases(pipe):
@@ -588,3 +620,273 @@ def test_off_grid_candidate_uses_block_majority(pipe):
     assert r["report"]["method"] == "block_mode"
     assert Pipeline.image(r, "fitted").tobytes() == art.tobytes()
     assert any("cor majoritária" in w["pt-BR"] for w in r["warnings"])
+
+
+@pytest.mark.parametrize(
+    ("operation", "recipe", "role", "code", "message"),
+    [
+        ("crop_to_content", {"version": 2, "padding": 0, "alphaThreshold": 0}, "source", "invalid_request", "Recipe requires version = 1"),
+        ("crop_to_content", {"padding": 0, "alphaThreshold": 0}, "source", "decode_failed", "Could not read 0-source.png:"),
+    ],
+)
+def test_invalid_recipe_or_unreadable_input_is_reported(pipe, operation, recipe, role, code, message):
+    result = pipe.run(operation, recipe, [(role, b"not a PNG")], validate_request=recipe.get("version") != 2)
+    assert result["status"] == "error"
+    assert result["error"]["code"] == code
+    assert result["error"]["message"]["en"].startswith(message)
+
+
+def test_inspect_mask_reports_decode_failure_with_role(pipe):
+    result = pipe.run("inspect_mask", MASK_RECIPE, [
+        ("source", png(Image.new("RGBA", (2, 2)))), ("editMask", b"not a PNG"),
+    ])
+    assert result["error"]["code"] == "decode_failed"
+    assert result["error"]["message"]["en"].startswith("editMask unreadable:")
+
+
+@pytest.mark.parametrize(
+    ("mask", "message"),
+    [
+        (Image.new("RGBA", (2, 1), (255, 255, 255, 254)), "editMask has transparency; use opaque black and white"),
+        (Image.new("RGB", (2, 1), (255, 255, 0)), "editMask is in color; use only black (0) and white (255)"),
+    ],
+)
+def test_masks_require_opaque_grayscale(pipe, mask, message):
+    result = pipe.run("encode_mask", {"encoding": "alpha_zero_edits"}, [("editMask", png(mask))])
+    assert result["error"]["code"] == "invalid_request"
+    assert result["error"]["message"]["en"] == message
+
+
+def test_opaque_rgba_mask_is_binary_by_rgb_not_alpha(pipe):
+    mask = Image.new("RGBA", (2, 1), (0, 0, 0, 255))
+    mask.putpixel((1, 0), (255, 255, 255, 255))
+    result = pipe.run("encode_mask", {"encoding": "alpha_zero_edits"}, [("editMask", png(mask))])
+    assert result["report"]["editedPixels"] == 1
+    assert Pipeline.image(result, "remote_mask").getchannel("A").tobytes() == bytes([255, 0])
+
+
+@pytest.mark.parametrize(
+    ("ordinal", "hashes", "message"),
+    [
+        (2, None, "Layer 0 references missing input 2"),
+        (0, {0: "0" * 64}, "Input in/0-layer.png missing or with a mismatched hash"),
+    ],
+)
+def test_composite_rejects_invalid_layer_references(pipe, ordinal, hashes, message):
+    result = pipe.run(
+        "compose_layers", {"canvas": [2, 2], "layers": [{"inputOrdinal": ordinal, "offset": [0, 0]}]},
+        [("layer", png(Image.new("RGBA", (2, 2))))], input_hashes=hashes,
+    )
+    assert result["error"]["code"] == "invalid_request"
+    assert result["error"]["message"]["en"] == message
+
+
+def test_slice_grid_diagnoses_empty_leftover_and_stray_content(pipe):
+    image = Image.new("RGBA", (18, 4))
+    image.paste(STEEL, (0, 0, 18, 1))
+    image.paste(STEEL, (0, 1, 2, 2))
+    image.putpixel((7, 2), STEEL)
+    image.putpixel((10, 2), RIVET)
+    recipe = slice_recipe(
+        grid={"rows": 1, "columns": 4, "cell": [2, 2], "margin": [2, 1], "spacing": [2, 0], "traversal": "row_major"},
+        frameIds=["empty"], durationMs=[80], pivot=[1, 1], emptyCells=[1],
+    )
+    result = pipe.run("slice_grid", recipe, [("source", png(image))])
+    expected = [
+        "Frame empty is empty; declare the cell empty if that is intentional",
+        "Cell 1 declared empty has content at (7, 2)",
+        "Cell 2 has content but received no frame (leftover in the grid)",
+    ]
+    assert result["status"] == "needs_review"
+    assert [w["en"] for w in result["warnings"][:3]] == expected
+    assert result["report"]["emptyCells"] == [{"cell": 1, "rect": [6, 1, 2, 2], "transparent": False}]
+    assert result["report"]["strayPixels"] == [[x, 0] for x in range(18)] + [[0, 1], [1, 1]]
+    assert Pipeline.image(result, "frame", "empty").getbbox() is None
+
+
+def test_slice_grid_rejects_more_frames_than_available_cells(pipe):
+    result = pipe.run("slice_grid", slice_recipe(emptyCells=[0, 2]), [("source", png(strip()))])
+    assert result["error"]["code"] == "geometry_mismatch"
+    assert result["error"]["message"]["en"] == "3 frames for 2 available cells"
+
+
+def test_flood_seed_outside_image_is_rejected(pipe):
+    result = flood(pipe, shield(), {"borders": False, "points": [[16, 0]]})
+    assert result["error"]["code"] == "geometry_mismatch"
+    assert result["error"]["message"]["en"] == "Seed (16, 0) outside the 16×16 image"
+
+
+def test_flood_crosses_transparent_pixels_and_keep_wins_brush_overlap(pipe):
+    image = Image.new("RGBA", (5, 1), GREEN)
+    image.putpixel((1, 0), (23, 25, 27, 0))
+    image.putpixel((4, 0), STEEL)
+    keep = Image.new("L", image.size)
+    keep.putpixel((3, 0), 255)
+    remove = keep.copy()
+    remove.putpixel((4, 0), 255)
+    result = flood(pipe, image, {"borders": False, "points": [[0, 0], [0, 0], [3, 0]]}, keep=keep, remove=remove)
+    assert [w["en"] for w in result["warnings"]] == [
+        "Seed (3, 0) does not have the background color or is protected; ignored",
+        "1 pixels marked by both brushes; protection won",
+    ]
+    assert {k: result["report"][k] for k in ("removedPixels", "removedByBrush", "keptByBrush")} == {
+        "removedPixels": 3, "removedByBrush": 1, "keptByBrush": 1,
+    }
+    assert Pipeline.image(result, "cutout").getpixel((1, 0)) == (23, 25, 27, 0)
+    assert Pipeline.image(result, "removed_mask").tobytes() == bytes([255, 255, 255, 0, 255])
+
+
+def test_hue_cleanup_removes_key_fringe_and_small_specks_but_respects_keep_mask(pipe):
+    image = Image.new("RGBA", (24, 24), (0, 200, 0, 255))
+    image.paste(STEEL, (2, 2, 20, 20))
+    fringe = (130, 170, 130, 255)
+    image.paste(fringe, (2, 2, 20, 4))
+    speck = (200, 40, 140, 255)
+    image.putpixel((21, 4), speck)
+    image.putpixel((22, 9), speck)
+    image.putpixel((7, 8), fringe)
+    keep = Image.new("L", image.size)
+    keep.putpixel((22, 9), 255)
+    result = pipe.run("remove_background_flood", {
+        "color": "#00c800", "tolerance": 0, "connectivity": 4, "seeds": {"borders": True, "points": []},
+        "match": {"mode": "hue", "keyFrom": "border", "hueTolerance": 20, "minSaturation": 96, "minValue": 100, "cleanup": True},
+    }, [("source", png(image)), ("keepMask", png(keep))])
+    output = Pipeline.image(result, "cutout")
+    assert result["report"]["measuredKeyHue"] == 120
+    assert output.getpixel((10, 3)) == (*fringe[:3], 0)
+    assert output.getpixel((7, 8)) == fringe
+    assert output.getpixel((21, 4)) == (*speck[:3], 0)
+    assert output.getpixel((22, 9)) == speck
+    assert output.getchannel("A").histogram()[255] == 18 * 16 + 1
+
+
+def test_hue_flood_without_saturated_border_uses_requested_key(pipe):
+    image = Image.new("RGBA", (5, 5), STEEL)
+    image.putpixel((2, 2), GREEN)
+    result = pipe.run("remove_background_flood", {
+        "color": "#00c800", "tolerance": 0, "connectivity": 4, "seeds": {"borders": True, "points": [[2, 2]]},
+        "match": {"mode": "hue", "keyFrom": "border", "hueTolerance": 20, "minSaturation": 96, "cleanup": False},
+    }, [("source", png(image))])
+    assert result["report"]["measuredKeyHue"] is None
+    assert result["report"]["removedPixels"] == 1
+    cutout = Pipeline.image(result, "cutout")
+    assert cutout.getpixel((2, 2)) == (*GREEN[:3], 0)
+    assert cutout.getpixel((0, 0)) == STEEL
+
+
+@pytest.mark.parametrize(
+    ("operation", "recipe", "color", "message"),
+    [
+        ("crop_to_content", {"padding": 1, "alphaThreshold": 64}, (9, 8, 7, 64), "Image has no visible content to crop"),
+        ("fit_logical", {"targetSize": [2, 2], "cropToContent": {"padding": 0}}, (9, 8, 7, 0), "Nothing visible after background removal"),
+        ("fit_logical", {"targetSize": [2, 2], "measureGround": True}, (9, 8, 7, 0), "Nothing visible in the fitted character base"),
+        ("fit_logical", {"targetSize": [2, 2], "measureGround": True}, (9, 8, 7, 255), "The character base needs a transparent background"),
+    ],
+)
+def test_empty_content_or_opaque_character_reports_distinct_failure(pipe, operation, recipe, color, message):
+    result = pipe.run(operation, recipe, [("source", png(Image.new("RGBA", (2, 2), color)))])
+    assert result["error"]["code"] == "unsupported_input"
+    assert result["error"]["message"]["en"] == message
+
+
+@pytest.mark.parametrize("policy", ["strict", "guided"])
+@pytest.mark.parametrize("off_palette", [True, False])
+def test_fit_logical_origin_uses_feet_and_palette_controls_rgb(pipe, policy, off_palette):
+    image = Image.new("RGBA", (6, 6))
+    color = (204, 2, 3) if off_palette else (200, 0, 0)
+    image.paste((*color, 255), (0, 1, 6, 2))  # wide hat
+    image.paste((*color, 80), (0, 2, 1, 3))  # below threshold
+    image.paste((*color, 210), (1, 3, 3, 5))  # narrower feet, off-center
+    result = pipe.run("fit_logical", {
+        "targetSize": [6, 6], "measureGround": True, "alphaThreshold": 200,
+        "palette": {"policy": policy, "colors": ["#c80000"]},
+    }, [("source", png(image))])
+    assert result["report"]["groundOrigin"] == [2, 5]
+    assert result["report"]["method"] == "identity"
+    assert result["report"]["alphaBinarized"] == 5
+    assert result["report"]["palette"] == {
+        "policy": policy, "visiblePixels": 10, "visibleColorsBefore": 1,
+        "offPalettePixels": 10 if off_palette else 0, "offPaletteColorCount": int(off_palette),
+        "offPaletteColors": ["#cc0203"] if off_palette else [],
+        "changedPixels": 10 if off_palette and policy == "strict" else 0,
+        "usedIndices": [] if off_palette and policy == "guided" else [0],
+    }
+    output = Pipeline.image(result, "fitted")
+    assert output.getpixel((0, 2)) == (0, 0, 0, 0)
+    assert output.getpixel((1, 4)) == (*(color if policy == "guided" else (200, 0, 0)), 255)
+    if off_palette:
+        assert result["status"] == "needs_review"
+        assert result["warnings"][0]["en"] == {
+            "strict": "Strict palette: 10 of 10 visible pixels were mapped to project colors.",
+            "guided": "Guided palette: 10 of 10 visible pixels are outside the project palette. Colors were kept.",
+        }[policy]
+    else:
+        assert result["status"] == "ok"
+
+
+def test_fit_logical_upscales_full_canvas_by_integer_with_nearest_pixels(pipe):
+    source = Image.new("RGBA", (2, 1), GREEN)
+    source.putpixel((1, 0), RIVET)
+    result = pipe.run("fit_logical", {"targetSize": [6, 3]}, [("source", png(source))])
+    assert result["report"]["factor"] == pytest.approx(1 / 3)
+    assert result["report"]["method"] == "nearest_upscale"
+    output = Pipeline.image(result, "fitted")
+    assert output.crop((0, 0, 3, 3)).tobytes() == Image.new("RGBA", (3, 3), GREEN).tobytes()
+    assert output.crop((3, 0, 6, 3)).tobytes() == Image.new("RGBA", (3, 3), RIVET).tobytes()
+
+
+def test_inpaint_guide_preserves_alpha_without_flatten_color(pipe):
+    source = Image.new("RGBA", (2, 1), (80, 90, 100, 42))
+    mask = Image.new("L", source.size)
+    mask.putpixel((1, 0), 255)
+    result = pipe.run("inpaint_guide", {"scale": 2, "markColor": "#ff00ff"}, [
+        ("source", png(source)), ("editMask", png(mask)),
+    ])
+    assert Pipeline.image(result, "context").tobytes() == Image.new("RGBA", (4, 2), (80, 90, 100, 42)).tobytes()
+    guide = Pipeline.image(result, "guide")
+    assert guide.getpixel((1, 1)) == (80, 90, 100, 42)
+    assert guide.getpixel((2, 1)) == (255, 0, 255, 255)
+
+
+def test_unzoom_reports_coarse_only_grid_and_falls_back_from_achromatic_key(pipe):
+    art = Image.new("RGBA", (6, 2))
+    for x in range(6):
+        art.paste((255, 255, 255, 255) if x % 2 else (28, 28, 28, 255), (x, 0, x + 1, 2))
+    source = art.resize((48, 16), Image.Resampling.NEAREST)
+    result = pipe.run("unzoom", {
+        "minAgreement": 1, "ignoreKeyHue": {"hueTolerance": 15, "minSaturation": 96}, "minContentCells": 13,
+    }, [("source", png(source))])
+    assert result["status"] == "needs_review"
+    assert result["report"]["agreementOver"] == "image"
+    assert result["report"]["grid"] == [6, 2]
+    assert result["report"]["agreement"] == 1
+    assert result["report"]["tried"][0] == {"cell": 8, "agreement": 1, "coarse": True}
+    assert result["warnings"][0]["en"] == "Only a coarse grid (8.0 px) reproduces the image: the object ends up with fewer than 13 cells — review the result"
+    assert Pipeline.image(result, "native").tobytes() == art.tobytes()
+
+
+def test_unzoom_keeps_original_if_key_mask_covers_entire_image(pipe):
+    art = Image.new("RGBA", (6, 2))
+    for x in range(6):
+        art.paste((0, 255 if x % 2 else 128, 0, 255), (x, 0, x + 1, 2))
+    source = art.resize((48, 16), Image.Resampling.NEAREST)
+    result = pipe.run("unzoom", {
+        "minAgreement": 1, "minContentCells": 4, "ignoreKeyHue": {"hueTolerance": 15, "minSaturation": 96},
+    }, [("source", png(source))])
+    assert result["status"] == "needs_review"
+    assert result["report"]["detected"] is False
+    assert result["report"]["tried"][0] == {"cell": 8, "agreement": 0}
+    assert result["warnings"][0]["en"] == "No pixel art grid recognized; image kept without reduction"
+    assert Pipeline.image(result, "native").tobytes() == source.tobytes()
+
+
+def test_unzoom_skips_candidate_period_that_would_leave_only_one_row(pipe):
+    source = Image.new("RGBA", (48, 8), (24, 24, 24, 255))
+    for x in (8, 24, 40):
+        source.paste((240, 240, 240, 255), (x, 0, x + 8, 8))
+    result = pipe.run("unzoom", {"minAgreement": 1}, [("source", png(source))])
+    assert result["status"] == "ok"
+    assert result["report"]["cell"] == [4, 4]
+    assert result["report"]["grid"] == [12, 2]
+    assert result["report"]["tried"] == [{"cell": 4, "agreement": 1}]
+    assert Pipeline.image(result, "native").resize(source.size, Image.Resampling.NEAREST).tobytes() == source.tobytes()

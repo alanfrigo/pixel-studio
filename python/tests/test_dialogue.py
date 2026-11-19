@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from PIL import Image, ImageDraw
 
 from test_operations import Pipeline, png
@@ -140,3 +141,83 @@ def test_previa_de_fala_gif_e_tira_derivadas(tmp_path):
     with Image.open(res["_dir"] / gif_out["relPath"]) as gif:
         assert gif.n_frames == 3 and gif.size == (CELL[0] * 2, CELL[1] * 2)
     assert p.image(res, "strip").size == (CELL[0] * 2 * 3 + 4, CELL[1] * 2)
+
+
+def test_portrait_rejects_empty_image_and_compares_only_available_reference(tmp_path):
+    pipe = Pipeline(tmp_path)
+    empty = png(Image.new("RGBA", CELL))
+    good = png(portrait())
+    result = pipe.run("portrait_check", {"zoom": 2}, [("source", empty)])
+    assert result["error"]["code"] == "invalid_request"
+    assert result["error"]["message"]["en"] == "Portrait has no visible pixel"
+    alone = pipe.run("portrait_check", {"zoom": 2}, [("source", good)])
+    assert alone["report"]["palette"] is None and alone["report"]["scale"] is None
+    assert pipe.image(alone, "compare").tobytes() == portrait().resize((48, 48), Image.Resampling.NEAREST).tobytes()
+    blank_reference = pipe.run("portrait_check", {"zoom": 1}, [("source", good), ("layer", empty)])
+    assert blank_reference["report"]["scale"] is None
+    assert blank_reference["report"]["palette"]["referenceColors"] == 0
+    assert blank_reference["report"]["palette"]["nearReferenceRatio"] == 0
+    assert blank_reference["warnings"][-1]["en"] == "Palette drifts from the character: only 0% of pixels are close to the reference colors"
+
+
+def test_viseme_guide_flatten_preserves_portrait_on_key_and_requires_cell_dimensions(tmp_path):
+    pipe = Pipeline(tmp_path)
+    img = Image.new("RGBA", (4, 4))
+    img.putpixel((2, 2), (80, 100, 120, 255))
+    recipe = {"columns": 2, "rows": 1, "cell": [4, 4], "mouthRect": [1, 2, 2, 2],
+              "markColor": "#ffff00", "flattenOnto": "#ff00ff", "scale": 2}
+    inputs = [("source", png(img))]
+    result = pipe.run("viseme_guide", recipe, inputs)
+    actual = pipe.image(result, "guide_1x")
+    assert actual.size == (8, 4)
+    assert actual.getpixel((0, 0)) == (255, 0, 255, 255)
+    assert actual.getpixel((6, 2)) == (80, 100, 120, 255)
+    assert actual.crop((0, 0, 4, 4)).tobytes() == actual.crop((4, 0, 8, 4)).tobytes()
+    bad = pipe.run("viseme_guide", {**recipe, "cell": [4, 5]}, inputs)
+    assert bad["error"]["code"] == "geometry_mismatch"
+    assert bad["error"]["message"]["en"] == "Portrait 4×4 differs from cell 4×5"
+
+
+@pytest.mark.parametrize(
+    ("size", "reference_size", "frames", "code", "message"),
+    [
+        ((47, 24), None, ["rest"], "geometry_mismatch", "Sheet 47×24 differs from grid 48×24"),
+        ((48, 24), (23, 24), ["rest"], "geometry_mismatch", "Portrait does not match the declared cell"),
+        ((48, 24), None, ["rest", "ai", "e"], "invalid_request", "More visemes than grid cells"),
+        ((48, 24), None, ["ai"], "invalid_request", "The rest viseme must be in the sheet"),
+    ],
+)
+def test_expression_sheet_checks_grid_portrait_and_rest_viseme(tmp_path, size, reference_size, frames, code, message):
+    opts = recipe(columns=2, rows=1, frameIds=frames)
+    inputs = [("source", png(Image.new("RGBA", size)))]
+    if reference_size is not None:
+        inputs.append(("layer", png(Image.new("RGBA", reference_size))))
+    result = Pipeline(tmp_path).run("expression_sheet", opts, inputs)
+    assert result["error"]["code"] == code
+    assert result["error"]["message"]["en"] == message
+
+
+def test_expression_sheet_reports_unchanged_vowel_but_allows_resting_closed_consonant(tmp_path):
+    pipe = Pipeline(tmp_path)
+    img = Image.new("RGBA", (72, 24))
+    for x in (0, 24, 48):
+        img.paste(portrait(), (x, 0))
+    result = pipe.run("expression_sheet", recipe(columns=3, rows=1, frameIds=["rest", "ai", "mbp"]), [("source", png(img))])
+    assert result["status"] == "needs_review"
+    assert result["report"]["outsideFace"] is None
+    assert result["report"]["complete"] is True
+    assert [frame["mouthChanged"] for frame in result["report"]["frames"][1:]] == [0, 0]
+    assert [w["en"] for w in result["warnings"]] == ["Viseme ai has the same mouth as rest"]
+
+
+def test_compare_and_speech_preview_reject_bad_cell_geometry(tmp_path):
+    pipe = Pipeline(tmp_path)
+    art = png(portrait())
+    compare = pipe.run("expression_compare", {"rectA": [0, 0, 24, 24], "rectB": [0, 0, 23, 24], "mouthRect": MOUTH, "zoom": 1},
+                       [("source", art), ("layer", art)])
+    assert compare["error"]["code"] == "geometry_mismatch"
+    assert compare["error"]["message"]["en"] == "The expressions have different cell sizes"
+    speech = pipe.run("speech_preview", {"frames": [{"rect": [1, 0, 24, 24], "durationMs": 110}], "zoom": 2, "stripMax": 1},
+                      [("source", art)])
+    assert speech["error"]["code"] == "geometry_mismatch"
+    assert speech["error"]["message"]["en"] == "Frame [1, 0, 24, 24] outside the atlas"

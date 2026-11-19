@@ -434,46 +434,56 @@ def make_thumbnail(request: Json, workdir: Path) -> Json:
 # ---------------------------------------------------------------------------
 
 
+def _palette_pixels(image: Image.Image, colors: list[str], *, strict: bool) -> Json:
+    """Mede as cores visíveis e, no modo estrito, remapeia somente o RGB."""
+    palette = [hex_rgb(color) for color in colors]
+    indices = {palette[i]: i for i in reversed(range(len(palette)))}
+    nearest: dict[tuple[int, int, int], int] = {}
+    visible_colors: set[tuple[int, int, int]] = set()
+    used: set[int] = set()
+    visible = off_palette = 0
+    pixels = image.load()
+    for y in range(image.height):
+        for x in range(image.width):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                continue
+            visible += 1
+            rgb = (r, g, b)
+            visible_colors.add(rgb)
+            index = indices.get(rgb)
+            if index is None:
+                off_palette += 1
+                if not strict:
+                    continue
+                index = nearest.get(rgb)
+                if index is None:
+                    # min mantém o menor índice em caso de empate.
+                    index = min(range(len(palette)), key=lambda i: (
+                        (r - palette[i][0]) ** 2 + (g - palette[i][1]) ** 2 + (b - palette[i][2]) ** 2
+                    ))
+                    nearest[rgb] = index
+                pixels[x, y] = (*palette[index], a)
+            used.add(index)
+    outside = visible_colors - indices.keys()
+    return {
+        "visiblePixels": visible,
+        "visibleColorsBefore": len(visible_colors),
+        "offPalettePixels": off_palette,
+        "offPaletteColorCount": len(outside),
+        "offPaletteColors": ["#%02x%02x%02x" % rgb for rgb in sorted(outside)[:64]],
+        "changedPixels": off_palette if strict else 0,
+        "usedIndices": sorted(used),
+    }
+
+
 def apply_palette(request: Json, workdir: Path) -> Json:
     recipe = recipe_of(request)
     _, source = input_by_role(request, workdir, "source")
     image = load_rgba(source)
-    palette = [hex_rgb(c) for c in recipe["colors"]]
-    data = bytearray(image.tobytes())
-    cache: dict[tuple[int, int, int], int] = {}
-    visible_colors: set[tuple[int, int, int]] = set()
-    used: set[int] = set()
-    changed = 0
-    for o in range(0, len(data), 4):
-        if data[o + 3] == 0:
-            continue  # invisível: não conta nem muda
-        rgb = (data[o], data[o + 1], data[o + 2])
-        visible_colors.add(rgb)
-        index = cache.get(rgb)
-        if index is None:
-            best = None
-            for i, (pr, pg, pb) in enumerate(palette):
-                d = (rgb[0] - pr) ** 2 + (rgb[1] - pg) ** 2 + (rgb[2] - pb) ** 2
-                if best is None or d < best[0]:  # estrito: empate fica com o menor índice
-                    best = (d, i)
-            index = best[1]  # type: ignore[index]
-            cache[rgb] = index
-        used.add(index)
-        target = palette[index]
-        if rgb != target:
-            changed += 1
-            data[o], data[o + 1], data[o + 2] = target
-    out = Image.frombytes("RGBA", image.size, bytes(data))
-    off_palette = sorted("#%02x%02x%02x" % c for c in visible_colors if c not in palette)
-    report = {
-        "metric": recipe["metric"],
-        "tieBreak": recipe["tieBreak"],
-        "visibleColorsBefore": len(visible_colors),
-        "offPaletteColors": off_palette[:64],
-        "changedPixels": changed,
-        "usedIndices": sorted(used),
-    }
-    return respond([write_png(workdir, out, "out/paletted.png", "paletted")], report)
+    report = _palette_pixels(image, recipe["colors"], strict=True)
+    report.update(metric=recipe["metric"], tieBreak=recipe["tieBreak"])
+    return respond([write_png(workdir, image, "out/paletted.png", "paletted")], report)
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +531,7 @@ def composite_protected(request: Json, workdir: Path) -> Json:
     protected_diff = ImageChops.difference(
         Image.composite(out, Image.new("RGBA", out.size, (0, 0, 0, 0)), ImageChops.invert(mask)),
         Image.composite(source, Image.new("RGBA", out.size, (0, 0, 0, 0)), ImageChops.invert(mask)),
-    ).getbbox()
+    ).getbbox(alpha_only=False)
     if protected_diff is not None:
         raise PipelineError("internal", tx("Pixels protegidos divergem da fonte após a composição", "Protected pixels differ from the source after compositing"))
     protected = total - edited
@@ -637,6 +647,7 @@ def fit_logical(request: Json, workdir: Path) -> Json:
         image = Image.composite(image, Image.new("RGBA", image.size, (0, 0, 0, 0)), keep)
         image.putalpha(keep)
     measure_ground = recipe.get("measureGround", False)
+    palette = recipe.get("palette")
     if measure_ground and image.getchannel("A").getextrema()[0] == 255:
         raise PipelineError("unsupported_input", tx("A base precisa de um fundo transparente", "The character base needs a transparent background"))
 
@@ -650,6 +661,21 @@ def fit_logical(request: Json, workdir: Path) -> Json:
             # Measure the actual support row, not the width of a hat, hair, or an extended arm.
             left, _, right, _ = alpha.crop((x0, ground_y - 1, x1, ground_y)).getbbox()
             report["groundOrigin"] = [x0 + (left + right + 1) // 2, ground_y]
+        if palette is not None:
+            strict = palette["policy"] == "strict"
+            result = _palette_pixels(out, palette["colors"], strict=strict)
+            report["palette"] = {"policy": palette["policy"], **result}
+            count, total = result["offPalettePixels"], result["visiblePixels"]
+            if count and strict:
+                warnings.append(tx(
+                    f"Paleta estrita: {count} de {total} pixels visíveis foram ajustados às cores do projeto.",
+                    f"Strict palette: {count} of {total} visible pixels were mapped to project colors.",
+                ))
+            elif count:
+                warnings.append(tx(
+                    f"Paleta guiada: {count} de {total} pixels visíveis estão fora da paleta do projeto. As cores foram mantidas.",
+                    f"Guided palette: {count} of {total} visible pixels are outside the project palette. Colors were kept.",
+                ))
         return respond([write_png(workdir, out, "out/fitted.png", "fitted")], report, warnings)
 
     crop = recipe.get("cropToContent")

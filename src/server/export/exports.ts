@@ -1,13 +1,13 @@
-import { tx } from "@/i18n/locales";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { Id } from "@/contracts";
+import { Id, parseRevisionPayload } from "@/contracts";
 import { canonicalDigest } from "@/domain/canonical-json";
 import { validateManifest } from "@/domain/manifest/validate";
 import { sha256Hex, verifyManifestFiles } from "@/domain/manifest/verify-files";
 import { readZip, writeZip } from "@/lib/zip";
-import { getProject } from "../catalog/catalog";
+import { getAsset, getProject, getRevision } from "../catalog/catalog";
 import type { Db } from "../db/connection";
 import { DomainFailure } from "../errors";
 import type { HandlerContext } from "../jobs/context";
@@ -15,7 +15,20 @@ import type { JobQueue, JobRow } from "../jobs/queue";
 import { type Clock, iso, newId, parseJson, slugify } from "../util";
 import { buildPortablePackage, type ExportReport, resolveClosure } from "./package";
 import { equipmentExportProblems, exportProblemMessage } from "../equipment/export-check";
-import { EXPORT_PROFILES } from "./profiles";
+import { EXPORT_PROFILES, ExportProfileId } from "./profiles";
+import type { ExportTarget } from "./target";
+import { asepriteTarget, gifTarget } from "./targets/animation";
+import { godotTarget } from "./targets/godot";
+import { tiledTarget } from "./targets/tiled";
+import { unityTarget } from "./targets/unity";
+
+const TARGETS: Record<Exclude<ExportProfileId, "portable-v1">, ExportTarget> = {
+  "tiled-v1": tiledTarget,
+  "godot-v1": godotTarget,
+  "unity-v1": unityTarget,
+  "aseprite-v1": asepriteTarget,
+  "gif-v1": gifTarget,
+};
 
 /**
  * Exportações (02a §rotas · Exportar): o pedido congela a seleção por ID de
@@ -27,7 +40,7 @@ export const ExportRequest = z.strictObject({ exportId: Id });
 
 export const CreateExportInput = z.strictObject({
   revisionIds: z.array(Id).min(1).max(500),
-  profile: z.literal("portable-v1").default("portable-v1"),
+  profile: ExportProfileId.default("portable-v1"),
 });
 
 interface ExportRow {
@@ -106,6 +119,23 @@ export function requestExport(
   if (closure.problems.length > 0) {
     throw new DomainFailure("coverage_incomplete", tx("A seleção tem revisões que não podem ser exportadas", "The selection has revisions that cannot be exported"), { problems: closure.problems });
   }
+  if (input.profile !== "portable-v1") {
+    const profile = EXPORT_PROFILES[input.profile];
+    const target = TARGETS[input.profile];
+    const problems: { revisionId: string; message: LocalizedText }[] = [];
+    for (const revisionId of revisionIds) {
+      const revision = getRevision(deps.db, projectId, revisionId);
+      const asset = getAsset(deps.db, projectId, revision.assetId);
+      const entry = parseRevisionPayload(asset.family, asset.kind, revision.payload);
+      const reason = !profile.kinds[asset.family]?.includes(asset.kind)
+        ? tx("tipo não suportado pelo formato", "asset type not supported by the format")
+        : entry.success ? target.problem({ ...entry.entry, revisionId, assetId: asset.id, name: asset.name }) : tx("revisão inválida", "invalid revision");
+      if (reason) problems.push({ revisionId, message: tx(`${asset.name} r${revision.number}: ${reason["pt-BR"]}`, `${asset.name} r${revision.number}: ${reason.en}`) });
+    }
+    if (problems.length) {
+      throw new DomainFailure("coverage_incomplete", tx("Parte da seleção não é compatível com o formato escolhido", "Part of the selection is not supported by the chosen format"), { problems });
+    }
+  }
   // S2: conjuntos equipados só saem completos (ou como subconjunto explícito).
   const equipment = equipmentExportProblems(deps.db, projectId, closure.revisionIds);
   if (equipment.length > 0) throw new DomainFailure("coverage_incomplete", exportProblemMessage(equipment), { problems: equipment });
@@ -144,7 +174,7 @@ export function exportFilePath(exportsDir: string, view: Pick<ExportView, "id" |
   return path.join(exportsDir, view.id, view.fileName);
 }
 
-const ExportJobRequest = z.strictObject({ selection: z.array(Id).min(1), profile: z.literal("portable-v1") });
+const ExportJobRequest = z.strictObject({ selection: z.array(Id).min(1), profile: ExportProfileId });
 
 /** Executor do job `export`. */
 export async function exportHandler(ctx: HandlerContext): Promise<void> {
@@ -158,18 +188,44 @@ export async function exportHandler(ctx: HandlerContext): Promise<void> {
   ctx.checkpoint();
 
   ctx.queue.setStage(ctx.attempt, "process");
-  const zip = writeZip(pkg.files, ctx.clock.now());
+  const profile = EXPORT_PROFILES[request.profile];
+  const artifacts = request.profile === "portable-v1" ? [] : await TARGETS[request.profile].build({
+    manifest: pkg.manifest,
+    sourceFiles: pkg.files,
+    selected: new Set(request.selection),
+    projectName: project.name,
+    workDir: ctx.workDir,
+    python: ctx.config.python,
+    signal: ctx.signal,
+    timeoutMs: ctx.config.pythonTimeoutMs,
+  });
+  if (request.profile !== "portable-v1" && artifacts.length === 0) {
+    throw new DomainFailure("internal", tx("O formato não produziu arquivos de destino", "The format produced no destination files"));
+  }
+  ctx.checkpoint();
+  const zip = writeZip(artifacts.length ? [...pkg.files, ...artifacts] : pkg.files);
   // Relê o pacote como um consumidor faria antes de promovê-lo.
   const archive = readZip(zip);
   const reread = validateManifest(JSON.parse(new TextDecoder().decode(archive.read("manifest.json"))));
   if (!reread.ok || !reread.manifest) throw new DomainFailure("internal", tx("Pacote relido não passou na validação", "Reread package did not pass validation"), { issues: reread.issues.slice(0, 10) });
   const fileIssues = await verifyManifestFiles(reread.manifest, async (p) => archive.read(p));
   if (fileIssues.length > 0) throw new DomainFailure("internal", tx("Arquivos do pacote relido divergem do manifesto", "Files in the reread package do not match the manifest"), { issues: fileIssues });
+  for (const artifact of artifacts) archive.read(artifact.path);
+  const report: ExportReport = artifacts.length ? {
+    ...pkg.report,
+    profile: profile.id,
+    profileVersion: profile.version,
+    files: pkg.report.files + artifacts.length,
+    totalBytes: pkg.report.totalBytes + artifacts.reduce((sum, artifact) => sum + artifact.bytes.byteLength, 0),
+    supports: profile.supports,
+    limitations: profile.limitations,
+  } : pkg.report;
   const zipSha256 = sha256Hex(zip);
 
   ctx.queue.setStage(ctx.attempt, "publish");
   await ctx.blobs.ensureSpace(zip.length);
-  const fileName = `${slugify(project.name).replaceAll("_", "-")}-${row.id.slice(4, 12)}.zip`;
+  const format = request.profile === "portable-v1" ? "" : `-${request.profile}`;
+  const fileName = `${slugify(project.name).replaceAll("_", "-")}${format}-${row.id.slice(4, 12)}.zip`;
   const dir = path.join(ctx.config.paths.exports, row.id);
   await mkdir(dir, { recursive: true });
   const tmp = path.join(dir, `.${fileName}.tmp`);
@@ -187,7 +243,7 @@ export async function exportHandler(ctx: HandlerContext): Promise<void> {
       ctx.db.run(
         `UPDATE exports SET state = 'ready', zip_sha256 = :sha, file_name = :name, bytes = :bytes, closure_json = :report, finished_at = :now
          WHERE id = :id`,
-        { sha: zipSha256, name: fileName, bytes: zip.length, report: JSON.stringify(pkg.report), now: iso(ctx.clock.now()), id: row.id },
+        { sha: zipSha256, name: fileName, bytes: zip.length, report: JSON.stringify(report), now: iso(ctx.clock.now()), id: row.id },
       );
       for (const entry of pkg.manifest.entries) {
         ctx.db.run("INSERT OR IGNORE INTO export_entries (export_id, revision_id) VALUES (:e, :r)", { e: row.id, r: entry.revisionId });

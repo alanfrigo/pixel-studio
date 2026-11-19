@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from PIL import Image
 
 from test_operations import Pipeline, png
@@ -188,3 +189,142 @@ def test_ajuste_da_cena_recorta_o_centro_sem_faixas(tmp_path):
     out = p.image(res, "fitted")
     assert out.size == (16, 16) and out.getpixel((0, 0)) == (200, 100, 50, 255)
     assert res["status"] == "needs_review"  # outra proporção sempre pede revisão do enquadramento
+
+
+def test_scene_layer_reports_ground_gap_and_draws_vertical_repeat_seams(tmp_path):
+    pipe = Pipeline(tmp_path)
+    layer = Image.new("RGBA", (4, 4), (80, 100, 120, 255))
+    layer.putpixel((1, 1), (20, 30, 40, 0))
+    recipe = {"axes": {"x": False, "y": True}, "threshold": 1.5, "groundLineY": 1, "zoom": 2}
+    inputs = [("source", png(layer))]
+    result = pipe.run("scene_layer_check", recipe, inputs)
+    assert result["status"] == "needs_review"
+    assert result["report"]["y"]["passed"] is True
+    assert result["report"]["ground"] == {"y": 1, "gaps": 1, "firstGap": 1, "continuous": False}
+    assert result["warnings"][0]["en"] == "Ground line (y=1) broken over 1 px"
+    assert pipe.image(result, "mosaic").size == (4, 12)
+    assert pipe.image(result, "mosaic").getpixel((1, 5))[3] == 0
+    lines = pipe.image(result, "mosaic_lines")
+    assert lines.getpixel((3, 2)) == (255, 200, 0, 255)
+    assert lines.getpixel((3, 8)) == (0, 220, 255, 255)
+
+    out_of_range = pipe.run("scene_layer_check", {**recipe, "groundLineY": 4}, inputs)
+    assert out_of_range["error"]["code"] == "geometry_mismatch"
+    assert out_of_range["error"]["message"]["en"] == "Ground line 4 outside the 4 px layer"
+
+
+def test_scrolling_non_repeating_layer_leaves_precisely_measured_holes(tmp_path):
+    pipe = Pipeline(tmp_path)
+    layer = Image.new("RGBA", (4, 3), (80, 100, 120, 255))
+    recipe = {
+        "canvas": [4, 3], "spanPx": 8, "steps": 2, "groundLineY": 2, "zoom": 1,
+        "layers": [{"inputOrdinal": 0, "offset": [0, 0], "parallax": {"x": 1, "y": 0}, "repeat": {"x": False, "y": False}}],
+    }
+    inputs = [("layer", png(layer))]
+    result = pipe.run("scene_compose", recipe, inputs)
+    assert result["status"] == "needs_review"
+    assert result["report"]["frames"] == [
+        {"camera": 0, "uncoveredPixels": 0, "groundGaps": 0},
+        {"camera": 4, "uncoveredPixels": 12, "groundGaps": 4},
+        {"camera": 8, "uncoveredPixels": 12, "groundGaps": 4},
+    ]
+    assert result["report"]["groundContinuous"] is False
+    assert result["warnings"][1]["en"] == "The ground line breaks in some scroll frame"
+    strip = pipe.image(result, "strip")
+    assert strip.getpixel((0, 0)) == (80, 100, 120, 255)
+    assert strip.getpixel((0, 5)) == (200, 200, 200, 255)
+
+    bad_ground = pipe.run("scene_compose", {**recipe, "groundLineY": 3}, inputs)
+    assert bad_ground["error"]["code"] == "geometry_mismatch"
+    assert bad_ground["error"]["message"]["en"] == "Ground line 3 outside the 3 px scene"
+
+    missing = pipe.run("scene_compose", {**recipe, "layers": [dict(recipe["layers"][0], inputOrdinal=2)]}, inputs)
+    assert missing["error"]["code"] == "invalid_request"
+    assert missing["error"]["message"]["en"] == "Layer 0 references missing input 2"
+
+
+def test_overlay_requires_character_and_view_inside_its_sheet(tmp_path):
+    pipe = Pipeline(tmp_path)
+    scene = png(Image.new("RGBA", (8, 8)))
+    hero = png(Image.new("RGBA", (4, 4)))
+    recipe = {
+        "points": [[4, 6]],
+        "character": {"logicalSize": [4, 4], "rect": [2, 0, 4, 4], "offset": [0, 0], "pivot": [2, 4]},
+        "zoom": 1,
+    }
+    missing = pipe.run("scene_overlay", recipe, [("source", scene)])
+    assert missing["error"]["code"] == "invalid_request"
+    assert missing["error"]["message"]["en"] == "Overlay requires the character as a 'layer' input"
+    bad_view = pipe.run("scene_overlay", recipe, [("source", scene), ("layer", hero)])
+    assert bad_view["error"]["code"] == "geometry_mismatch"
+    assert bad_view["error"]["message"]["en"] == "View [2, 0, 4, 4] outside the 4×4 character file"
+
+
+def test_room_guide_renders_north_and_east_doors_and_checks_cell_count(tmp_path):
+    pipe = Pipeline(tmp_path)
+    recipe = {
+        "projection": "oblique", "pictureSize": [64, 64], "cellPx": [16, 16],
+        "gridOrigin": [16, 16], "size": [1, 1], "cells": [True],
+        "doors": [{"cell": [0, 0], "side": "N"}, {"cell": [0, 0], "side": "E"}],
+        "colors": {"floor": "#c8c8c8", "wall": "#404040", "rock": "#ff00ff", "door": "#ffc800"},
+    }
+    result = pipe.run("room_guide", recipe, [])
+    assert result["report"] == {"pictureSize": [64, 64], "floorCells": 1, "doors": 2, "projection": "oblique"}
+    guide = pipe.image(result, "guide")
+    assert guide.getpixel((23, 14)) == (255, 200, 0, 255)
+    assert guide.getpixel((34, 23)) == (255, 200, 0, 255)
+    assert guide.getpixel((22, 19)) == (200, 200, 200, 255)
+    assert guide.getpixel((16, 14)) == (64, 64, 64, 255)
+    error = pipe.run("room_guide", {**recipe, "size": [2, 1]}, [])
+    assert error["error"]["code"] == "invalid_request"
+    assert error["error"]["message"]["en"] == "Floor plan must have 2 cells"
+
+
+def test_room_compose_reports_the_missing_item_ordinal(tmp_path):
+    pipe = Pipeline(tmp_path)
+    result = pipe.run("room_compose", {"canvas": [8, 8], "items": [{"inputOrdinal": 1, "at": [3, 4]}], "zoom": 1},
+                      [("source", png(Image.new("RGBA", (8, 8))))])
+    assert result["error"]["code"] == "invalid_request"
+    assert result["error"]["message"]["en"] == "Item 0 references missing input 1"
+
+
+def test_scene_fit_crops_tall_source_and_binarizes_native_grid_alpha(tmp_path):
+    pipe = Pipeline(tmp_path)
+    source = Image.new("RGBA", (2, 4), (20, 30, 40, 255))
+    source.paste((90, 100, 120, 127), (0, 1, 2, 2))
+    source.paste((90, 100, 120, 128), (0, 2, 2, 3))
+    result = pipe.run("scene_fit", {"targetSize": [2, 2], "alphaThreshold": 128}, [("source", png(source))])
+    assert result["report"] == {"sourceSize": [2, 4], "cropRect": [0, 1, 2, 2], "targetSize": [2, 2], "method": "identity"}
+    assert result["warnings"][0]["en"] == "Response 2×4 has a different aspect ratio: center crop 2×2 before reducing to 2×2; review the framing"
+    assert pipe.image(result, "fitted").getchannel("A").tobytes() == bytes([0, 0, 255, 255])
+
+
+@pytest.mark.parametrize(
+    ("size", "block", "diagnostic"),
+    [
+        (4, 2, "Image not on an exact 2 px grid:"),
+        (5, 2, "Non-integer factor 2.50:"),
+    ],
+)
+def test_scene_fit_uses_block_majority_for_noisy_and_fractional_grids(tmp_path, size, block, diagnostic):
+    pipe = Pipeline(tmp_path)
+    green, blue, noise = (20, 140, 50, 255), (10, 90, 200, 255), (230, 50, 70, 255)
+    source = Image.new("RGBA", (size, size), green)
+    source.paste(blue, (block, 0, size, size))
+    source.putpixel((1, 1), noise)
+    result = pipe.run("scene_fit", {"targetSize": [2, 2], "alphaThreshold": None}, [("source", png(source))])
+    assert result["status"] == "needs_review"
+    assert result["report"] == {"sourceSize": [size, size], "cropRect": [0, 0, size, size], "targetSize": [2, 2], "method": "block_mode"}
+    assert result["warnings"][0]["en"].startswith(diagnostic)
+    assert list(pipe.image(result, "fitted").get_flattened_data()) == [green, blue, green, blue]
+
+
+def test_single_column_layer_has_no_horizontal_interior_edges(tmp_path):
+    pipe = Pipeline(tmp_path)
+    layer = Image.new("RGBA", (1, 3), (80, 100, 120, 255))
+    result = pipe.run("scene_layer_check", {"axes": {"x": True, "y": False}, "threshold": 1.5, "groundLineY": None, "zoom": 1},
+                      [("source", png(layer))])
+    assert result["status"] == "ok"
+    axis = result["report"]["x"]
+    assert [axis[k] for k in ("seamDelta", "interiorDelta", "seamP90", "interiorP90")] == [0, 0, 0, 0]
+    assert pipe.image(result, "mosaic").tobytes() == Image.new("RGBA", (3, 3), (80, 100, 120, 255)).tobytes()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from PIL import Image, ImageDraw
 
 from test_operations import Pipeline, png
@@ -155,3 +156,100 @@ def test_overlay_de_foco_e_faixa_da_silhueta(tmp_path):
     assert focus.getpixel((0, 0)) == (255, 214, 0, 255)
     assert focus.getpixel((16, 8))[3] == 0
     assert res["report"]["pixels"] == 2 * 32 + 2 * 14
+
+
+def test_template_cells_must_fit_guide_and_source(tmp_path):
+    pipe = Pipeline(tmp_path)
+    cells = [{"localId": "button", "rect": [3, 2, 4, 4]}]
+    guide = pipe.run("ui_template_guide", {"size": [6, 6], "scale": 1, "backgroundKey": KEY,
+                                         "cells": [dict(cells[0], kind="piece")]}, [])
+    assert guide["error"]["code"] == "geometry_mismatch"
+    assert guide["error"]["message"]["en"] == "Cell button outside the 6×6 guide"
+    source = Image.new("RGBA", (6, 6))
+    source.paste((90, 100, 110, 255), (3, 2, 5, 4))
+    inputs = [("source", png(source))]
+    split = pipe.run("ui_template_split", {"cells": cells, "zoom": 1}, inputs)
+    assert split["error"]["code"] == "geometry_mismatch"
+    assert split["error"]["message"]["en"] == "Cell button outside the 6×6 template"
+    valid = pipe.run("ui_template_split", {"cells": [dict(cells[0], rect=[2, 1, 4, 5])], "zoom": 1}, inputs)
+    assert valid["status"] == "ok"
+    assert valid["report"]["spillPixels"] == 0
+    assert valid["report"]["proposals"] == [{"localId": "button", "rect": [3, 2, 2, 2], "touchesCellEdge": False, "pixels": 4}]
+
+
+def test_ui_crop_reports_empty_piece_and_checks_its_inner_rect(tmp_path):
+    pipe = Pipeline(tmp_path)
+    source = png(Image.new("RGBA", (8, 8)))
+    crop = {"key": "frame", "rect": [2, 2, 4, 4], "emptyRect": [1, 1, 2, 2]}
+    result = pipe.run("ui_crop", {"crops": [crop]}, [("source", source)])
+    assert result["status"] == "needs_review"
+    assert result["report"]["crops"] == [{"key": "frame", "rect": [2, 2, 4, 4], "opaquePixels": 0, "emptyCoverage": 0}]
+    assert result["warnings"][0]["en"] == "Crop frame has no visible pixel"
+    assert pipe.image(result, "crop", "frame").getbbox() is None
+    error = pipe.run("ui_crop", {"crops": [dict(crop, emptyRect=[3, 3, 2, 2])]}, [("source", source)])
+    assert error["error"]["code"] == "geometry_mismatch"
+    assert error["error"]["message"]["en"] == "Empty area of frame outside the crop"
+
+
+@pytest.mark.parametrize(
+    ("cell", "message"),
+    [
+        ([6, 0, 4, 4], "Cell 0 outside the 8×8 sheet"),
+        ([0, 0, 3, 4], "Cell 0 is 3×4; the base state is 4×4"),
+    ],
+)
+def test_ui_state_guide_reports_invalid_base_cell_geometry(tmp_path, cell, message):
+    result = Pipeline(tmp_path).run(
+        "ui_state_guide",
+        {"sheetSize": [8, 8], "scale": 1, "backgroundKey": KEY, "cells": [cell, [4, 4, 4, 4]]},
+        [("source", png(Image.new("RGBA", (4, 4))))],
+    )
+    assert result["error"]["code"] == "geometry_mismatch"
+    assert result["error"]["message"]["en"] == message
+
+
+def test_ui_state_sheet_keeps_undersized_state_unstretched_and_reports_all_geometry_checks(tmp_path):
+    pipe = Pipeline(tmp_path)
+    ink = (88, 110, 130, 255)
+    source = Image.new("RGBA", (6, 6), ink)
+    candidate = Image.new("RGBA", (12, 8))
+    candidate.paste(ink, (6, 1, 12, 2))  # Only the first row of the requested state.
+    recipe = {
+        "cell": [6, 6], "cells": [{"state": "hover", "rect": [6, 1, 6, 6]}],
+        "nineSlice": None, "contentPadding": None, "searchPx": 0, "outlineTolerance": 0,
+    }
+    inputs = [("source", png(source)), ("candidate", png(candidate))]
+    result = pipe.run("ui_state_sheet", recipe, inputs)
+    assert result["report"]["states"] == [
+        {"state": "hover", "found": "size_mismatch", "shift": [0, 0], "silhouetteIoU": 0.1667,
+         "outlineMatch": 0.3, "centerCoverage": 0,
+         "checks": {"cell": False, "silhouette": False, "outline": False, "center": False}, "passed": False},
+    ]
+    assert [w["en"] for w in result["warnings"]] == [
+        "State hover: piece size differs from the 6×6 cell (not stretched; request an adjustment)",
+        "State hover: silhouette differs from the base state (IoU 0.1667)",
+        "State hover: outline changed (30% equal to base)",
+        "State hover: center/padding has 0% of the base coverage",
+    ]
+    piece = pipe.image(result, "state", "hover")
+    assert piece.size == (6, 6) and piece.getbbox() == (0, 0, 6, 1)
+
+    wrong_base = pipe.run("ui_state_sheet", {**recipe, "cell": [7, 6]}, inputs)
+    assert wrong_base["error"]["code"] == "geometry_mismatch"
+    assert wrong_base["error"]["message"]["en"] == "Base state 6×6 differs from the 7×6 cell"
+    outside = pipe.run("ui_state_sheet", {**recipe, "cells": [{"state": "hover", "rect": [7, 1, 6, 6]}]}, inputs)
+    assert outside["error"]["code"] == "geometry_mismatch"
+    assert outside["error"]["message"]["en"] == "Cell of hover outside the 12×8 sheet"
+
+
+def test_ramp_at_palette_end_leaves_pixels_unchanged_and_warns(tmp_path):
+    pipe = Pipeline(tmp_path)
+    brightest = Image.new("RGBA", (4, 4), (192, 192, 192, 255))
+    result = pipe.run("ui_state_transform", {"transform": {"kind": "ramp", "steps": 1},
+                                           "palette": ["#606060", "#c0c0c0"], "keepBorderPx": 1},
+                      [("source", png(brightest))])
+    assert result["status"] == "needs_review"
+    assert result["report"]["changedPixels"] == 0
+    assert result["report"]["keptBorderPixels"] == 12
+    assert result["warnings"][0]["en"] == "The ramp changed no pixel (colors already at the end of the palette)"
+    assert pipe.image(result, "state").tobytes() == brightest.tobytes()

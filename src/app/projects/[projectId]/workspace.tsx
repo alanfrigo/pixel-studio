@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import type { GenerationPlan } from "@/contracts";
 import type { AssetView, RevisionView, UploadView } from "@/server/catalog/catalog";
 import type { ExportView } from "@/server/export/exports";
+import type { ExportProfile, ExportProfileId } from "@/server/export/profiles";
 import type { JobView } from "@/server/jobs/queue";
 import { ApiError, apiFetch, errorMessage, formatBytes, newKey } from "@/app/client/api";
 import { costText, estimateText } from "@/app/client/cost";
@@ -36,7 +37,7 @@ interface Snapshot {
 
 const ACTIVE = new Set(["queued", "running"]);
 
-export function Workspace({ projectId, view, templateId }: { projectId: string; view: "create" | "library" | "activity" | "export" | "style"; templateId?: string }) {
+export function Workspace({ projectId, view, templateId, exportProfiles }: { projectId: string; view: "create" | "library" | "activity" | "export" | "style"; templateId?: string; exportProfiles: ExportProfile[] }) {
   const m = useMessages(studioMessages);
   const c = useMessages(commonMessages);
   const base = `/projects/${projectId}`;
@@ -131,7 +132,7 @@ export function Workspace({ projectId, view, templateId }: { projectId: string; 
       )}
       {view === "activity" && <JobsPanel projectId={projectId} jobs={data.jobs} assetOfRevision={new Map(data.assets.flatMap((a) => a.revisions.map((r) => [r.id, a.asset.id] as const)))} onChange={refresh} />}
       {view === "style" && <StylePanel projectId={projectId} onChange={refresh} />}
-      {view === "export" && <ExportPanel projectId={projectId} assets={data.assets.map((a) => a.asset)} exports={data.exports} onChange={refresh} />}
+      {view === "export" && <ExportPanel projectId={projectId} assets={data.assets.map((a) => a.asset)} exports={data.exports} profiles={exportProfiles} onChange={refresh} />}
     </>
   );
 }
@@ -816,41 +817,73 @@ function AssetsPanel({
 // Exportação
 // ---------------------------------------------------------------------------
 
-function ExportPanel({ projectId, assets, exports, onChange }: { projectId: string; assets: AssetView[]; exports: ExportView[]; onChange: () => void }) {
+function ExportPanel({ projectId, assets, exports, profiles, onChange }: { projectId: string; assets: AssetView[]; exports: ExportView[]; profiles: ExportProfile[]; onChange: () => void }) {
   const locale = useLocale();
   const text = useText();
   const m = useMessages(workspaceMessages).export;
   const c = useMessages(commonMessages);
+  const [profileId, setProfileId] = useState<ExportProfileId>("portable-v1");
+  const profile = profiles.find((p) => p.id === profileId)!;
   const approved = assets.filter((a) => a.approvedRevisionId);
+  const compatible = approved.filter((a) => profile.kinds[a.family]?.includes(a.kind));
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const revisionIds = compatible.flatMap((a) => selected.has(a.id) && a.approvedRevisionId ? [a.approvedRevisionId] : []);
 
   async function exportSelection() {
+    if (!revisionIds.length) return;
+    setBusy(true);
     setMessage(null);
-    const revisionIds = approved.filter((a) => selected.has(a.id)).map((a) => a.approvedRevisionId!);
     try {
       const res = await apiFetch<{ export: ExportView; created: boolean }>(`/projects/${projectId}/exports`, {
         method: "POST",
-        json: { revisionIds, profile: "portable-v1" },
+        json: { revisionIds, profile: profileId },
       });
       setMessage(res.created ? m.queued : m.reused);
       onChange();
     } catch (err) {
       const problems = err instanceof ApiError ? (err.details?.problems as { message: TextValue }[] | undefined) : undefined;
       setMessage(problems?.length ? problems.map((p) => text(p.message)).join(" · ") : String(err instanceof Error ? err.message : err));
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <section>
+    <section aria-busy={busy}>
       <h2>{m.title}</h2>
       <p className="muted small">{m.hint}</p>
       {approved.length === 0 && <p className="muted">{m.empty}</p>}
       <div className="row">
-        {approved.map((a) => (
+        <label>
+          {m.format}
+          <select value={profileId} disabled={busy} onChange={(e) => {
+            setProfileId(e.target.value as ExportProfileId);
+            setSelected(new Set());
+            setMessage(null);
+          }}>
+            {profiles.map((p) => <option key={p.id} value={p.id}>{text(p.label)}</option>)}
+          </select>
+        </label>
+      </div>
+      <details className="small">
+        <summary>{m.profileDetails}</summary>
+        <ul>
+          {profile.supports.map((support) => <li key={support.en}>{text(support)}</li>)}
+        </ul>
+        <strong>{m.limitations}</strong>
+        <ul>
+          {profile.limitations.map((limitation) => <li key={limitation.en}>{text(limitation)}</li>)}
+        </ul>
+      </details>
+      {approved.length > 0 && compatible.length === 0 && <p className="muted">{m.noCompatible}</p>}
+      <div className="row">
+        {compatible.map((a) => (
           <label key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 4, color: "inherit" }}>
             <input
               type="checkbox"
+              disabled={busy}
               checked={selected.has(a.id)}
               onChange={(e) => {
                 const next = new Set(selected);
@@ -862,16 +895,17 @@ function ExportPanel({ projectId, assets, exports, onChange }: { projectId: stri
             {a.name}
           </label>
         ))}
-        <button disabled={selected.size === 0} onClick={exportSelection}>
+        <button disabled={busy || revisionIds.length === 0} onClick={exportSelection}>
           {m.exportZip}
         </button>
       </div>
-      {message && <p className="small">{message}</p>}
+      {message && <p className="small" role="status">{message}</p>}
       <ul className="list">
         {exports.map((e) => (
           <li key={e.id}>
             <div className="row">
               <span className={`badge state-${e.state === "ready" ? "succeeded" : e.state === "failed" ? "failed" : "queued"}`}>{labelOf(c.exportState, e.state)}</span>
+              <strong className="small">{text(profiles.find((p) => p.id === e.profile)?.label ?? e.profile)}</strong>
               <span className="small">
                 {e.report ? m.contents(e.report.entries, e.report.files) : m.selected(e.revisionIds.length)}
                 {e.bytes ? ` · ${formatBytes(e.bytes, locale)}` : ""}

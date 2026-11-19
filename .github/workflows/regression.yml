@@ -1,0 +1,52 @@
+name: Regression tests
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "26"
+          cache: npm
+      - uses: astral-sh/setup-uv@v7
+      - run: npm ci
+      - run: npm run python:setup -- --locked --python 3.14
+      - run: npx playwright install --with-deps --only-shell chromium
+      - name: Install Godot for the native export check
+        shell: bash
+        run: |
+          asset=Godot_v4.3-stable_linux.x86_64
+          cd "$RUNNER_TEMP"
+          curl --fail --silent --show-error --location --retry 3 --max-time 120 -o "$asset.zip" "https://github.com/godotengine/godot-builds/releases/download/4.3-stable/$asset.zip"
+          echo "7de56444b130b10af84d19c7e0cf63cf9e9937ee4ba94364c3b7dd114253ca21  $asset.zip" | sha256sum --check --strict
+          unzip -q "$asset.zip"
+          chmod +x "$asset"
+          echo "PIXEL_STUDIO_TEST_GODOT=$RUNNER_TEMP/$asset" >> "$GITHUB_ENV"
+      - run: npm run check
+      - name: Upload regression reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-reports
+          path: |
+            coverage/
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
