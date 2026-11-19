@@ -39,7 +39,7 @@ npm ci
 npm run python:setup -- --locked --python 3.14
 npm run dev             # migrates, then starts Next + worker on 127.0.0.1:3000
 npm run build           # Next production build
-npm run typecheck       # tsc --noEmit
+npm run typecheck       # next typegen + tsc; no prior build required
 npm run lint            # ESLint
 npx playwright install --only-shell chromium
 npm run check           # typecheck + lint + TS/Python coverage + browser E2E
