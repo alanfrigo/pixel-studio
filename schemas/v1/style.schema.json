@@ -1,0 +1,493 @@
+{
+  "$id": "pixel-studio/v1/style.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "camera": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "scale": {
+      "$ref": "#/$defs/__schema7"
+    },
+    "palette": {
+      "$ref": "#/$defs/__schema9"
+    },
+    "lighting": {
+      "$ref": "#/$defs/__schema14"
+    },
+    "outline": {
+      "$ref": "#/$defs/__schema15"
+    },
+    "detailDensity": {
+      "$ref": "#/$defs/__schema16"
+    },
+    "transparency": {
+      "$ref": "#/$defs/__schema17"
+    },
+    "exceptions": {
+      "$ref": "#/$defs/__schema18"
+    },
+    "references": {
+      "$ref": "#/$defs/__schema19"
+    },
+    "approvedExampleRevisionIds": {
+      "$ref": "#/$defs/__schema21"
+    },
+    "briefLanguage": {
+      "$ref": "#/$defs/__schema22"
+    }
+  },
+  "required": [
+    "camera",
+    "scale",
+    "palette",
+    "lighting",
+    "outline",
+    "detailDensity",
+    "transparency",
+    "exceptions",
+    "references",
+    "approvedExampleRevisionIds",
+    "briefLanguage"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "projection": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "top_down"
+                },
+                "cellSize": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "tiltDeg": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 90
+                }
+              },
+              "required": [
+                "kind",
+                "cellSize",
+                "tiltDeg"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "three_quarter"
+                },
+                "cellSize": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "tiltDeg": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 90
+                }
+              },
+              "required": [
+                "kind",
+                "cellSize",
+                "tiltDeg"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "side"
+                },
+                "cellSize": {
+                  "$ref": "#/$defs/__schema1"
+                }
+              },
+              "required": [
+                "kind",
+                "cellSize"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "$ref": "#/$defs/__schema3"
+                },
+                "diamond": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "elevationStepPx": {
+                  "$ref": "#/$defs/__schema4"
+                },
+                "worldToView": {
+                  "$ref": "#/$defs/__schema5"
+                }
+              },
+              "required": [
+                "kind",
+                "diamond",
+                "elevationStepPx",
+                "worldToView"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "directions": {
+          "minItems": 1,
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema6"
+          }
+        },
+        "scroll": {
+          "type": "string",
+          "enum": [
+            "fixed",
+            "free",
+            "horizontal",
+            "vertical"
+          ]
+        }
+      },
+      "required": [
+        "projection",
+        "directions",
+        "scroll"
+      ],
+      "additionalProperties": false
+    },
+    "__schema1": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/__schema2"
+        },
+        {
+          "$ref": "#/$defs/__schema2"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "__schema2": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema3": {
+      "type": "string",
+      "const": "isometric"
+    },
+    "__schema4": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema5": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema6"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema6"
+      },
+      "required": [
+        "N",
+        "NE",
+        "E",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW"
+      ]
+    },
+    "__schema6": {
+      "type": "string",
+      "enum": [
+        "N",
+        "NE",
+        "E",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW"
+      ]
+    },
+    "__schema7": {
+      "type": "object",
+      "properties": {
+        "logicalResolution": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "characterHeightPx": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "uiScale": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "familySizes": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/__schema8"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema1"
+          }
+        }
+      },
+      "required": [
+        "logicalResolution",
+        "characterHeightPx",
+        "uiScale",
+        "familySizes"
+      ],
+      "additionalProperties": false
+    },
+    "__schema8": {
+      "type": "string",
+      "enum": [
+        "character",
+        "item",
+        "equipment",
+        "vfx",
+        "texture",
+        "tileset",
+        "ui",
+        "portrait",
+        "font",
+        "audio",
+        "map"
+      ]
+    },
+    "__schema9": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "policy": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "colors": {
+          "$ref": "#/$defs/__schema12"
+        }
+      },
+      "required": [
+        "name",
+        "policy",
+        "colors"
+      ],
+      "additionalProperties": false
+    },
+    "__schema10": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "__schema11": {
+      "type": "string",
+      "enum": [
+        "strict",
+        "guided"
+      ]
+    },
+    "__schema12": {
+      "minItems": 1,
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema13"
+      }
+    },
+    "__schema13": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "hex": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "index",
+        "hex"
+      ],
+      "additionalProperties": false
+    },
+    "__schema14": {
+      "type": "object",
+      "properties": {
+        "lightFrom": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "shadow": {
+          "type": "string",
+          "enum": [
+            "none",
+            "drop",
+            "cast"
+          ]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "lightFrom",
+        "shadow",
+        "notes"
+      ],
+      "additionalProperties": false
+    },
+    "__schema15": {
+      "type": "object",
+      "properties": {
+        "widthPx": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "policy": {
+          "type": "string",
+          "enum": [
+            "none",
+            "dark",
+            "selective",
+            "colored"
+          ]
+        }
+      },
+      "required": [
+        "widthPx",
+        "policy"
+      ],
+      "additionalProperties": false
+    },
+    "__schema16": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "__schema17": {
+      "type": "string",
+      "enum": [
+        "binary",
+        "partial"
+      ]
+    },
+    "__schema18": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "family": {
+            "$ref": "#/$defs/__schema8"
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "partial_alpha",
+              "reserved_focus_color",
+              "outline_override",
+              "palette_extension"
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "family",
+          "rule",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "__schema19": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "$ref": "#/$defs/__schema4"
+          },
+          "revisionId": {
+            "$ref": "#/$defs/__schema20"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "identity",
+              "style",
+              "pose",
+              "material",
+              "palette",
+              "equipment",
+              "silhouette",
+              "composition"
+            ]
+          },
+          "instruction": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "ordinal",
+          "revisionId",
+          "role",
+          "instruction"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "__schema20": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "__schema21": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema20"
+      }
+    },
+    "__schema22": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(-[A-Z]{2}|-[A-Za-z]{4})?$"
+    }
+  }
+}

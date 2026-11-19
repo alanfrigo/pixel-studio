@@ -1,0 +1,69 @@
+{
+  "planVersion": 1,
+  "projectId": "clareira",
+  "styleRevisionId": "clareira-style-a",
+  "operation": "animate_skeleton",
+  "recipeRevisionId": "recipe-animate-skeleton-v1",
+  "providerProfileId": "pixellab-rest",
+  "prompt": {
+    "brief": "golpe curto com escudo junto ao corpo",
+    "compiled": "Guerreiro de túnica azul com escudo de madeira; golpe curto de espada mantendo o escudo junto ao corpo.",
+    "language": "pt-BR"
+  },
+  "sources": [
+    {
+      "ordinal": 0,
+      "revisionId": "warrior-base-v1",
+      "fileId": "warrior-base-s",
+      "sha256": "3ad9ba9845f694c3dfbde6909285ead0dd630dcb9a7bca6e8f270c041bb1de8d",
+      "role": "base"
+    },
+    {
+      "ordinal": 1,
+      "revisionId": "warrior-attack-motion-v1",
+      "fileId": null,
+      "sha256": "69a33cd6d6a59b50be0b69e7d938281b0b0e202bb3e8a5d6df9c8dca5f531af1",
+      "role": "motion"
+    }
+  ],
+  "requiredCapabilities": [
+    "skeleton_keypoints"
+  ],
+  "parts": [
+    {
+      "partKey": "segment:windup",
+      "unit": "segment",
+      "label": "Pose windup"
+    },
+    {
+      "partKey": "segment:advance",
+      "unit": "segment",
+      "label": "Pose advance"
+    },
+    {
+      "partKey": "segment:contact",
+      "unit": "segment",
+      "label": "Pose contact"
+    },
+    {
+      "partKey": "segment:recover",
+      "unit": "segment",
+      "label": "Pose recover"
+    }
+  ],
+  "limits": {
+    "maxSubmissions": 1,
+    "costCeiling": null,
+    "estimate": {
+      "kind": "unknown",
+      "reason": "Tarifa da rota ainda não qualificada"
+    }
+  },
+  "params": {
+    "baseRevisionId": "warrior-base-v1",
+    "motionRevisionId": "warrior-attack-motion-v1",
+    "actionText": "golpe curto com escudo",
+    "direction": "S",
+    "playback": "once"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "planVersion": 1,
+  "projectId": "clareira",
+  "styleRevisionId": "clareira-style-a",
+  "operation": "generate_asset",
+  "recipeRevisionId": "recipe-item-icon-v1",
+  "providerProfileId": "openrouter-images",
+  "prompt": {
+    "brief": "poção verde em frasco de vidro, ícone de inventário",
+    "compiled": "Ícone de inventário 16×16 em pixel art: poção verde em frasco de vidro. Fundo transparente, contorno escuro de 1 px, luz do noroeste.",
+    "language": "pt-BR"
+  },
+  "sources": [],
+  "requiredCapabilities": [
+    "text_to_image",
+    "alpha_output"
+  ],
+  "parts": [
+    {
+      "partKey": "image:potion-a",
+      "unit": "image",
+      "label": "Variante A"
+    },
+    {
+      "partKey": "image:potion-b",
+      "unit": "image",
+      "label": "Variante B"
+    }
+  ],
+  "limits": {
+    "maxSubmissions": 2,
+    "costCeiling": {
+      "amount": 0.5,
+      "unit": "USD"
+    },
+    "estimate": {
+      "kind": "unknown",
+      "reason": "Tarifa da rota ainda não qualificada"
+    }
+  },
+  "params": {
+    "family": "item",
+    "kind": "consumable",
+    "logicalSize": [
+      16,
+      16
+    ],
+    "transparent": true,
+    "variants": 2
+  }
+}

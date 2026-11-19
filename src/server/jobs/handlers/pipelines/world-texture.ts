@@ -1,0 +1,134 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type { GenerationPlan } from "@/contracts";
+import { type AssetView, getBlob, publishRevision } from "../../../catalog/catalog";
+import { DomainFailure } from "../../../errors";
+import { runPython } from "../../../python/bridge";
+import { DEFAULT_SEAM_THRESHOLD, type SeamReport, seamVerdict, texturePayloadFrom } from "../../../world/core";
+import { runWorldPython } from "../../../world/python";
+import { parseJson } from "../../../util";
+import type { HandlerContext } from "../../context";
+import type { PartRow } from "../../queue";
+import { processProviderImage } from "../generation";
+import { mustBlob, partResults, type PipelineEnv, type ProcessedPart } from "./shared";
+import type { OperationPipeline, ProcessResult } from "./types";
+
+/**
+ * Material repetível (cartão T1 · 06 §repetição verificável): o modelo gera o
+ * material; localmente a imagem volta à grade lógica e a emenda de cada eixo
+ * pedido é medida. Eixo reprovado não vira repetível: a candidata fica como
+ * amostra de material, com as costuras discrepantes destacadas.
+ */
+
+type TexturePlan = Extract<GenerationPlan, { operation: "generate_texture" }>;
+const PREVIEWS = ["mosaic", "mosaic_lines", "shifted"] as const;
+const ROUTE_LABEL = "Material gerado por modelo de imagem; repetição validada localmente (sem parâmetro nativo de emenda)";
+
+/** Lado mínimo das referências enviadas (sobem por fator inteiro, sem detalhe novo). */
+const MIN_SIDE = 256;
+
+export async function scaledReferences(ctx: HandlerContext, plan: GenerationPlan, opts: { flattenOnto?: string; minSide?: number; roles?: string[] } = {}) {
+  const refs = [];
+  for (const source of plan.sources) {
+    if (source.fileId === null || (opts.roles && !opts.roles.includes(source.role))) continue;
+    const blob = getBlob(ctx.db, source.sha256);
+    const { width = 0, height = 0 } = (blob?.metadata ?? {}) as { width?: number; height?: number };
+    let bytes = await ctx.blobs.read(source.sha256);
+    const min = opts.minSide ?? MIN_SIDE;
+    if (blob?.mime === "image/png" && width > 0 && (Math.min(width, height) < min || opts.flattenOnto)) {
+      const factor = Math.max(1, Math.min(Math.ceil(min / Math.min(width, height)), Math.floor(2048 / Math.max(width, height))));
+      const dir = path.join(ctx.workDir, "world-refs", String(source.ordinal));
+      await mkdir(path.join(dir, "in"), { recursive: true });
+      await writeFile(path.join(dir, "in", "source"), bytes);
+      const scaled = await runPython(
+        {
+          protocolVersion: 1,
+          jobId: ctx.job.id,
+          attemptId: ctx.attempt.id,
+          operation: "make_thumbnail",
+          inputs: [{ ordinal: 0, role: "source", sha256: source.sha256, relPath: "in/source" }],
+          recipe: { version: 1, maxSize: Math.max(width, height) * factor, ...(opts.flattenOnto ? { flattenOnto: opts.flattenOnto } : {}) },
+        },
+        { python: ctx.config.python, workDir: dir, timeoutMs: ctx.config.pythonTimeoutMs, signal: ctx.signal },
+      );
+      if (scaled.status === "error") throw new DomainFailure("internal", `Falha ao preparar referência: ${scaled.message}`);
+      bytes = new Uint8Array(await readFile(scaled.outputs[0]!.absolutePath));
+    }
+    refs.push({ role: source.role, mime: blob?.mime ?? "image/png", bytes });
+  }
+  return refs;
+}
+
+/** Resposta → grade lógica (mesmo caminho do ícone: grade aparente e ajuste) → emendas. */
+export async function processTextureCandidate(env: PipelineEnv, plan: GenerationPlan, sha256: string, dir: string): Promise<ProcessResult> {
+  if (plan.operation !== "generate_texture") throw new Error("inalcançável");
+  const p = plan.params;
+  // Reaproveita a normalização de pixel art do ícone, sem cor-chave nem recorte (material opaco de borda a borda).
+  const asIcon = { ...plan, operation: "generate_asset", params: { family: "texture", kind: "material", logicalSize: p.logicalSize, transparent: false, variants: 1, backgroundKey: null } } as GenerationPlan;
+  const { processed, stored } = await processProviderImage(env, asIcon, sha256, dir);
+  const threshold = p.seamThreshold ?? DEFAULT_SEAM_THRESHOLD;
+  const seams = await runWorldPython(env, "texture_seams", [{ role: "source", sha256: stored.sha256 }], { axes: p.repeatAxes, threshold, zoom: 4 });
+  const extraBlobs = [];
+  const previews: { role: string; sha256: string }[] = [];
+  for (const role of PREVIEWS) {
+    const out = seams.outputs.find((o) => o.role === role)!;
+    const blob = await env.blobs.putBytes(out.bytes);
+    extraBlobs.push({ blob, width: out.width, height: out.height });
+    previews.push({ role, sha256: blob.sha256 });
+  }
+  const result: ProcessedPart = {
+    ...processed,
+    warnings: [...processed.warnings, ...seams.warnings],
+    details: { seams: seams.report, previews },
+  };
+  return { processed: result, stored, extraBlobs };
+}
+
+function publishTextures(ctx: HandlerContext, plan: TexturePlan, asset: AssetView, part: PartRow, perPart: number): string[] {
+  return partResults(ctx, part.part_key)
+    .slice(0, perPart)
+    .map((row) => {
+      const processed = parseJson<ProcessedPart>(row.processed_json)!;
+      const details = processed.details as { seams: SeamReport; previews: { role: string; sha256: string }[] };
+      const payload = texturePayloadFrom(details.seams, { fileId: "texture", material: plan.params.materialBrief, axes: plan.params.repeatAxes });
+      const revision = publishRevision(ctx.db, ctx.clock, {
+        projectId: ctx.job.project_id,
+        assetId: asset.id,
+        origin: "generation",
+        styleRevisionId: plan.styleRevisionId,
+        jobAttemptId: ctx.attempt.id,
+        payload,
+        files: [
+          { fileKey: "texture", role: "normalized", idx: 0, blob: mustBlob(ctx.db, processed.normalizedSha256) },
+          { fileKey: "raw", role: "raw", idx: 0, blob: mustBlob(ctx.db, row.blob_sha256) },
+          ...details.previews.map((p, idx) => ({ fileKey: p.role.replace("_", "-"), role: "preview", idx, blob: mustBlob(ctx.db, p.sha256) })),
+        ],
+        technicalReport: {
+          operation: "generate_texture",
+          routeLabel: ROUTE_LABEL,
+          partKey: part.part_key,
+          remoteId: part.remote_id,
+          requestedSize: plan.params.logicalSize,
+          receivedSize: processed.receivedSize,
+          verdict: seamVerdict(details.seams, plan.params.repeatAxes),
+          seams: details.seams,
+          steps: processed.steps ?? [],
+          warnings: processed.warnings,
+        },
+      });
+      return revision.id;
+    });
+}
+
+export const worldTexturePipeline: OperationPipeline = {
+  validateTarget({ plan, asset }) {
+    if (plan.operation !== "generate_texture") throw new Error("inalcançável");
+    if (asset.family !== "texture" || asset.kind !== "material") {
+      throw new DomainFailure("validation_failed", `Material gera texture/material; o asset é ${asset.family}/${asset.kind}`);
+    }
+  },
+  loadInputs: (ctx, plan) => scaledReferences(ctx, plan),
+  process: processTextureCandidate,
+  publish: (ctx, plan, asset, part, perPart) => publishTextures(ctx, plan as TexturePlan, asset, part, perPart),
+};
+

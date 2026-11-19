@@ -1,0 +1,248 @@
+{
+  "revisions": [
+    {
+      "revisionId": "clareira-style-a",
+      "projectId": "clareira",
+      "family": "style",
+      "kind": "style",
+      "status": "approved",
+      "files": {},
+      "payloadDigest": "334cbf25a8b459b04049a4dd8b2bc7b4fe5d900bf6552e46fcd371f8231ed37a"
+    },
+    {
+      "revisionId": "warrior-base-v1",
+      "projectId": "clareira",
+      "family": "character",
+      "kind": "base",
+      "status": "approved",
+      "files": {
+        "warrior-base-s": {
+          "sha256": "3ad9ba9845f694c3dfbde6909285ead0dd630dcb9a7bca6e8f270c041bb1de8d",
+          "width": 64,
+          "height": 64
+        }
+      },
+      "payloadDigest": "5a81dc6dbaf08574c58044419f27fcb4e49a3df681cf123106c92dd9dba691bc"
+    },
+    {
+      "revisionId": "warrior-rig-v1",
+      "projectId": "clareira",
+      "family": "character",
+      "kind": "rig",
+      "status": "approved",
+      "files": {},
+      "payloadDigest": "c02f7f63a1ccded8f17da0c97b46b7c4e6cedbe2753b0c15faeb146706ff7d5e"
+    },
+    {
+      "revisionId": "warrior-attack-motion-v1",
+      "projectId": "clareira",
+      "family": "character",
+      "kind": "motion",
+      "status": "approved",
+      "files": {},
+      "payloadDigest": "69a33cd6d6a59b50be0b69e7d938281b0b0e202bb3e8a5d6df9c8dca5f531af1"
+    },
+    {
+      "revisionId": "spark-v1",
+      "projectId": "clareira",
+      "family": "vfx",
+      "kind": "burst",
+      "status": "approved",
+      "files": {
+        "spark-texture": {
+          "sha256": "e3847df45fa596cebd14cac5ead04a6c621a32da016b942ee2f072ac00372875",
+          "width": 16,
+          "height": 8
+        }
+      },
+      "payloadDigest": "c514b2205938954309313c7defe2d13fd89a8ab0f915532201cb754cb51477a4"
+    },
+    {
+      "revisionId": "hit-sfx-v1",
+      "projectId": "clareira",
+      "family": "audio",
+      "kind": "sfx",
+      "status": "approved",
+      "files": {
+        "hit-wav": {
+          "sha256": "dd5d2c1006b3da62ec7e90a15a0b698f0fe88a1b03da823bcb92f1c37d366ce9"
+        }
+      },
+      "payloadDigest": "29143ab743ea47992dd1926e07ee08b1a57f25ef314c7fdc4bd635e25be7429f"
+    },
+    {
+      "revisionId": "warrior-attack-osh-s-v1",
+      "projectId": "clareira",
+      "family": "character",
+      "kind": "clip",
+      "status": "approved",
+      "files": {
+        "warrior-attack-s": {
+          "sha256": "67bf0bf8887f86659235506f197d8bcdf561940a995a4b55a37bc6555c8c000d",
+          "width": 256,
+          "height": 64
+        }
+      },
+      "payloadDigest": "40f35bbdeb805557b1b538ca91a8ee4973c82aae8dff8e560ff0461e18827a98"
+    },
+    {
+      "revisionId": "chainmail-v1",
+      "projectId": "clareira",
+      "family": "equipment",
+      "kind": "overlay",
+      "status": "approved",
+      "files": {
+        "chainmail-atlas": {
+          "sha256": "0ddfa05cf0cc38550c9a68625763bb40e4b766b4d8c2107de8f2f4b475a0f680",
+          "width": 80,
+          "height": 28
+        }
+      },
+      "payloadDigest": "fcd76e5fb9d1d031f85e998338d26e42d045c2aa8bd0192e5fbadb44f7890fb0"
+    },
+    {
+      "revisionId": "warrior-loadout-osh-v1",
+      "projectId": "clareira",
+      "family": "equipment",
+      "kind": "loadout",
+      "status": "approved",
+      "files": {},
+      "payloadDigest": "149c2dccf4413801ae6c0f2095fca38591e135b90aac3645ab46362ba7b8c1e5"
+    },
+    {
+      "revisionId": "potion-v1",
+      "projectId": "clareira",
+      "family": "item",
+      "kind": "consumable",
+      "status": "approved",
+      "files": {
+        "potion-sheet": {
+          "sha256": "da2c5595b5c06f0f87810efa5da58ddc5eac47867c5777f036b4255324f37a40",
+          "width": 32,
+          "height": 16
+        }
+      },
+      "payloadDigest": "91f732ab6a97788ae3ab2566b1028e3abf89aeed66a9b7b07b1c4dfc715e6750"
+    },
+    {
+      "revisionId": "grass-water-v1",
+      "projectId": "clareira",
+      "family": "tileset",
+      "kind": "corner",
+      "status": "approved",
+      "files": {
+        "grass-water-atlas": {
+          "sha256": "ea3154b48b3232b0af5ec5ff72697364fe73faa8fb94088ffc96be485fdf259e",
+          "width": 128,
+          "height": 128
+        }
+      },
+      "payloadDigest": "27d91bfa57872793f8bef352d5e317fedc460157049058550876967c08ecd28a"
+    },
+    {
+      "revisionId": "mini-font-v1",
+      "projectId": "clareira",
+      "family": "font",
+      "kind": "bitmap",
+      "status": "approved",
+      "files": {
+        "font-atlas": {
+          "sha256": "c735aaca1c14d52b2a9d9ad395b5e8add2a91f0e87ec156af5a68faac0736a9f",
+          "width": 42,
+          "height": 10
+        }
+      },
+      "payloadDigest": "66497b3b7f114d6ac73d4687f0b09370b6a47b910bb3079b7d053e6f5d7f57c2"
+    },
+    {
+      "revisionId": "button-metal-v1",
+      "projectId": "clareira",
+      "family": "ui",
+      "kind": "button",
+      "status": "approved",
+      "files": {
+        "button-atlas": {
+          "sha256": "f577c11e52a2d34050458cb30d6c7a445661c1e59fbb44586db513bfc360ab45",
+          "width": 160,
+          "height": 16
+        }
+      },
+      "payloadDigest": "ddfb0d1a139659bfda50e4e7c98f5c8efa446fcd32b1b3c58f0fa66bae9e868d"
+    },
+    {
+      "revisionId": "health-bar-v1",
+      "projectId": "clareira",
+      "family": "ui",
+      "kind": "meter",
+      "status": "approved",
+      "files": {
+        "meter-atlas": {
+          "sha256": "e33c2fe7bd8e0929dcedc0648c71d40c2a909455714a61e0a658d83b4d5b3308",
+          "width": 68,
+          "height": 26
+        }
+      },
+      "payloadDigest": "83e5d01b4fe119e1fd078c1c40990d7dfc898aa67eb8f24dd89e9a6cbbb326a5"
+    },
+    {
+      "revisionId": "hud-v1",
+      "projectId": "clareira",
+      "family": "ui",
+      "kind": "screen",
+      "status": "approved",
+      "files": {},
+      "payloadDigest": "2f4e572048736a82bf7a1a85a9bf16dfa18bb9f2c1d4ee89f9b2a22d02ce1233"
+    },
+    {
+      "revisionId": "metal-ref-v1",
+      "projectId": "clareira",
+      "family": "texture",
+      "kind": "material",
+      "status": "approved",
+      "files": {
+        "metal-ref": {
+          "sha256": "d5a8066f386f7782a930c2ac459bf9cd9836f7c59d4604bf88304795e4e6f890",
+          "width": 16,
+          "height": 16
+        }
+      }
+    },
+    {
+      "revisionId": "potion-v2-candidate",
+      "projectId": "clareira",
+      "family": "item",
+      "kind": "consumable",
+      "status": "candidate",
+      "files": {
+        "potion-sheet": {
+          "sha256": "da2c5595b5c06f0f87810efa5da58ddc5eac47867c5777f036b4255324f37a40",
+          "width": 32,
+          "height": 16
+        }
+      }
+    },
+    {
+      "revisionId": "deserto-dune-v1",
+      "projectId": "deserto",
+      "family": "texture",
+      "kind": "material",
+      "status": "approved",
+      "files": {
+        "dune-ref": {
+          "sha256": "03d37eb263b3e7ab9e4c9d1bdcb9381d1dc815e8aaceaed1dedca82a6e034440",
+          "width": 16,
+          "height": 16
+        }
+      }
+    }
+  ],
+  "uploads": [
+    {
+      "fileId": "lake-mask",
+      "projectId": "clareira",
+      "sha256": "007ae642c9fd8ae4bfb0fea1a8d1a0c724dd1f8940e1e34dae2c9db1e89ae1a0",
+      "width": 128,
+      "height": 128
+    }
+  ]
+}

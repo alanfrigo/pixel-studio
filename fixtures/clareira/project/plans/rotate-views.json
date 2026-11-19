@@ -1,0 +1,68 @@
+{
+  "planVersion": 1,
+  "projectId": "clareira",
+  "styleRevisionId": "clareira-style-a",
+  "operation": "rotate_views",
+  "recipeRevisionId": "recipe-rotate-v1",
+  "providerProfileId": "pixellab-rest",
+  "prompt": {
+    "brief": "",
+    "compiled": "Guerreiro de túnica azul com escudo no braço esquerdo e espada na mão direita.",
+    "language": "pt-BR"
+  },
+  "sources": [
+    {
+      "ordinal": 0,
+      "revisionId": "warrior-base-v1",
+      "fileId": "warrior-base-s",
+      "sha256": "3ad9ba9845f694c3dfbde6909285ead0dd630dcb9a7bca6e8f270c041bb1de8d",
+      "role": "identity"
+    }
+  ],
+  "requiredCapabilities": [
+    "rotation_4",
+    "image_references"
+  ],
+  "parts": [
+    {
+      "partKey": "view:N",
+      "unit": "view",
+      "label": "Vista N"
+    },
+    {
+      "partKey": "view:E",
+      "unit": "view",
+      "label": "Vista E"
+    },
+    {
+      "partKey": "view:W",
+      "unit": "view",
+      "label": "Vista W"
+    }
+  ],
+  "limits": {
+    "maxSubmissions": 3,
+    "costCeiling": null,
+    "estimate": {
+      "kind": "unknown",
+      "reason": "Tarifa da rota ainda não qualificada"
+    }
+  },
+  "params": {
+    "identityRevisionId": "warrior-base-v1",
+    "requestedViews": [
+      "N",
+      "E",
+      "W"
+    ],
+    "approvedViews": [
+      "S"
+    ],
+    "asymmetries": [
+      "escudo no braço esquerdo",
+      "espada na mão direita"
+    ],
+    "projection": "top_down",
+    "worldToView": null
+  }
+}

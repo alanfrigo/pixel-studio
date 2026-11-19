@@ -1,0 +1,143 @@
+{
+  "camera": {
+    "projection": {
+      "kind": "top_down",
+      "cellSize": [
+        32,
+        32
+      ],
+      "tiltDeg": 30
+    },
+    "directions": [
+      "N",
+      "E",
+      "S",
+      "W"
+    ],
+    "scroll": "free"
+  },
+  "scale": {
+    "logicalResolution": [
+      320,
+      180
+    ],
+    "characterHeightPx": 50,
+    "uiScale": 1,
+    "familySizes": {
+      "character": [
+        64,
+        64
+      ],
+      "item": [
+        16,
+        16
+      ],
+      "tileset": [
+        32,
+        32
+      ],
+      "vfx": [
+        8,
+        8
+      ]
+    }
+  },
+  "palette": {
+    "name": "clareira",
+    "policy": "guided",
+    "colors": [
+      {
+        "index": 0,
+        "hex": "#14141c"
+      },
+      {
+        "index": 1,
+        "hex": "#e0ac69"
+      },
+      {
+        "index": 2,
+        "hex": "#3c5aa0"
+      },
+      {
+        "index": 3,
+        "hex": "#462d1e"
+      },
+      {
+        "index": 4,
+        "hex": "#c8c8d4"
+      },
+      {
+        "index": 5,
+        "hex": "#965a28"
+      },
+      {
+        "index": 6,
+        "hex": "#8c8c98"
+      },
+      {
+        "index": 7,
+        "hex": "#ffe65a"
+      },
+      {
+        "index": 8,
+        "hex": "#3cc85a"
+      },
+      {
+        "index": 9,
+        "hex": "#46963c"
+      },
+      {
+        "index": 10,
+        "hex": "#3264c8"
+      },
+      {
+        "index": 11,
+        "hex": "#343842"
+      },
+      {
+        "index": 12,
+        "hex": "#b87333"
+      },
+      {
+        "index": 13,
+        "hex": "#c82828"
+      }
+    ]
+  },
+  "lighting": {
+    "lightFrom": "NW",
+    "shadow": "drop",
+    "notes": "Sol da tarde vindo do noroeste"
+  },
+  "outline": {
+    "widthPx": 1,
+    "policy": "dark"
+  },
+  "detailDensity": "medium",
+  "transparency": "binary",
+  "exceptions": [
+    {
+      "family": "vfx",
+      "rule": "partial_alpha",
+      "notes": "Brilhos e faíscas podem usar alfa parcial"
+    },
+    {
+      "family": "ui",
+      "rule": "reserved_focus_color",
+      "notes": "Amarelo #ffd600 reservado ao foco"
+    }
+  ],
+  "references": [
+    {
+      "ordinal": 0,
+      "revisionId": "warrior-base-v1",
+      "role": "identity",
+      "instruction": "Seguir proporções e silhueta do guerreiro"
+    }
+  ],
+  "approvedExampleRevisionIds": [
+    "warrior-base-v1",
+    "potion-v1"
+  ],
+  "briefLanguage": "pt-BR"
+}

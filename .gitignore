@@ -1,0 +1,36 @@
+# dependências e build
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# dados locais do Studio (catálogo, blobs, exportações, backups)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# segredos e ambiente
+.env
+.env.*
+!.env.example
+
+# Python
+python/.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+
+# sistema
+.DS_Store
+
+# documentos internos de planejamento e relatórios de avaliação (imagens geradas);
+# o resumo público dos benchmarks fica em MODELS.md
+/plan/
+/reports/
+
+# ferramentas locais
+.claude/
+*.log

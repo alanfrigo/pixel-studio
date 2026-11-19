@@ -1,0 +1,1779 @@
+{
+  "schemaVersion": 1,
+  "projectId": "clareira",
+  "profile": "portable-v1",
+  "generator": {
+    "name": "pixel-studio-fixtures",
+    "version": "1"
+  },
+  "files": [
+    {
+      "fileId": "warrior-base-s",
+      "path": "sprites/warrior-base-s.png",
+      "mime": "image/png",
+      "width": 64,
+      "height": 64,
+      "bytes": 16516,
+      "sha256": "3ad9ba9845f694c3dfbde6909285ead0dd630dcb9a7bca6e8f270c041bb1de8d"
+    },
+    {
+      "fileId": "warrior-attack-s",
+      "path": "sprites/warrior-attack-s.png",
+      "mime": "image/png",
+      "width": 256,
+      "height": 64,
+      "bytes": 65673,
+      "sha256": "67bf0bf8887f86659235506f197d8bcdf561940a995a4b55a37bc6555c8c000d"
+    },
+    {
+      "fileId": "chainmail-atlas",
+      "path": "sprites/chainmail-attack-s.png",
+      "mime": "image/png",
+      "width": 80,
+      "height": 28,
+      "bytes": 9056,
+      "sha256": "0ddfa05cf0cc38550c9a68625763bb40e4b766b4d8c2107de8f2f4b475a0f680"
+    },
+    {
+      "fileId": "spark-texture",
+      "path": "textures/spark.png",
+      "mime": "image/png",
+      "width": 16,
+      "height": 8,
+      "bytes": 588,
+      "sha256": "e3847df45fa596cebd14cac5ead04a6c621a32da016b942ee2f072ac00372875"
+    },
+    {
+      "fileId": "potion-sheet",
+      "path": "items/potion.png",
+      "mime": "image/png",
+      "width": 32,
+      "height": 16,
+      "bytes": 2132,
+      "sha256": "da2c5595b5c06f0f87810efa5da58ddc5eac47867c5777f036b4255324f37a40"
+    },
+    {
+      "fileId": "grass-water-atlas",
+      "path": "tiles/grass-water.png",
+      "mime": "image/png",
+      "width": 128,
+      "height": 128,
+      "bytes": 65737,
+      "sha256": "ea3154b48b3232b0af5ec5ff72697364fe73faa8fb94088ffc96be485fdf259e"
+    },
+    {
+      "fileId": "button-atlas",
+      "path": "ui/button.png",
+      "mime": "image/png",
+      "width": 160,
+      "height": 16,
+      "bytes": 10324,
+      "sha256": "f577c11e52a2d34050458cb30d6c7a445661c1e59fbb44586db513bfc360ab45"
+    },
+    {
+      "fileId": "meter-atlas",
+      "path": "ui/health-bar.png",
+      "mime": "image/png",
+      "width": 68,
+      "height": 26,
+      "bytes": 7166,
+      "sha256": "e33c2fe7bd8e0929dcedc0648c71d40c2a909455714a61e0a658d83b4d5b3308"
+    },
+    {
+      "fileId": "font-atlas",
+      "path": "fonts/mini.png",
+      "mime": "image/png",
+      "width": 42,
+      "height": 10,
+      "bytes": 1758,
+      "sha256": "c735aaca1c14d52b2a9d9ad395b5e8add2a91f0e87ec156af5a68faac0736a9f"
+    },
+    {
+      "fileId": "hit-wav",
+      "path": "audio/hit.wav",
+      "mime": "audio/wav",
+      "durationMs": 100,
+      "sampleRate": 22050,
+      "channels": 1,
+      "frameCount": 2205,
+      "codec": "pcm_s16le",
+      "bytes": 4454,
+      "sha256": "dd5d2c1006b3da62ec7e90a15a0b698f0fe88a1b03da823bcb92f1c37d366ce9"
+    }
+  ],
+  "entries": [
+    {
+      "assetId": "warrior",
+      "revisionId": "warrior-base-v1",
+      "family": "character",
+      "kind": "base",
+      "name": "Guerreiro",
+      "dependencies": [],
+      "payload": {
+        "logicalSize": [
+          64,
+          64
+        ],
+        "groundOrigin": [
+          32,
+          60
+        ],
+        "state": "default",
+        "predecessorRevisionId": null,
+        "views": [
+          {
+            "direction": "S",
+            "fileId": "warrior-base-s",
+            "rect": [
+              0,
+              0,
+              64,
+              64
+            ],
+            "sourceOffset": [
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "assetId": "warrior",
+      "revisionId": "warrior-rig-v1",
+      "family": "character",
+      "kind": "rig",
+      "dependencies": [
+        {
+          "revisionId": "warrior-base-v1",
+          "role": "base"
+        }
+      ],
+      "payload": {
+        "baseRevisionId": "warrior-base-v1",
+        "logicalCell": [
+          64,
+          64
+        ],
+        "groundOrigin": [
+          32,
+          60
+        ],
+        "directions": [
+          "N",
+          "E",
+          "S",
+          "W"
+        ],
+        "mirror": {
+          "policy": "none"
+        },
+        "slots": [
+          {
+            "slotId": "main_hand",
+            "label": "Mão principal"
+          },
+          {
+            "slotId": "off_hand",
+            "label": "Mão secundária"
+          },
+          {
+            "slotId": "torso",
+            "label": "Torso"
+          }
+        ],
+        "sockets": [
+          {
+            "socketId": "hand_right",
+            "anatomicalSide": "right",
+            "purpose": "grip"
+          },
+          {
+            "socketId": "hand_left",
+            "anatomicalSide": "left",
+            "purpose": "grip"
+          }
+        ],
+        "parts": [
+          {
+            "partId": "body",
+            "label": "Corpo"
+          },
+          {
+            "partId": "torso",
+            "label": "Torso"
+          },
+          {
+            "partId": "sleeve_near",
+            "label": "Manga próxima"
+          }
+        ],
+        "stances": [
+          "one_hand_shield",
+          "two_handed"
+        ],
+        "socketTolerancePx": 1
+      }
+    },
+    {
+      "assetId": "warrior-attack-motion",
+      "revisionId": "warrior-attack-motion-v1",
+      "family": "character",
+      "kind": "motion",
+      "dependencies": [
+        {
+          "revisionId": "warrior-rig-v1",
+          "role": "rig"
+        }
+      ],
+      "payload": {
+        "skeleton": {
+          "kind": "custom",
+          "joints": [
+            {
+              "jointId": "hip",
+              "name": "Quadril",
+              "parent": null,
+              "anatomicalSide": "center"
+            },
+            {
+              "jointId": "chest",
+              "name": "Peito",
+              "parent": "hip",
+              "anatomicalSide": "center"
+            },
+            {
+              "jointId": "head",
+              "name": "Cabeça",
+              "parent": "chest",
+              "anatomicalSide": "center"
+            },
+            {
+              "jointId": "shoulder_r",
+              "name": "Ombro direito",
+              "parent": "chest",
+              "anatomicalSide": "right",
+              "cameraSide": "near"
+            },
+            {
+              "jointId": "hand_r",
+              "name": "Mão direita",
+              "parent": "shoulder_r",
+              "anatomicalSide": "right",
+              "cameraSide": "near"
+            },
+            {
+              "jointId": "shoulder_l",
+              "name": "Ombro esquerdo",
+              "parent": "chest",
+              "anatomicalSide": "left",
+              "cameraSide": "far"
+            },
+            {
+              "jointId": "hand_l",
+              "name": "Mão esquerda",
+              "parent": "shoulder_l",
+              "anatomicalSide": "left",
+              "cameraSide": "far"
+            }
+          ]
+        },
+        "generationCell": [
+          64,
+          64
+        ],
+        "direction": "S",
+        "projection": "top_down",
+        "action": "attack",
+        "referencePose": {
+          "hip": {
+            "x": 0.5,
+            "y": 0.66,
+            "visible": true,
+            "zIndex": 0
+          },
+          "chest": {
+            "x": 0.5,
+            "y": 0.45,
+            "visible": true,
+            "zIndex": 1
+          },
+          "head": {
+            "x": 0.5,
+            "y": 0.25,
+            "visible": true,
+            "zIndex": 2
+          },
+          "shoulder_r": {
+            "x": 0.640625,
+            "y": 0.4,
+            "visible": true,
+            "zIndex": 3
+          },
+          "hand_r": {
+            "x": 0.671875,
+            "y": 0.46875,
+            "visible": true,
+            "zIndex": 4
+          },
+          "shoulder_l": {
+            "x": 0.34375,
+            "y": 0.4,
+            "visible": true,
+            "zIndex": -1
+          },
+          "hand_l": {
+            "x": 0.3125,
+            "y": 0.578125,
+            "visible": false,
+            "zIndex": -2
+          }
+        },
+        "poses": [
+          {
+            "poseId": "windup",
+            "durationMs": 140,
+            "joints": {
+              "hip": {
+                "x": 0.5,
+                "y": 0.66,
+                "visible": true,
+                "zIndex": 0
+              },
+              "chest": {
+                "x": 0.484375,
+                "y": 0.45,
+                "visible": true,
+                "zIndex": 1
+              },
+              "head": {
+                "x": 0.484375,
+                "y": 0.25,
+                "visible": true,
+                "zIndex": 2
+              },
+              "shoulder_r": {
+                "x": 0.625,
+                "y": 0.4,
+                "visible": true,
+                "zIndex": 3
+              },
+              "hand_r": {
+                "x": 0.671875,
+                "y": 0.4375,
+                "visible": true,
+                "zIndex": 4
+              },
+              "shoulder_l": {
+                "x": 0.328125,
+                "y": 0.4,
+                "visible": true,
+                "zIndex": -1
+              },
+              "hand_l": {
+                "x": 0.296875,
+                "y": 0.578125,
+                "visible": false,
+                "zIndex": -2
+              }
+            }
+          },
+          {
+            "poseId": "advance",
+            "durationMs": 80,
+            "joints": {
+              "hip": {
+                "x": 0.5,
+                "y": 0.66,
+                "visible": true,
+                "zIndex": 0
+              },
+              "chest": {
+                "x": 0.5,
+                "y": 0.45,
+                "visible": true,
+                "zIndex": 1
+              },
+              "head": {
+                "x": 0.5,
+                "y": 0.25,
+                "visible": true,
+                "zIndex": 2
+              },
+              "shoulder_r": {
+                "x": 0.640625,
+                "y": 0.4,
+                "visible": true,
+                "zIndex": 3
+              },
+              "hand_r": {
+                "x": 0.65625,
+                "y": 0.46875,
+                "visible": true,
+                "zIndex": 4
+              },
+              "shoulder_l": {
+                "x": 0.34375,
+                "y": 0.4,
+                "visible": true,
+                "zIndex": -1
+              },
+              "hand_l": {
+                "x": 0.3125,
+                "y": 0.578125,
+                "visible": false,
+                "zIndex": -2
+              }
+            }
+          },
+          {
+            "poseId": "contact",
+            "durationMs": 60,
+            "joints": {
+              "hip": {
+                "x": 0.5,
+                "y": 0.66,
+                "visible": true,
+                "zIndex": 0
+              },
+              "chest": {
+                "x": 0.515625,
+                "y": 0.45,
+                "visible": true,
+                "zIndex": 1
+              },
+              "head": {
+                "x": 0.515625,
+                "y": 0.25,
+                "visible": true,
+                "zIndex": 2
+              },
+              "shoulder_r": {
+                "x": 0.65625,
+                "y": 0.4,
+                "visible": true,
+                "zIndex": 3
+              },
+              "hand_r": {
+                "x": 0.609375,
+                "y": 0.53125,
+                "visible": true,
+                "zIndex": 4
+              },
+              "shoulder_l": {
+                "x": 0.359375,
+                "y": 0.4,
+                "visible": true,
+                "zIndex": -1
+              },
+              "hand_l": {
+                "x": 0.328125,
+                "y": 0.578125,
+                "visible": false,
+                "zIndex": -2
+              }
+            }
+          },
+          {
+            "poseId": "recover",
+            "durationMs": 160,
+            "joints": {
+              "hip": {
+                "x": 0.5,
+                "y": 0.66,
+                "visible": true,
+                "zIndex": 0
+              },
+              "chest": {
+                "x": 0.5,
+                "y": 0.45,
+                "visible": true,
+                "zIndex": 1
+              },
+              "head": {
+                "x": 0.5,
+                "y": 0.25,
+                "visible": true,
+                "zIndex": 2
+              },
+              "shoulder_r": {
+                "x": 0.640625,
+                "y": 0.4,
+                "visible": true,
+                "zIndex": 3
+              },
+              "hand_r": {
+                "x": 0.640625,
+                "y": 0.515625,
+                "visible": true,
+                "zIndex": 4
+              },
+              "shoulder_l": {
+                "x": 0.34375,
+                "y": 0.4,
+                "visible": true,
+                "zIndex": -1
+              },
+              "hand_l": {
+                "x": 0.3125,
+                "y": 0.578125,
+                "visible": false,
+                "zIndex": -2
+              }
+            }
+          }
+        ],
+        "loop": false,
+        "jointSocketMap": [
+          {
+            "jointId": "hand_r",
+            "rigRevisionId": "warrior-rig-v1",
+            "socketId": "hand_right"
+          },
+          {
+            "jointId": "hand_l",
+            "rigRevisionId": "warrior-rig-v1",
+            "socketId": "hand_left"
+          }
+        ]
+      }
+    },
+    {
+      "assetId": "spark",
+      "revisionId": "spark-v1",
+      "family": "vfx",
+      "kind": "burst",
+      "dependencies": [],
+      "payload": {
+        "logicalSize": [
+          8,
+          8
+        ],
+        "pivot": [
+          3,
+          4
+        ],
+        "loop": false,
+        "blendMode": "normal",
+        "frames": [
+          {
+            "frameId": "rise",
+            "fileId": "spark-texture",
+            "rect": [
+              0,
+              0,
+              8,
+              8
+            ],
+            "sourceOffset": [
+              0,
+              0
+            ],
+            "durationMs": 80
+          },
+          {
+            "frameId": "fade",
+            "fileId": "spark-texture",
+            "rect": [
+              8,
+              0,
+              8,
+              8
+            ],
+            "sourceOffset": [
+              0,
+              0
+            ],
+            "durationMs": 120
+          }
+        ]
+      }
+    },
+    {
+      "assetId": "hit-sfx",
+      "revisionId": "hit-sfx-v1",
+      "family": "audio",
+      "kind": "sfx",
+      "dependencies": [],
+      "payload": {
+        "fileId": "hit-wav",
+        "loop": null,
+        "vocal": null,
+        "lyrics": null
+      }
+    },
+    {
+      "assetId": "warrior-attack-osh-s",
+      "revisionId": "warrior-attack-osh-s-v1",
+      "family": "character",
+      "kind": "clip",
+      "name": "Ataque com escudo (S)",
+      "dependencies": [
+        {
+          "revisionId": "warrior-rig-v1",
+          "role": "rig"
+        },
+        {
+          "revisionId": "warrior-attack-motion-v1",
+          "role": "motion"
+        },
+        {
+          "revisionId": "spark-v1",
+          "role": "vfx"
+        },
+        {
+          "revisionId": "hit-sfx-v1",
+          "role": "audio"
+        }
+      ],
+      "payload": {
+        "rigRevisionId": "warrior-rig-v1",
+        "motionRevisionId": "warrior-attack-motion-v1",
+        "action": "attack",
+        "state": null,
+        "stance": "one_hand_shield",
+        "direction": "S",
+        "logicalSize": [
+          64,
+          64
+        ],
+        "pivot": [
+          32,
+          60
+        ],
+        "margins": {
+          "left": 0,
+          "right": 0,
+          "top": 0,
+          "bottom": 0
+        },
+        "playback": "once",
+        "frames": [
+          {
+            "frameId": "windup",
+            "durationMs": 140,
+            "layers": [
+              {
+                "partId": "body",
+                "fileId": "warrior-attack-s",
+                "rect": [
+                  0,
+                  0,
+                  64,
+                  64
+                ],
+                "offset": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "sockets": [
+              {
+                "socketId": "hand_right",
+                "at": [
+                  43,
+                  28
+                ],
+                "hidden": false
+              },
+              {
+                "socketId": "hand_left",
+                "at": [
+                  19,
+                  37
+                ],
+                "hidden": true
+              }
+            ],
+            "rootOffset": [
+              0,
+              0
+            ]
+          },
+          {
+            "frameId": "advance",
+            "durationMs": 80,
+            "layers": [
+              {
+                "partId": "body",
+                "fileId": "warrior-attack-s",
+                "rect": [
+                  64,
+                  0,
+                  64,
+                  64
+                ],
+                "offset": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "sockets": [
+              {
+                "socketId": "hand_right",
+                "at": [
+                  42,
+                  30
+                ],
+                "hidden": false
+              },
+              {
+                "socketId": "hand_left",
+                "at": [
+                  20,
+                  37
+                ],
+                "hidden": true
+              }
+            ],
+            "rootOffset": [
+              0,
+              0
+            ]
+          },
+          {
+            "frameId": "contact",
+            "durationMs": 60,
+            "layers": [
+              {
+                "partId": "body",
+                "fileId": "warrior-attack-s",
+                "rect": [
+                  128,
+                  0,
+                  64,
+                  64
+                ],
+                "offset": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "sockets": [
+              {
+                "socketId": "hand_right",
+                "at": [
+                  39,
+                  34
+                ],
+                "hidden": false
+              },
+              {
+                "socketId": "hand_left",
+                "at": [
+                  21,
+                  37
+                ],
+                "hidden": true
+              }
+            ],
+            "rootOffset": [
+              0,
+              0
+            ]
+          },
+          {
+            "frameId": "recover",
+            "durationMs": 160,
+            "layers": [
+              {
+                "partId": "body",
+                "fileId": "warrior-attack-s",
+                "rect": [
+                  192,
+                  0,
+                  64,
+                  64
+                ],
+                "offset": [
+                  0,
+                  0
+                ]
+              }
+            ],
+            "sockets": [
+              {
+                "socketId": "hand_right",
+                "at": [
+                  41,
+                  33
+                ],
+                "hidden": false
+              },
+              {
+                "socketId": "hand_left",
+                "at": [
+                  20,
+                  37
+                ],
+                "hidden": true
+              }
+            ],
+            "rootOffset": [
+              0,
+              0
+            ]
+          }
+        ],
+        "events": [
+          {
+            "eventId": "impact",
+            "frameId": "contact",
+            "kind": "impact",
+            "vfx": {
+              "revisionId": "spark-v1",
+              "socketId": "hand_right",
+              "offset": [
+                18,
+                0
+              ]
+            },
+            "audio": {
+              "revisionId": "hit-sfx-v1",
+              "offsetMs": 0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "assetId": "chainmail",
+      "revisionId": "chainmail-v1",
+      "family": "equipment",
+      "kind": "overlay",
+      "name": "Cota de malha",
+      "dependencies": [
+        {
+          "revisionId": "warrior-rig-v1",
+          "role": "rig"
+        },
+        {
+          "revisionId": "warrior-attack-osh-s-v1",
+          "role": "clip"
+        }
+      ],
+      "payload": {
+        "itemRevisionId": null,
+        "rigRevisionId": "warrior-rig-v1",
+        "slots": [
+          "torso"
+        ],
+        "stances": [
+          "one_hand_shield",
+          "two_handed"
+        ],
+        "parts": [
+          {
+            "partId": "torso",
+            "coverage": [
+              {
+                "clipRevisionId": "warrior-attack-osh-s-v1",
+                "frameId": "windup",
+                "layer": {
+                  "fileId": "chainmail-atlas",
+                  "rect": [
+                    0,
+                    0,
+                    20,
+                    16
+                  ],
+                  "offset": [
+                    21,
+                    22
+                  ]
+                },
+                "drawIndex": 1
+              },
+              {
+                "clipRevisionId": "warrior-attack-osh-s-v1",
+                "frameId": "advance",
+                "layer": {
+                  "fileId": "chainmail-atlas",
+                  "rect": [
+                    20,
+                    0,
+                    20,
+                    16
+                  ],
+                  "offset": [
+                    22,
+                    22
+                  ]
+                },
+                "drawIndex": 1
+              },
+              {
+                "clipRevisionId": "warrior-attack-osh-s-v1",
+                "frameId": "contact",
+                "layer": {
+                  "fileId": "chainmail-atlas",
+                  "rect": [
+                    40,
+                    0,
+                    20,
+                    16
+                  ],
+                  "offset": [
+                    23,
+                    22
+                  ]
+                },
+                "drawIndex": 1
+              },
+              {
+                "clipRevisionId": "warrior-attack-osh-s-v1",
+                "frameId": "recover",
+                "layer": {
+                  "fileId": "chainmail-atlas",
+                  "rect": [
+                    60,
+                    0,
+                    20,
+                    16
+                  ],
+                  "offset": [
+                    22,
+                    22
+                  ]
+                },
+                "drawIndex": 1
+              }
+            ]
+          },
+          {
+            "partId": "sleeve_near",
+            "coverage": [
+              {
+                "clipRevisionId": "warrior-attack-osh-s-v1",
+                "frameId": "windup",
+                "layer": {
+                  "fileId": "chainmail-atlas",
+                  "rect": [
+                    0,
+                    16,
+                    8,
+                    12
+                  ],
+                  "offset": [
+                    39,
+                    24
+                  ]
+                },
+                "drawIndex": 2
+              },
+              {
+                "clipRevisionId": "warrior-attack-osh-s-v1",
+                "frameId": "advance",
+                "layer": {
+                  "fileId": "chainmail-atlas",
+                  "rect": [
+                    8,
+                    16,
+                    8,
+                    12
+                  ],
+                  "offset": [
+                    40,
+                    24
+                  ]
+                },
+                "drawIndex": 2
+              },
+              {
+                "clipRevisionId": "warrior-attack-osh-s-v1",
+                "frameId": "contact",
+                "layer": null,
+                "drawIndex": 2
+              },
+              {
+                "clipRevisionId": "warrior-attack-osh-s-v1",
+                "frameId": "recover",
+                "layer": {
+                  "fileId": "chainmail-atlas",
+                  "rect": [
+                    16,
+                    16,
+                    8,
+                    12
+                  ],
+                  "offset": [
+                    40,
+                    24
+                  ]
+                },
+                "drawIndex": 2
+              }
+            ]
+          }
+        ],
+        "rigidViews": []
+      }
+    },
+    {
+      "assetId": "warrior-loadout-osh",
+      "revisionId": "warrior-loadout-osh-v1",
+      "family": "equipment",
+      "kind": "loadout",
+      "dependencies": [
+        {
+          "revisionId": "warrior-rig-v1",
+          "role": "rig"
+        },
+        {
+          "revisionId": "chainmail-v1",
+          "role": "overlay"
+        },
+        {
+          "revisionId": "warrior-attack-osh-s-v1",
+          "role": "clip"
+        }
+      ],
+      "payload": {
+        "rigRevisionId": "warrior-rig-v1",
+        "overlayRevisionIds": [
+          "chainmail-v1"
+        ],
+        "stance": "one_hand_shield",
+        "clips": [
+          {
+            "action": "attack",
+            "direction": "S",
+            "clipRevisionId": "warrior-attack-osh-s-v1"
+          }
+        ]
+      }
+    },
+    {
+      "assetId": "potion",
+      "revisionId": "potion-v1",
+      "family": "item",
+      "kind": "consumable",
+      "name": "Poção verde",
+      "dependencies": [],
+      "payload": {
+        "itemKey": "potion_green",
+        "representations": [
+          {
+            "role": "icon",
+            "state": "default",
+            "fileId": "potion-sheet",
+            "rect": [
+              0,
+              0,
+              16,
+              16
+            ],
+            "sourceOffset": [
+              0,
+              0
+            ],
+            "logicalSize": [
+              16,
+              16
+            ],
+            "pivot": [
+              8,
+              8
+            ]
+          },
+          {
+            "role": "world",
+            "state": "default",
+            "fileId": "potion-sheet",
+            "rect": [
+              16,
+              0,
+              16,
+              16
+            ],
+            "sourceOffset": [
+              0,
+              0
+            ],
+            "logicalSize": [
+              16,
+              16
+            ],
+            "pivot": [
+              8,
+              15
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "assetId": "grass-water",
+      "revisionId": "grass-water-v1",
+      "family": "tileset",
+      "kind": "corner",
+      "name": "Grama ↔ água",
+      "dependencies": [],
+      "payload": {
+        "projection": "top_down",
+        "cellSize": [
+          32,
+          32
+        ],
+        "atlas": {
+          "fileId": "grass-water-atlas",
+          "margin": 0,
+          "spacing": 0
+        },
+        "terrains": [
+          {
+            "terrainId": "grass",
+            "name": "Grama",
+            "color": "#469632"
+          },
+          {
+            "terrainId": "water",
+            "name": "Água",
+            "color": "#3264c8"
+          }
+        ],
+        "diagonals": {
+          "mask5": "separate",
+          "mask10": "separate"
+        },
+        "tiles": [
+          {
+            "tileKey": "grass-water-0",
+            "mask": 0,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              0,
+              0,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-1",
+            "mask": 1,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              32,
+              0,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-2",
+            "mask": 2,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              64,
+              0,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-3",
+            "mask": 3,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              96,
+              0,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-4",
+            "mask": 4,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              0,
+              32,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-5",
+            "mask": 5,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              32,
+              32,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-6",
+            "mask": 6,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              64,
+              32,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-7",
+            "mask": 7,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              96,
+              32,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-8",
+            "mask": 8,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              0,
+              64,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-9",
+            "mask": 9,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              32,
+              64,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-10",
+            "mask": 10,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              64,
+              64,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-11",
+            "mask": 11,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              96,
+              64,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-12",
+            "mask": 12,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              0,
+              96,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-13",
+            "mask": 13,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              32,
+              96,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-14",
+            "mask": 14,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              64,
+              96,
+              32,
+              32
+            ],
+            "frames": []
+          },
+          {
+            "tileKey": "grass-water-15",
+            "mask": 15,
+            "variant": 0,
+            "weight": 1,
+            "rect": [
+              96,
+              96,
+              32,
+              32
+            ],
+            "frames": []
+          }
+        ],
+        "complete": true
+      }
+    },
+    {
+      "assetId": "mini-font",
+      "revisionId": "mini-font-v1",
+      "family": "font",
+      "kind": "bitmap",
+      "dependencies": [],
+      "payload": {
+        "nativeGlyphPx": 7,
+        "metrics": {
+          "ascent": 8,
+          "descent": 2,
+          "lineHeight": 10,
+          "spaceAdvance": 4
+        },
+        "glyphs": [
+          {
+            "codepoint": 85,
+            "fileId": "font-atlas",
+            "rect": [
+              0,
+              0,
+              6,
+              10
+            ],
+            "bearingX": 0,
+            "bearingY": -8,
+            "advanceX": 6,
+            "origin": "generated"
+          },
+          {
+            "codepoint": 115,
+            "fileId": "font-atlas",
+            "rect": [
+              6,
+              0,
+              6,
+              10
+            ],
+            "bearingX": 0,
+            "bearingY": -8,
+            "advanceX": 6,
+            "origin": "generated"
+          },
+          {
+            "codepoint": 97,
+            "fileId": "font-atlas",
+            "rect": [
+              12,
+              0,
+              6,
+              10
+            ],
+            "bearingX": 0,
+            "bearingY": -8,
+            "advanceX": 6,
+            "origin": "generated"
+          },
+          {
+            "codepoint": 114,
+            "fileId": "font-atlas",
+            "rect": [
+              18,
+              0,
+              6,
+              10
+            ],
+            "bearingX": 0,
+            "bearingY": -8,
+            "advanceX": 6,
+            "origin": "generated"
+          },
+          {
+            "codepoint": 231,
+            "fileId": "font-atlas",
+            "rect": [
+              24,
+              0,
+              6,
+              10
+            ],
+            "bearingX": 0,
+            "bearingY": -8,
+            "advanceX": 6,
+            "origin": "extended"
+          },
+          {
+            "codepoint": 227,
+            "fileId": "font-atlas",
+            "rect": [
+              30,
+              0,
+              6,
+              10
+            ],
+            "bearingX": 0,
+            "bearingY": -8,
+            "advanceX": 6,
+            "origin": "extended"
+          },
+          {
+            "codepoint": 63,
+            "fileId": "font-atlas",
+            "rect": [
+              36,
+              0,
+              6,
+              10
+            ],
+            "bearingX": 0,
+            "bearingY": -8,
+            "advanceX": 6,
+            "origin": "generated"
+          }
+        ],
+        "kerning": [],
+        "declaredCoverage": [
+          85,
+          115,
+          97,
+          114,
+          231,
+          227,
+          63
+        ],
+        "missingGlyph": {
+          "policy": "fallback",
+          "fallbackCodepoint": 63
+        },
+        "ttf": null,
+        "license": {
+          "name": "CC0-1.0",
+          "provenance": "Fixture sintética do Pixel Studio"
+        }
+      }
+    },
+    {
+      "assetId": "button-metal",
+      "revisionId": "button-metal-v1",
+      "family": "ui",
+      "kind": "button",
+      "name": "Botão de metal",
+      "dependencies": [
+        {
+          "revisionId": "mini-font-v1",
+          "role": "font"
+        }
+      ],
+      "payload": {
+        "logicalSize": [
+          32,
+          16
+        ],
+        "states": [
+          {
+            "state": "normal",
+            "fileId": "button-atlas",
+            "rect": [
+              0,
+              0,
+              32,
+              16
+            ]
+          },
+          {
+            "state": "hover",
+            "fileId": "button-atlas",
+            "rect": [
+              32,
+              0,
+              32,
+              16
+            ]
+          },
+          {
+            "state": "pressed",
+            "fileId": "button-atlas",
+            "rect": [
+              64,
+              0,
+              32,
+              16
+            ]
+          },
+          {
+            "state": "disabled",
+            "fileId": "button-atlas",
+            "rect": [
+              96,
+              0,
+              32,
+              16
+            ]
+          }
+        ],
+        "requiredStates": [
+          "normal",
+          "hover",
+          "pressed",
+          "disabled"
+        ],
+        "focus": {
+          "mode": "overlay",
+          "fileId": "button-atlas",
+          "rect": [
+            128,
+            0,
+            32,
+            16
+          ]
+        },
+        "nineSlice": {
+          "left": 4,
+          "right": 4,
+          "top": 4,
+          "bottom": 4
+        },
+        "contentPadding": {
+          "left": 7,
+          "right": 7,
+          "top": 5,
+          "bottom": 5
+        },
+        "stretch": {
+          "center": "stretch",
+          "edges": "stretch"
+        },
+        "interactiveRect": null,
+        "text": {
+          "key": "inventory.use",
+          "sample": "Usar",
+          "align": "center",
+          "verticalAlign": "middle",
+          "wrap": "none",
+          "overflow": "grow",
+          "fontRevisionId": "mini-font-v1"
+        },
+        "accessibleName": null,
+        "complete": true
+      }
+    },
+    {
+      "assetId": "health-bar",
+      "revisionId": "health-bar-v1",
+      "family": "ui",
+      "kind": "meter",
+      "name": "Barra de vida",
+      "dependencies": [],
+      "payload": {
+        "logicalSize": [
+          68,
+          10
+        ],
+        "track": {
+          "fileId": "meter-atlas",
+          "rect": [
+            0,
+            0,
+            68,
+            10
+          ]
+        },
+        "fill": {
+          "fileId": "meter-atlas",
+          "rect": [
+            0,
+            20,
+            64,
+            6
+          ],
+          "offset": [
+            2,
+            2
+          ]
+        },
+        "frame": {
+          "fileId": "meter-atlas",
+          "rect": [
+            0,
+            10,
+            68,
+            10
+          ]
+        },
+        "usefulRect": [
+          2,
+          2,
+          64,
+          6
+        ],
+        "axis": "horizontal",
+        "direction": "forward",
+        "range": {
+          "min": 0,
+          "max": 100
+        },
+        "rounding": "floor",
+        "nineSlice": null
+      }
+    },
+    {
+      "assetId": "hud",
+      "revisionId": "hud-v1",
+      "family": "ui",
+      "kind": "screen",
+      "name": "HUD da clareira",
+      "dependencies": [
+        {
+          "revisionId": "health-bar-v1",
+          "role": "component"
+        },
+        {
+          "revisionId": "button-metal-v1",
+          "role": "component"
+        },
+        {
+          "revisionId": "potion-v1",
+          "role": "icon"
+        }
+      ],
+      "payload": {
+        "referenceResolution": [
+          320,
+          180
+        ],
+        "background": null,
+        "instances": [
+          {
+            "instanceId": "root",
+            "parentId": null,
+            "componentRevisionId": null,
+            "anchors": {
+              "left": 0,
+              "top": 0,
+              "right": 1,
+              "bottom": 1
+            },
+            "offsets": {
+              "left": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0
+            },
+            "order": 0,
+            "hidden": false,
+            "overrides": {}
+          },
+          {
+            "instanceId": "health",
+            "parentId": "root",
+            "componentRevisionId": "health-bar-v1",
+            "anchors": {
+              "left": 0,
+              "top": 0,
+              "right": 0,
+              "bottom": 0
+            },
+            "offsets": {
+              "left": 8,
+              "top": 8,
+              "right": 76,
+              "bottom": 18
+            },
+            "order": 1,
+            "hidden": false,
+            "overrides": {
+              "value": 25
+            }
+          },
+          {
+            "instanceId": "use-button",
+            "parentId": "root",
+            "componentRevisionId": "button-metal-v1",
+            "anchors": {
+              "left": 1,
+              "top": 1,
+              "right": 1,
+              "bottom": 1
+            },
+            "offsets": {
+              "left": -40,
+              "top": -24,
+              "right": -8,
+              "bottom": -8
+            },
+            "order": 2,
+            "hidden": false,
+            "overrides": {
+              "textKey": "inventory.use"
+            }
+          },
+          {
+            "instanceId": "potion-icon",
+            "parentId": "root",
+            "componentRevisionId": "potion-v1",
+            "anchors": {
+              "left": 1,
+              "top": 1,
+              "right": 1,
+              "bottom": 1
+            },
+            "offsets": {
+              "left": -64,
+              "top": -24,
+              "right": -48,
+              "bottom": -8
+            },
+            "order": 3,
+            "hidden": false,
+            "overrides": {}
+          }
+        ],
+        "focusOrder": [
+          "use-button"
+        ]
+      }
+    }
+  ],
+  "attributions": [
+    {
+      "subject": "spark-texture",
+      "text": "Arte sintética de teste do Pixel Studio",
+      "license": "CC0-1.0"
+    }
+  ]
+}

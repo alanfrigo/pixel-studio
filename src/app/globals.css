@@ -1,0 +1,400 @@
+:root {
+  --bg: #f6f5f1;
+  --panel: #ffffff;
+  --text: #1d1d22;
+  --muted: #6b6b74;
+  --border: #dddcd5;
+  --accent: #3c5aa0;
+  --ok: #2f7d32;
+  --warn: #9a6400;
+  --error: #b3261e;
+  --checker-a: #e7e6e1;
+  --checker-b: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16161a;
+    --panel: #1f1f25;
+    --text: #ececf0;
+    --muted: #a0a0aa;
+    --border: #34343c;
+    --accent: #8fa8e6;
+    --ok: #7cc97f;
+    --warn: #e0b45c;
+    --error: #f2877f;
+    --checker-a: #2a2a31;
+    --checker-b: #34343c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, sans-serif;
+}
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 8px 0 16px;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+a {
+  color: var(--accent);
+}
+
+section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+form,
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+select,
+textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 60px;
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.error {
+  color: var(--error);
+}
+
+.banner {
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.banner-ok {
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+.banner-warn {
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+
+.banner-error {
+  background: color-mix(in srgb, var(--error) 18%, transparent);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list > li {
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
+
+.list > li:first-child {
+  border-top: 0;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid currentColor;
+}
+
+.state-succeeded,
+.state-approved,
+.state-ready {
+  color: var(--ok);
+}
+
+.state-failed,
+.state-rejected,
+.state-cancelled {
+  color: var(--error);
+}
+
+.state-needs_attention,
+.state-running,
+.state-queued,
+.state-pending,
+.state-candidate {
+  color: var(--warn);
+}
+
+/* Prévia em escala de jogo: zoom inteiro e vizinho mais próximo, sobre quadriculado. */
+.pixel {
+  image-rendering: pixelated;
+  background-image: conic-gradient(var(--checker-a) 25%, var(--checker-b) 0 50%, var(--checker-a) 0 75%, var(--checker-b) 0);
+  background-size: 8px 8px;
+  border: 1px solid var(--border);
+}
+
+.revisions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.revision {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  /* Zoom inteiro alto não estica a página: rola dentro do cartão. */
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.revision.active {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 1px var(--ok);
+}
+
+pre {
+  white-space: pre-wrap;
+  background: var(--bg);
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* Fundo da prévia: quadriculado (padrão), escuro ou claro — o mesmo sprite em contextos de jogo diferentes. */
+.pixel.bg-dark {
+  background: #1b1b1f;
+}
+
+.pixel.bg-light {
+  background: #f4f4f0;
+}
+
+.compare {
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 8px 0 16px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.compare figure {
+  margin: 0;
+}
+
+.revision.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Link com aparência de botão (navegação, não ação). */
+a.button {
+  display: inline-block;
+  border-radius: 4px;
+  padding: 6px 12px;
+  text-decoration: none;
+  background: var(--accent);
+  color: #fff;
+}
+
+a.button.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+/* Animação (cartão S1): abas, presets, timeline de quadros/poses e grade de vistas. */
+.anim-tabs {
+  margin: 0 0 12px;
+}
+
+.anim-routes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.anim-sheet {
+  color: var(--warn);
+}
+
+.anim-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.anim-preset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.anim-preset h3 {
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+
+.anim-player canvas {
+  max-width: 100%;
+}
+
+.anim-timeline {
+  border-collapse: collapse;
+  margin: 8px 0;
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+}
+
+.anim-timeline th,
+.anim-timeline td {
+  border: 1px solid var(--border);
+  padding: 2px 4px;
+  text-align: center;
+}
+
+.anim-timeline th.current {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.anim-timeline input {
+  width: 64px;
+  padding: 2px 4px;
+}
+
+.anim-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.anim-chip {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.anim-chip input {
+  width: 60px;
+  padding: 4px;
+}
+
+.anim-views {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.anim-view {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.anim-view.missing {
+  border-style: dashed;
+  border-color: var(--error);
+}
+
+.anim-view-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+}
+
+.anim-view-option img {
+  image-rendering: pixelated;
+}

@@ -1,0 +1,66 @@
+{
+  "planVersion": 1,
+  "projectId": "clareira",
+  "styleRevisionId": "clareira-style-a",
+  "operation": "inpaint",
+  "recipeRevisionId": "recipe-inpaint-v1",
+  "providerProfileId": "pixellab-rest",
+  "prompt": {
+    "brief": "reconstruir a margem do lago com juncos",
+    "compiled": "Reconstruir a margem do lago com juncos na região marcada, mantendo grama, água e luz do restante.",
+    "language": "pt-BR"
+  },
+  "sources": [
+    {
+      "ordinal": 0,
+      "revisionId": "grass-water-v1",
+      "fileId": "grass-water-atlas",
+      "sha256": "ea3154b48b3232b0af5ec5ff72697364fe73faa8fb94088ffc96be485fdf259e",
+      "role": "source"
+    },
+    {
+      "ordinal": 1,
+      "revisionId": "grass-water-v1",
+      "fileId": "lake-mask",
+      "sha256": "007ae642c9fd8ae4bfb0fea1a8d1a0c724dd1f8940e1e34dae2c9db1e89ae1a0",
+      "role": "edit_mask"
+    }
+  ],
+  "requiredCapabilities": [
+    "native_mask"
+  ],
+  "parts": [
+    {
+      "partKey": "image:lake-edge",
+      "unit": "image",
+      "label": "Margem do lago"
+    }
+  ],
+  "limits": {
+    "maxSubmissions": 1,
+    "costCeiling": {
+      "amount": 5,
+      "unit": "generations"
+    },
+    "estimate": {
+      "kind": "known",
+      "amount": {
+        "amount": 1,
+        "unit": "generations"
+      },
+      "basis": "1 chamada /inpaint-v3"
+    }
+  },
+  "params": {
+    "sourceRevisionId": "grass-water-v1",
+    "sourceFileId": "grass-water-atlas",
+    "editMaskFileId": "lake-mask",
+    "maskConvention": "white_edits_black_preserves",
+    "logicalSize": [
+      128,
+      128
+    ],
+    "mode": "native-mask",
+    "instruction": "reconstruir a margem do lago com juncos"
+  }
+}

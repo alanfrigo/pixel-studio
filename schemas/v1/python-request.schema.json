@@ -1,0 +1,2044 @@
+{
+  "$id": "pixel-studio/v1/python-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/__schema0"
+    },
+    {
+      "$ref": "#/$defs/__schema6"
+    },
+    {
+      "$ref": "#/$defs/__schema15"
+    },
+    {
+      "$ref": "#/$defs/__schema16"
+    },
+    {
+      "$ref": "#/$defs/__schema18"
+    },
+    {
+      "$ref": "#/$defs/__schema21"
+    },
+    {
+      "$ref": "#/$defs/__schema27"
+    },
+    {
+      "$ref": "#/$defs/__schema28"
+    },
+    {
+      "$ref": "#/$defs/__schema29"
+    },
+    {
+      "$ref": "#/$defs/__schema30"
+    },
+    {
+      "$ref": "#/$defs/__schema31"
+    },
+    {
+      "$ref": "#/$defs/__schema32"
+    },
+    {
+      "$ref": "#/$defs/__schema33"
+    },
+    {
+      "$ref": "#/$defs/__schema34"
+    },
+    {
+      "$ref": "#/$defs/__schema42"
+    },
+    {
+      "$ref": "#/$defs/__schema43"
+    },
+    {
+      "$ref": "#/$defs/__schema44"
+    },
+    {
+      "$ref": "#/$defs/__schema45"
+    },
+    {
+      "$ref": "#/$defs/__schema47"
+    },
+    {
+      "$ref": "#/$defs/__schema50"
+    },
+    {
+      "$ref": "#/$defs/__schema52"
+    },
+    {
+      "$ref": "#/$defs/__schema53"
+    }
+  ],
+  "$defs": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "ingest_inspect"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "limits": {
+              "type": "object",
+              "properties": {
+                "maxBytes": {
+                  "$ref": "#/$defs/__schema5"
+                },
+                "maxWidth": {
+                  "$ref": "#/$defs/__schema5"
+                },
+                "maxHeight": {
+                  "$ref": "#/$defs/__schema5"
+                },
+                "maxPixels": {
+                  "$ref": "#/$defs/__schema5"
+                },
+                "maxFrames": {
+                  "$ref": "#/$defs/__schema5"
+                }
+              },
+              "required": [
+                "maxBytes",
+                "maxWidth",
+                "maxHeight",
+                "maxPixels",
+                "maxFrames"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "version",
+            "limits"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema1": {
+      "type": "number",
+      "const": 1
+    },
+    "__schema2": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "__schema3": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "$ref": "#/$defs/__schema4"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "source",
+              "candidate",
+              "poseGuide",
+              "editMask",
+              "keepMask",
+              "removeMask",
+              "palette",
+              "layer"
+            ]
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "relPath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "ordinal",
+          "role",
+          "sha256",
+          "relPath"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "__schema4": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema5": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema6": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "slice_grid"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "grid": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "frameIds": {
+              "$ref": "#/$defs/__schema10"
+            },
+            "durationMs": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "pivot": {
+              "$ref": "#/$defs/__schema13"
+            },
+            "emptyCells": {
+              "$ref": "#/$defs/__schema14"
+            }
+          },
+          "required": [
+            "version",
+            "grid",
+            "frameIds",
+            "durationMs",
+            "pivot",
+            "emptyCells"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema7": {
+      "type": "number",
+      "const": 1
+    },
+    "__schema8": {
+      "type": "object",
+      "properties": {
+        "rows": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "columns": {
+          "$ref": "#/$defs/__schema5"
+        },
+        "cell": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "margin": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/__schema4"
+            },
+            {
+              "$ref": "#/$defs/__schema4"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "spacing": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/__schema4"
+            },
+            {
+              "$ref": "#/$defs/__schema4"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "traversal": {
+          "type": "string",
+          "enum": [
+            "row_major",
+            "column_major"
+          ]
+        }
+      },
+      "required": [
+        "rows",
+        "columns",
+        "cell",
+        "margin",
+        "spacing",
+        "traversal"
+      ],
+      "additionalProperties": false
+    },
+    "__schema9": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/__schema5"
+        },
+        {
+          "$ref": "#/$defs/__schema5"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "__schema10": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema2"
+      }
+    },
+    "__schema11": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema12"
+      }
+    },
+    "__schema12": {
+      "maximum": 60000,
+      "$ref": "#/$defs/__schema5"
+    },
+    "__schema13": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/__schema4"
+        },
+        {
+          "$ref": "#/$defs/__schema4"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "__schema14": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema4"
+      }
+    },
+    "__schema15": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "composite_protected"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "maskConvention": {
+              "type": "string",
+              "const": "white_edits_black_preserves"
+            }
+          },
+          "required": [
+            "version",
+            "maskConvention"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema16": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "apply_palette"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "metric": {
+              "type": "string",
+              "const": "srgb8_squared"
+            },
+            "tieBreak": {
+              "type": "string",
+              "const": "lowest_index"
+            },
+            "dither": {
+              "type": "boolean",
+              "const": false
+            },
+            "colors": {
+              "minItems": 1,
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema17"
+              }
+            }
+          },
+          "required": [
+            "version",
+            "metric",
+            "tieBreak",
+            "dither",
+            "colors"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema17": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "__schema18": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "compose_layers"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "canvas": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "layers": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema19"
+              }
+            }
+          },
+          "required": [
+            "version",
+            "canvas",
+            "layers"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema19": {
+      "type": "object",
+      "properties": {
+        "inputOrdinal": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "offset": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/__schema20"
+            },
+            {
+              "$ref": "#/$defs/__schema20"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "inputOrdinal",
+        "offset"
+      ],
+      "additionalProperties": false
+    },
+    "__schema20": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "__schema21": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "remove_background_flood"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/__schema22"
+            },
+            "color": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "tolerance": {
+              "$ref": "#/$defs/__schema23"
+            },
+            "seeds": {
+              "$ref": "#/$defs/__schema24"
+            },
+            "connectivity": {
+              "$ref": "#/$defs/__schema25"
+            },
+            "match": {
+              "$ref": "#/$defs/__schema26"
+            }
+          },
+          "required": [
+            "version",
+            "color",
+            "tolerance",
+            "seeds",
+            "connectivity"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema22": {
+      "type": "number",
+      "const": 1
+    },
+    "__schema23": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "__schema24": {
+      "type": "object",
+      "properties": {
+        "borders": {
+          "type": "boolean"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/__schema4"
+              },
+              {
+                "$ref": "#/$defs/__schema4"
+              }
+            ],
+            "items": false,
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "required": [
+        "borders",
+        "points"
+      ],
+      "additionalProperties": false
+    },
+    "__schema25": {
+      "type": "number",
+      "const": 4
+    },
+    "__schema26": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "rgb"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "hue"
+            },
+            "hueTolerance": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 90
+            },
+            "minSaturation": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minValue": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "keyFrom": {
+              "type": "string",
+              "enum": [
+                "color",
+                "border"
+              ]
+            },
+            "cleanup": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "mode",
+            "hueTolerance",
+            "minSaturation"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "__schema27": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "crop_to_content"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "padding": {
+              "$ref": "#/$defs/__schema4"
+            },
+            "alphaThreshold": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 254
+            }
+          },
+          "required": [
+            "version",
+            "padding",
+            "alphaThreshold"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema28": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "make_thumbnail"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "maxSize": {
+              "maximum": 1024,
+              "$ref": "#/$defs/__schema5"
+            },
+            "flattenOnto": {
+              "$ref": "#/$defs/__schema17"
+            }
+          },
+          "required": [
+            "version",
+            "maxSize"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema29": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "fit_logical"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "targetSize": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "cropToContent": {
+              "type": "object",
+              "properties": {
+                "padding": {
+                  "$ref": "#/$defs/__schema4"
+                }
+              },
+              "required": [
+                "padding"
+              ],
+              "additionalProperties": false
+            },
+            "alphaThreshold": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            },
+            "exactAspect": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "version",
+            "targetSize"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema30": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "encode_mask"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "encoding": {
+              "type": "string",
+              "enum": [
+                "alpha_zero_edits",
+                "white_edits_black_preserves"
+              ]
+            }
+          },
+          "required": [
+            "version",
+            "encoding"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema31": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "inspect_mask"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "maskConvention": {
+              "type": "string",
+              "const": "white_edits_black_preserves"
+            }
+          },
+          "required": [
+            "version",
+            "maskConvention"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema32": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "inpaint_guide"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "scale": {
+              "maximum": 64,
+              "$ref": "#/$defs/__schema5"
+            },
+            "markColor": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "flattenOnto": {
+              "$ref": "#/$defs/__schema17"
+            }
+          },
+          "required": [
+            "version",
+            "scale",
+            "markColor"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema33": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "unzoom"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "minAgreement": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "ignoreKeyHue": {
+              "type": "object",
+              "properties": {
+                "hueTolerance": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 90
+                },
+                "minSaturation": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "minValue": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "hueTolerance",
+                "minSaturation"
+              ],
+              "additionalProperties": false
+            },
+            "minContentCells": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            }
+          },
+          "required": [
+            "version",
+            "minAgreement"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema34": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "animation_sheet"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "$ref": "#/$defs/__schema35"
+            },
+            "columns": {
+              "$ref": "#/$defs/__schema36"
+            },
+            "rows": {
+              "$ref": "#/$defs/__schema37"
+            },
+            "frameIds": {
+              "$ref": "#/$defs/__schema38"
+            },
+            "cell": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "alphaThreshold": {
+              "$ref": "#/$defs/__schema39"
+            },
+            "scaleTolerance": {
+              "$ref": "#/$defs/__schema40"
+            },
+            "keepHorizontalOffsets": {
+              "$ref": "#/$defs/__schema41"
+            }
+          },
+          "required": [
+            "version",
+            "columns",
+            "rows",
+            "frameIds",
+            "cell",
+            "alphaThreshold",
+            "scaleTolerance",
+            "keepHorizontalOffsets"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema35": {
+      "type": "number",
+      "const": 1
+    },
+    "__schema36": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8
+    },
+    "__schema37": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8
+    },
+    "__schema38": {
+      "minItems": 1,
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema2"
+      }
+    },
+    "__schema39": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 255
+    },
+    "__schema40": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.5
+    },
+    "__schema41": {
+      "type": "boolean"
+    },
+    "__schema42": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "animation_contact_sheet"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "cell": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "zoom": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
+            "background": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema17"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "columns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
+            "gap": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 64
+            }
+          },
+          "required": [
+            "version",
+            "cell",
+            "zoom",
+            "background",
+            "columns",
+            "gap"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema43": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "texture_seams"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "axes": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "boolean"
+                },
+                "y": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "additionalProperties": false
+            },
+            "threshold": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 20
+            },
+            "zoom": {
+              "maximum": 16,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "axes",
+            "threshold",
+            "zoom"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema44": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "corner_guides"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "cellSize": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "diagonals": {
+              "type": "object",
+              "properties": {
+                "mask5": {
+                  "type": "string",
+                  "enum": [
+                    "connected",
+                    "separate"
+                  ]
+                },
+                "mask10": {
+                  "type": "string",
+                  "enum": [
+                    "connected",
+                    "separate"
+                  ]
+                }
+              },
+              "required": [
+                "mask5",
+                "mask10"
+              ],
+              "additionalProperties": false
+            },
+            "bandPx": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16
+            },
+            "seed": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "version",
+            "cellSize",
+            "diagonals",
+            "bandPx",
+            "seed"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema45": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "side_guides"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "cellSize": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "configurations": {
+              "minItems": 1,
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema46"
+              }
+            },
+            "surfaceDepthPx": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "columns": {
+              "maximum": 16,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "cellSize",
+            "configurations",
+            "surfaceDepthPx",
+            "columns"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema46": {
+      "type": "string",
+      "enum": [
+        "surface_middle",
+        "surface_left",
+        "surface_right",
+        "surface_single",
+        "interior",
+        "wall_left",
+        "wall_right",
+        "column_middle",
+        "ceiling_middle",
+        "ceiling_left",
+        "ceiling_right",
+        "column_bottom",
+        "thin_middle",
+        "thin_left",
+        "thin_right",
+        "block_single",
+        "inner_corner_left",
+        "inner_corner_right"
+      ]
+    },
+    "__schema47": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "tileset_seams"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "layout": {
+              "type": "string",
+              "enum": [
+                "corner",
+                "side"
+              ]
+            },
+            "cellSize": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "tiles": {
+              "minItems": 1,
+              "maxItems": 512,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema48"
+              }
+            },
+            "threshold": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 20
+            },
+            "lockedBandPx": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16
+            },
+            "sample": {
+              "type": "object",
+              "properties": {
+                "size": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "cells": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                }
+              },
+              "required": [
+                "size",
+                "cells"
+              ],
+              "additionalProperties": false
+            },
+            "zoom": {
+              "maximum": 16,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "layout",
+            "cellSize",
+            "tiles",
+            "threshold",
+            "lockedBandPx",
+            "sample",
+            "zoom"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema48": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "rect": {
+          "$ref": "#/$defs/__schema49"
+        },
+        "mask": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "configuration": {
+          "$ref": "#/$defs/__schema46"
+        }
+      },
+      "required": [
+        "key",
+        "rect"
+      ],
+      "additionalProperties": false
+    },
+    "__schema49": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/__schema4"
+        },
+        {
+          "$ref": "#/$defs/__schema4"
+        },
+        {
+          "$ref": "#/$defs/__schema5"
+        },
+        {
+          "$ref": "#/$defs/__schema5"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "__schema50": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "tile_edit_mask"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "regions": {
+              "minItems": 1,
+              "maxItems": 512,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema51"
+              }
+            },
+            "alphaEdgePx": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4
+            }
+          },
+          "required": [
+            "version",
+            "regions",
+            "alphaEdgePx"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema51": {
+      "type": "object",
+      "properties": {
+        "rect": {
+          "$ref": "#/$defs/__schema49"
+        },
+        "bandPx": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "rect",
+        "bandPx"
+      ],
+      "additionalProperties": false
+    },
+    "__schema52": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "iso_pieces"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "diamond": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "blockHeightPx": {
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "version",
+            "diamond",
+            "blockHeightPx"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema53": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "iso_check"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "diamond": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "elevationStepPx": {
+              "$ref": "#/$defs/__schema4"
+            },
+            "pieces": {
+              "minItems": 1,
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema54"
+              }
+            },
+            "patch": {
+              "type": "object",
+              "properties": {
+                "size": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "cells": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "anyOf": [
+                          {
+                            "$ref": "#/$defs/__schema2"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "elevation": {
+                        "$ref": "#/$defs/__schema4"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "elevation"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "props": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "$ref": "#/$defs/__schema2"
+                      },
+                      "cell": {
+                        "$ref": "#/$defs/__schema55"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "cell"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "probes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema55"
+                  }
+                }
+              },
+              "required": [
+                "size",
+                "cells",
+                "props",
+                "probes"
+              ],
+              "additionalProperties": false
+            },
+            "zoom": {
+              "maximum": 16,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "diamond",
+            "elevationStepPx",
+            "pieces",
+            "patch",
+            "zoom"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema54": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "floor",
+            "block",
+            "prop"
+          ]
+        },
+        "rect": {
+          "$ref": "#/$defs/__schema49"
+        },
+        "groundOrigin": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "supportPoint": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "footprintCells": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/__schema5"
+            },
+            {
+              "$ref": "#/$defs/__schema5"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "elevation": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "rect",
+        "groundOrigin",
+        "supportPoint",
+        "footprintCells",
+        "elevation"
+      ],
+      "additionalProperties": false
+    },
+    "__schema55": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/__schema4"
+        },
+        {
+          "$ref": "#/$defs/__schema4"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    }
+  }
+}
