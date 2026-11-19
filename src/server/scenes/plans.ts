@@ -15,6 +15,7 @@ import {
 import { canonicalDigest } from "@/domain/canonical-json";
 import { validatePlanReferences } from "@/domain/plan/references";
 import { floorPlanProblems, fullFloorPlan, roomGrid } from "@/domain/scenes/room";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { getAsset, getProject, getRevision, getStyleRevision, type RevisionView } from "../catalog/catalog";
 import { catalogLookup } from "../catalog/plan-lookup";
 import { DomainFailure } from "../errors";
@@ -33,7 +34,7 @@ const Language = z.enum(["pt-BR", "en"]).optional();
 
 function context(studio: Studio, projectId: string, profileId: string) {
   const project = getProject(studio.db, projectId);
-  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", "Projeto sem estilo ativo");
+  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", tx("Projeto sem estilo ativo", "Project has no active style"));
   const style = getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload;
   studio.providers.assertReady(profileId);
   const adapter = studio.providers.adapterFor(profileId);
@@ -56,16 +57,23 @@ function finish(studio: Studio, plan: GenerationPlan, profile: ReturnType<typeof
   };
 }
 
-function requireCaps(offered: Capability[], required: Capability[], profileId: string, what: string) {
+/** `what`: o que o perfil não faz, nos dois idiomas (ex.: "gera props" / "generate props"). */
+function requireCaps(offered: Capability[], required: Capability[], profileId: string, what: LocalizedText) {
   const missing = required.filter((c) => !offered.includes(c));
-  if (missing.length) throw new DomainFailure("capability_missing", `O perfil ${profileId} não ${what}: falta ${missing.join(", ")}`, { missing, offered });
+  if (missing.length) {
+    throw new DomainFailure(
+      "capability_missing",
+      tx(`O perfil ${profileId} não ${what["pt-BR"]}: falta ${missing.join(", ")}`, `Provider profile ${profileId} cannot ${what.en}: missing ${missing.join(", ")}`),
+      { missing, offered },
+    );
+  }
 }
 
 /** Arquivo de imagem principal de uma revisão aprovada usada como referência visual. */
 export function revisionImage(studio: Studio, projectId: string, revisionId: string): { revision: RevisionView; fileKey: string; sha256: string } {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", `${asset.name} r${revision.number} precisa estar aprovada`);
+  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", tx(`${asset.name} r${revision.number} precisa estar aprovada`, `${asset.name} r${revision.number} must be approved`));
   const p = revision.payload as Record<string, unknown>;
   const key =
     asset.family === "map" && asset.kind === "scene"
@@ -76,7 +84,10 @@ export function revisionImage(studio: Studio, projectId: string, revisionId: str
           ? p.fileId
           : null;
   const file = key ? revision.files.find((f) => f.fileKey === key) : undefined;
-  if (!file) throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} (${asset.family}/${asset.kind}) não tem imagem de referência`);
+  if (!file) throw new DomainFailure(
+      "validation_failed",
+      tx(`${asset.name} r${revision.number} (${asset.family}/${asset.kind}) não tem imagem de referência`, `${asset.name} r${revision.number} (${asset.family}/${asset.kind}) has no reference image`),
+    );
   return { revision, fileKey: file.fileKey, sha256: file.sha256 };
 }
 
@@ -113,9 +124,9 @@ export function buildScenePlan(studio: Studio, projectId: string, raw: ScenePlan
   const alpha = transparent && offered.includes("alpha_output");
   const key = transparent && !alpha ? chooseKeyColor(style.palette.colors.map((c) => c.hex)) : null;
   const required: Capability[] = ["text_to_image", ...(sources.length ? (["image_references"] as const) : []), ...(alpha ? (["alpha_output"] as const) : [])];
-  requireCaps(offered, required, input.providerProfileId, "gera cena com estas entradas");
+  requireCaps(offered, required, input.providerProfileId, tx("gera cena com estas entradas", "generate a scene with these inputs"));
   const maxRefs = adapter.limits?.("generate_scene").maxReferences;
-  if (maxRefs !== undefined && sources.length > maxRefs) throw new DomainFailure("capability_missing", `O perfil aceita até ${maxRefs} referências`);
+  if (maxRefs !== undefined && sources.length > maxRefs) throw new DomainFailure("capability_missing", tx(`O perfil aceita até ${maxRefs} referências`, `The provider profile accepts up to ${maxRefs} references`));
   const language = languageOf(style, input.language);
   const prompt = compileScenePrompt({
     language,
@@ -158,7 +169,7 @@ export function buildScenePlan(studio: Studio, projectId: string, raw: ScenePlan
   return finish(studio, plan, profile, {
     routeLabel: input.layer ? SCENE_ROUTE_LABELS.layer : SCENE_ROUTE_LABELS.flat,
     targetKind: input.layer ? "scene_layer" : "scene",
-    transparency: transparent ? (alpha ? "alfa nativo da rota" : "fundo de cor-chave removido localmente") : "opaco",
+    transparency: transparent ? (alpha ? tx("alfa nativo da rota", "native route alpha") : tx("fundo de cor-chave removido localmente", "key-color background removed locally")) : tx("opaco", "opaque"),
   });
 }
 
@@ -189,16 +200,22 @@ export function buildRoomPlan(studio: Studio, projectId: string, raw: RoomPlanIn
   if (problems.length) throw new DomainFailure("validation_failed", problems[0]!.message, { problems });
   const offered = adapter.capabilities("generate_room");
   const required: Capability[] = ["text_to_image", "image_references"];
-  requireCaps(offered, required, input.providerProfileId, "aceita a planta como referência raster");
+  requireCaps(offered, required, input.providerProfileId, tx("aceita a planta como referência raster", "accept the floor plan as a raster reference"));
   const sources: PlanSource[] = [];
   if (input.styleRoomRevisionId) {
     const rev = getRevision(studio.db, projectId, input.styleRoomRevisionId);
     const asset = getAsset(studio.db, projectId, rev.assetId);
-    if (asset.family !== "map" || asset.kind !== "room") throw new DomainFailure("validation_failed", "A sala de estilo precisa ser uma sala (map/room)");
-    if (rev.status !== "approved") throw new DomainFailure("source_not_approved", `${asset.name} r${rev.number} precisa estar aprovada para servir de estilo`);
+    if (asset.family !== "map" || asset.kind !== "room") throw new DomainFailure("validation_failed", tx("A sala de estilo precisa ser uma sala (map/room)", "The style room must be a room (map/room)"));
+    if (rev.status !== "approved") throw new DomainFailure("source_not_approved", tx(`${asset.name} r${rev.number} precisa estar aprovada para servir de estilo`, `${asset.name} r${rev.number} must be approved to serve as a style reference`));
     const styleRoom = RoomPayload.parse(rev.payload);
-    if (styleRoom.projection !== input.projection) throw new DomainFailure("validation_failed", `A sala de estilo é ${styleRoom.projection}; a nova é ${input.projection} (mesma vista exigida)`);
-    if (styleRoom.tileSize !== input.tileSize) throw new DomainFailure("validation_failed", `Escalas diferentes: tile ${styleRoom.tileSize} × ${input.tileSize} (mesma escala para portas se encontrarem)`);
+    if (styleRoom.projection !== input.projection) throw new DomainFailure(
+        "validation_failed",
+        tx(`A sala de estilo é ${styleRoom.projection}; a nova é ${input.projection} (mesma vista exigida)`, `The style room is ${styleRoom.projection}; the new one is ${input.projection} (the same view is required)`),
+      );
+    if (styleRoom.tileSize !== input.tileSize) throw new DomainFailure(
+        "validation_failed",
+        tx(`Escalas diferentes: tile ${styleRoom.tileSize} × ${input.tileSize} (mesma escala para portas se encontrarem)`, `Different scales: tile ${styleRoom.tileSize} × ${input.tileSize} (doors only meet at the same scale)`),
+      );
     const ref = revisionImage(studio, projectId, rev.id);
     sources.push({ ordinal: 0, revisionId: rev.id, fileId: ref.fileKey, sha256: ref.sha256, role: "style" });
   }
@@ -207,7 +224,7 @@ export function buildRoomPlan(studio: Studio, projectId: string, raw: RoomPlanIn
   const key = chooseKeyColor([...style.palette.colors.map((c) => c.hex), ROOM_GUIDE_COLORS.floor, ROOM_GUIDE_COLORS.wall, ROOM_GUIDE_COLORS.door]);
   const compiled = compileRoomPrompt({ language, theme: input.theme, projection: input.projection, pictureSize: grid.pictureSize, cellPx: grid.cellPx, colors: { ...ROOM_GUIDE_COLORS, rock: key }, doors: input.doors.length, style, styleReferences: sources.length });
   const maxRefs = adapter.limits?.("generate_room").maxReferences;
-  if (maxRefs !== undefined && sources.length + 1 > maxRefs) throw new DomainFailure("capability_missing", `A guia da planta + ${sources.length} referência(s) excede o limite de ${maxRefs}`);
+  if (maxRefs !== undefined && sources.length + 1 > maxRefs) throw new DomainFailure("capability_missing", tx(`A guia da planta + ${sources.length} referência(s) excede o limite de ${maxRefs}`, `The floor plan guide + ${sources.length} reference(s) exceeds the limit of ${maxRefs}`));
   const plan: GenerationPlan = {
     planVersion: 1,
     projectId,
@@ -234,9 +251,14 @@ export function buildRoomPlan(studio: Studio, projectId: string, raw: RoomPlanIn
     routeLabel: ROOM_ROUTE_LABELS.generic,
     grid,
     restrictions: [
-      ...(input.projection === "oblique" ? ["Oblíqua: só paredes, portas e piso; sem móveis a extrair"] : []),
-      "Móveis saem depois por recorte local revisado (máscara explícita); a área exposta é reconstruída por inpainting (E1)",
-      ...(input.projection === "top_down" && input.tileSize !== 32 ? [`Top-down: a imagem usa células de 32 px; o tile_size ${input.tileSize} fica declarado como escala da sala`] : []),
+      ...(input.projection === "oblique" ? [tx("Oblíqua: só paredes, portas e piso; sem móveis a extrair", "Oblique: walls, doors and floor only; no furniture to extract")] : []),
+      tx(
+        "Móveis saem depois por recorte local revisado (máscara explícita); a área exposta é reconstruída por inpainting (E1)",
+        "Furniture is extracted later by a reviewed local cutout (explicit mask); the exposed area is rebuilt by inpainting (E1)",
+      ),
+      ...(input.projection === "top_down" && input.tileSize !== 32
+        ? [tx(`Top-down: a imagem usa células de 32 px; o tile_size ${input.tileSize} fica declarado como escala da sala`, `Top-down: the image uses 32 px cells; tile_size ${input.tileSize} is declared as the room scale`)]
+        : []),
     ],
   });
 }
@@ -263,7 +285,7 @@ export function buildMapObjectPlan(studio: Studio, projectId: string, raw: MapOb
   const alpha = offered.includes("alpha_output");
   const key = alpha ? null : chooseKeyColor(style.palette.colors.map((c) => c.hex));
   const required: Capability[] = ["text_to_image", ...(alpha ? (["alpha_output"] as const) : [])];
-  requireCaps(offered, required, input.providerProfileId, "gera props");
+  requireCaps(offered, required, input.providerProfileId, tx("gera props", "generate props"));
   const language = languageOf(style, input.language);
   const parts = Array.from({ length: input.variants }, (_, i) => ({ partKey: `image:object-${i + 1}`, unit: "image" as const, label: `Prop · candidata ${i + 1}` }));
   const plan: GenerationPlan = {

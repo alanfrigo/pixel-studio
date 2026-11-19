@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -84,7 +85,7 @@ function exportView(db: Db, row: ExportRow): ExportView {
 
 export function getExport(db: Db, projectId: string, exportId: string): ExportView {
   const row = db.get<ExportRow>("SELECT * FROM exports WHERE id = :id AND project_id = :p", { id: exportId, p: projectId });
-  if (!row) throw new DomainFailure("not_found", "Exportação não encontrada neste projeto");
+  if (!row) throw new DomainFailure("not_found", tx("Exportação não encontrada neste projeto", "Export not found in this project"));
   return exportView(db, row);
 }
 
@@ -103,7 +104,7 @@ export function requestExport(
   const revisionIds = [...new Set(input.revisionIds)].sort();
   const closure = resolveClosure(deps.db, projectId, revisionIds);
   if (closure.problems.length > 0) {
-    throw new DomainFailure("coverage_incomplete", "A seleção tem revisões que não podem ser exportadas", { problems: closure.problems });
+    throw new DomainFailure("coverage_incomplete", tx("A seleção tem revisões que não podem ser exportadas", "The selection has revisions that cannot be exported"), { problems: closure.problems });
   }
   // S2: conjuntos equipados só saem completos (ou como subconjunto explícito).
   const equipment = equipmentExportProblems(deps.db, projectId, closure.revisionIds);
@@ -132,14 +133,14 @@ export function requestExport(
         ),
     });
     const row = deps.db.get<ExportRow>("SELECT * FROM exports WHERE job_id = :job", { job: job.id });
-    if (!row) throw new DomainFailure("internal", "Exportação sem registro para o job");
+    if (!row) throw new DomainFailure("internal", tx("Exportação sem registro para o job", "Export has no record for the job"));
     return { export: exportView(deps.db, row), created };
   });
 }
 
 /** Caminho absoluto do ZIP promovido. */
 export function exportFilePath(exportsDir: string, view: Pick<ExportView, "id" | "fileName">): string {
-  if (!view.fileName) throw new DomainFailure("not_found", "Pacote ainda não está pronto");
+  if (!view.fileName) throw new DomainFailure("not_found", tx("Pacote ainda não está pronto", "Package is not ready yet"));
   return path.join(exportsDir, view.id, view.fileName);
 }
 
@@ -149,7 +150,7 @@ const ExportJobRequest = z.strictObject({ selection: z.array(Id).min(1), profile
 export async function exportHandler(ctx: HandlerContext): Promise<void> {
   const request = ExportJobRequest.parse(JSON.parse(ctx.job.request_json));
   const row = ctx.db.get<ExportRow>("SELECT * FROM exports WHERE job_id = :job", { job: ctx.job.id });
-  if (!row) throw new DomainFailure("internal", "Job de exportação sem registro de exportação");
+  if (!row) throw new DomainFailure("internal", tx("Job de exportação sem registro de exportação", "Export job has no export record"));
   const project = getProject(ctx.db, ctx.job.project_id);
 
   ctx.queue.setStage(ctx.attempt, "prepare");
@@ -161,9 +162,9 @@ export async function exportHandler(ctx: HandlerContext): Promise<void> {
   // Relê o pacote como um consumidor faria antes de promovê-lo.
   const archive = readZip(zip);
   const reread = validateManifest(JSON.parse(new TextDecoder().decode(archive.read("manifest.json"))));
-  if (!reread.ok || !reread.manifest) throw new DomainFailure("internal", "Pacote relido não passou na validação", { issues: reread.issues.slice(0, 10) });
+  if (!reread.ok || !reread.manifest) throw new DomainFailure("internal", tx("Pacote relido não passou na validação", "Reread package did not pass validation"), { issues: reread.issues.slice(0, 10) });
   const fileIssues = await verifyManifestFiles(reread.manifest, async (p) => archive.read(p));
-  if (fileIssues.length > 0) throw new DomainFailure("internal", "Arquivos do pacote relido divergem do manifesto", { issues: fileIssues });
+  if (fileIssues.length > 0) throw new DomainFailure("internal", tx("Arquivos do pacote relido divergem do manifesto", "Files in the reread package do not match the manifest"), { issues: fileIssues });
   const zipSha256 = sha256Hex(zip);
 
   ctx.queue.setStage(ctx.attempt, "publish");

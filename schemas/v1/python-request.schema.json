@@ -96,22 +96,67 @@
       "$ref": "#/$defs/__schema75"
     },
     {
-      "$ref": "#/$defs/__schema78"
+      "$ref": "#/$defs/__schema79"
     },
     {
-      "$ref": "#/$defs/__schema80"
+      "$ref": "#/$defs/__schema81"
     },
     {
-      "$ref": "#/$defs/__schema82"
+      "$ref": "#/$defs/__schema83"
     },
     {
-      "$ref": "#/$defs/__schema85"
-    },
-    {
-      "$ref": "#/$defs/__schema93"
+      "$ref": "#/$defs/__schema86"
     },
     {
       "$ref": "#/$defs/__schema94"
+    },
+    {
+      "$ref": "#/$defs/__schema95"
+    },
+    {
+      "$ref": "#/$defs/__schema96"
+    },
+    {
+      "$ref": "#/$defs/__schema99"
+    },
+    {
+      "$ref": "#/$defs/__schema101"
+    },
+    {
+      "$ref": "#/$defs/__schema103"
+    },
+    {
+      "$ref": "#/$defs/__schema104"
+    },
+    {
+      "$ref": "#/$defs/__schema107"
+    },
+    {
+      "$ref": "#/$defs/__schema108"
+    },
+    {
+      "$ref": "#/$defs/__schema109"
+    },
+    {
+      "$ref": "#/$defs/__schema110"
+    },
+    {
+      "$ref": "#/$defs/__schema111"
+    },
+    {
+      "$ref": "#/$defs/__schema112"
+    },
+    {
+      "$ref": "#/$defs/__schema113"
+    },
+    {
+      "$ref": "#/$defs/__schema115"
+    },
+    {
+      "$ref": "#/$defs/__schema120"
+    },
+    {
+      "$ref": "#/$defs/__schema122"
     }
   ],
   "$defs": {
@@ -3052,10 +3097,7 @@
       "type": "object",
       "properties": {
         "partId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+          "$ref": "#/$defs/__schema78"
         },
         "zones": {
           "minItems": 1,
@@ -3073,6 +3115,12 @@
       "additionalProperties": false
     },
     "__schema78": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+    },
+    "__schema79": {
       "type": "object",
       "properties": {
         "protocolVersion": {
@@ -3109,7 +3157,7 @@
               "maxItems": 16,
               "type": "array",
               "items": {
-                "$ref": "#/$defs/__schema79"
+                "$ref": "#/$defs/__schema80"
               }
             },
             "scale": {
@@ -3152,7 +3200,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema79": {
+    "__schema80": {
       "type": "object",
       "properties": {
         "frameId": {
@@ -3188,7 +3236,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema80": {
+    "__schema81": {
       "type": "object",
       "properties": {
         "protocolVersion": {
@@ -3219,7 +3267,7 @@
               "maxItems": 512,
               "type": "array",
               "items": {
-                "$ref": "#/$defs/__schema81"
+                "$ref": "#/$defs/__schema82"
               }
             }
           },
@@ -3240,7 +3288,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema81": {
+    "__schema82": {
       "type": "object",
       "properties": {
         "key": {
@@ -3262,7 +3310,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema82": {
+    "__schema83": {
       "type": "object",
       "properties": {
         "protocolVersion": {
@@ -3296,7 +3344,7 @@
               "maxItems": 64,
               "type": "array",
               "items": {
-                "$ref": "#/$defs/__schema83"
+                "$ref": "#/$defs/__schema84"
               }
             },
             "sheet": {
@@ -3366,7 +3414,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema83": {
+    "__schema84": {
       "type": "object",
       "properties": {
         "key": {
@@ -3377,7 +3425,7 @@
           "maxItems": 16,
           "type": "array",
           "items": {
-            "$ref": "#/$defs/__schema84"
+            "$ref": "#/$defs/__schema85"
           }
         }
       },
@@ -3387,7 +3435,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema84": {
+    "__schema85": {
       "type": "object",
       "properties": {
         "input": {
@@ -3407,7 +3455,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema85": {
+    "__schema86": {
       "type": "object",
       "properties": {
         "protocolVersion": {
@@ -3430,28 +3478,28 @@
           "type": "object",
           "properties": {
             "version": {
-              "$ref": "#/$defs/__schema86"
-            },
-            "columns": {
               "$ref": "#/$defs/__schema87"
             },
-            "rows": {
+            "columns": {
               "$ref": "#/$defs/__schema88"
             },
-            "frameIds": {
+            "rows": {
               "$ref": "#/$defs/__schema89"
+            },
+            "frameIds": {
+              "$ref": "#/$defs/__schema90"
             },
             "cell": {
               "$ref": "#/$defs/__schema9"
             },
             "alphaThreshold": {
-              "$ref": "#/$defs/__schema90"
-            },
-            "scaleTolerance": {
               "$ref": "#/$defs/__schema91"
             },
-            "scaleBy": {
+            "scaleTolerance": {
               "$ref": "#/$defs/__schema92"
+            },
+            "scaleBy": {
+              "$ref": "#/$defs/__schema93"
             }
           },
           "required": [
@@ -3476,14 +3524,9 @@
       ],
       "additionalProperties": false
     },
-    "__schema86": {
+    "__schema87": {
       "type": "number",
       "const": 1
-    },
-    "__schema87": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 8
     },
     "__schema88": {
       "type": "integer",
@@ -3491,6 +3534,11 @@
       "maximum": 8
     },
     "__schema89": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8
+    },
+    "__schema90": {
       "minItems": 1,
       "maxItems": 64,
       "type": "array",
@@ -3498,24 +3546,24 @@
         "$ref": "#/$defs/__schema2"
       }
     },
-    "__schema90": {
+    "__schema91": {
       "type": "integer",
       "minimum": 1,
       "maximum": 255
     },
-    "__schema91": {
+    "__schema92": {
       "type": "number",
       "minimum": 0,
       "maximum": 0.5
     },
-    "__schema92": {
+    "__schema93": {
       "type": "string",
       "enum": [
         "sheet",
         "width"
       ]
     },
-    "__schema93": {
+    "__schema94": {
       "type": "object",
       "properties": {
         "protocolVersion": {
@@ -3564,7 +3612,7 @@
       ],
       "additionalProperties": false
     },
-    "__schema94": {
+    "__schema95": {
       "type": "object",
       "properties": {
         "protocolVersion": {
@@ -3614,6 +3662,1441 @@
         "recipe"
       ],
       "additionalProperties": false
+    },
+    "__schema96": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "ui_template_guide"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "size": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "scale": {
+              "maximum": 32,
+              "$ref": "#/$defs/__schema5"
+            },
+            "backgroundKey": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "cells": {
+              "minItems": 1,
+              "maxItems": 32,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema97"
+              }
+            }
+          },
+          "required": [
+            "version",
+            "size",
+            "scale",
+            "backgroundKey",
+            "cells"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema97": {
+      "type": "object",
+      "properties": {
+        "localId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "rect": {
+          "$ref": "#/$defs/__schema98"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "piece",
+            "fill",
+            "frame"
+          ]
+        }
+      },
+      "required": [
+        "localId",
+        "rect",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "__schema98": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/__schema4"
+        },
+        {
+          "$ref": "#/$defs/__schema4"
+        },
+        {
+          "$ref": "#/$defs/__schema5"
+        },
+        {
+          "$ref": "#/$defs/__schema5"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "__schema99": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "ui_template_split"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "cells": {
+              "minItems": 1,
+              "maxItems": 32,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema100"
+              }
+            },
+            "zoom": {
+              "maximum": 8,
+              "$ref": "#/$defs/__schema5"
+            },
+            "backgroundKey": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema17"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "version",
+            "cells",
+            "zoom"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema100": {
+      "type": "object",
+      "properties": {
+        "localId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "rect": {
+          "$ref": "#/$defs/__schema98"
+        }
+      },
+      "required": [
+        "localId",
+        "rect"
+      ],
+      "additionalProperties": false
+    },
+    "__schema101": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "ui_crop"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "crops": {
+              "minItems": 1,
+              "maxItems": 32,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema102"
+              }
+            }
+          },
+          "required": [
+            "version",
+            "crops"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema102": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "rect": {
+          "$ref": "#/$defs/__schema98"
+        },
+        "emptyRect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema98"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "rect",
+        "emptyRect"
+      ],
+      "additionalProperties": false
+    },
+    "__schema103": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "ui_state_guide"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "sheetSize": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "scale": {
+              "maximum": 32,
+              "$ref": "#/$defs/__schema5"
+            },
+            "backgroundKey": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "cells": {
+              "minItems": 2,
+              "maxItems": 16,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema98"
+              }
+            }
+          },
+          "required": [
+            "version",
+            "sheetSize",
+            "scale",
+            "backgroundKey",
+            "cells"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema104": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "ui_state_sheet"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "cell": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "cells": {
+              "minItems": 1,
+              "maxItems": 15,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema105"
+              }
+            },
+            "nineSlice": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema106"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "contentPadding": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema106"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "searchPx": {
+              "maximum": 8,
+              "$ref": "#/$defs/__schema4"
+            },
+            "outlineTolerance": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "version",
+            "cell",
+            "cells",
+            "nineSlice",
+            "contentPadding",
+            "searchPx",
+            "outlineTolerance"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema105": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "normal",
+            "hover",
+            "pressed",
+            "disabled",
+            "selected",
+            "empty",
+            "occupied"
+          ]
+        },
+        "rect": {
+          "$ref": "#/$defs/__schema98"
+        }
+      },
+      "required": [
+        "state",
+        "rect"
+      ],
+      "additionalProperties": false
+    },
+    "__schema106": {
+      "type": "object",
+      "properties": {
+        "left": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "right": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "top": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "bottom": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ],
+      "additionalProperties": false
+    },
+    "__schema107": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "ui_state_transform"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "transform": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "ramp"
+                    },
+                    "steps": {
+                      "type": "integer",
+                      "minimum": -3,
+                      "maximum": 3
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "steps"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "highlight"
+                    },
+                    "amount": {
+                      "type": "number",
+                      "minimum": 0.05,
+                      "maximum": 0.6
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "amount"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "offset"
+                    },
+                    "dx": {
+                      "type": "integer",
+                      "minimum": -2,
+                      "maximum": 2
+                    },
+                    "dy": {
+                      "type": "integer",
+                      "minimum": -2,
+                      "maximum": 2
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "dx",
+                    "dy"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "palette": {
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema17"
+              }
+            },
+            "keepBorderPx": {
+              "maximum": 4,
+              "$ref": "#/$defs/__schema4"
+            }
+          },
+          "required": [
+            "version",
+            "transform",
+            "palette",
+            "keepBorderPx"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema108": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "ui_focus_overlay"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "color": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "widthPx": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3
+            }
+          },
+          "required": [
+            "version",
+            "color",
+            "widthPx"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema109": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "portrait_check"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "zoom": {
+              "maximum": 16,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "zoom"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema110": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "viseme_guide"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "columns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "cell": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "mouthRect": {
+              "$ref": "#/$defs/__schema51"
+            },
+            "markColor": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "flattenOnto": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema17"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "scale": {
+              "maximum": 32,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "columns",
+            "rows",
+            "cell",
+            "mouthRect",
+            "markColor",
+            "flattenOnto",
+            "scale"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema111": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "expression_sheet"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "columns": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "cell": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "frameIds": {
+              "minItems": 1,
+              "maxItems": 32,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema78"
+              }
+            },
+            "restId": {
+              "$ref": "#/$defs/__schema78"
+            },
+            "faceRect": {
+              "$ref": "#/$defs/__schema51"
+            },
+            "mouthRect": {
+              "$ref": "#/$defs/__schema51"
+            },
+            "thresholds": {
+              "type": "object",
+              "properties": {
+                "outsideMouth": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "outsideFace": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "outsideMouth",
+                "outsideFace"
+              ],
+              "additionalProperties": false
+            },
+            "zoom": {
+              "maximum": 16,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "columns",
+            "rows",
+            "cell",
+            "frameIds",
+            "restId",
+            "faceRect",
+            "mouthRect",
+            "thresholds",
+            "zoom"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema112": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "expression_compare"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "rectA": {
+              "$ref": "#/$defs/__schema51"
+            },
+            "rectB": {
+              "$ref": "#/$defs/__schema51"
+            },
+            "mouthRect": {
+              "$ref": "#/$defs/__schema51"
+            },
+            "zoom": {
+              "maximum": 16,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "rectA",
+            "rectB",
+            "mouthRect",
+            "zoom"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema113": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "speech_preview"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "frames": {
+              "minItems": 1,
+              "maxItems": 2000,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema114"
+              }
+            },
+            "zoom": {
+              "maximum": 8,
+              "$ref": "#/$defs/__schema5"
+            },
+            "stripMax": {
+              "maximum": 64,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "frames",
+            "zoom",
+            "stripMax"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema114": {
+      "type": "object",
+      "properties": {
+        "rect": {
+          "$ref": "#/$defs/__schema51"
+        },
+        "durationMs": {
+          "$ref": "#/$defs/__schema12"
+        }
+      },
+      "required": [
+        "rect",
+        "durationMs"
+      ],
+      "additionalProperties": false
+    },
+    "__schema115": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "font_guide"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "columns": {
+              "$ref": "#/$defs/__schema116"
+            },
+            "rows": {
+              "$ref": "#/$defs/__schema117"
+            },
+            "cell": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "baselineY": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "padLeft": {
+              "$ref": "#/$defs/__schema4"
+            },
+            "capHeight": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "codepoints": {
+              "minItems": 1,
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema118"
+              }
+            },
+            "scale": {
+              "maximum": 32,
+              "$ref": "#/$defs/__schema5"
+            }
+          },
+          "required": [
+            "version",
+            "columns",
+            "rows",
+            "cell",
+            "baselineY",
+            "padLeft",
+            "capHeight",
+            "codepoints",
+            "scale"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema116": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "__schema117": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16
+    },
+    "__schema118": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema119"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema119": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1114111
+    },
+    "__schema120": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "font_measure"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "columns": {
+              "$ref": "#/$defs/__schema116"
+            },
+            "rows": {
+              "$ref": "#/$defs/__schema117"
+            },
+            "cell": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "baselineY": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "padLeft": {
+              "$ref": "#/$defs/__schema4"
+            },
+            "capHeight": {
+              "$ref": "#/$defs/__schema5"
+            },
+            "codepoints": {
+              "minItems": 1,
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema121"
+              }
+            },
+            "alphaThreshold": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            },
+            "tracking": {
+              "maximum": 4,
+              "$ref": "#/$defs/__schema4"
+            },
+            "snapBaseline": {
+              "type": "boolean"
+            },
+            "keyColor": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema17"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "version",
+            "columns",
+            "rows",
+            "cell",
+            "baselineY",
+            "padLeft",
+            "capHeight",
+            "codepoints",
+            "alphaThreshold",
+            "tracking",
+            "snapBaseline",
+            "keyColor"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema121": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema119"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema122": {
+      "type": "object",
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/__schema1"
+        },
+        "jobId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "attemptId": {
+          "$ref": "#/$defs/__schema2"
+        },
+        "inputs": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "operation": {
+          "type": "string",
+          "const": "font_render"
+        },
+        "recipe": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "glyphs": {
+              "minItems": 1,
+              "maxItems": 4096,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema123"
+              }
+            },
+            "metrics": {
+              "type": "object",
+              "properties": {
+                "ascent": {
+                  "$ref": "#/$defs/__schema4"
+                },
+                "descent": {
+                  "$ref": "#/$defs/__schema4"
+                },
+                "lineHeight": {
+                  "$ref": "#/$defs/__schema5"
+                },
+                "spaceAdvance": {
+                  "$ref": "#/$defs/__schema4"
+                }
+              },
+              "required": [
+                "ascent",
+                "descent",
+                "lineHeight",
+                "spaceAdvance"
+              ],
+              "additionalProperties": false
+            },
+            "kerning": {
+              "maxItems": 4096,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema124"
+              }
+            },
+            "texts": {
+              "minItems": 1,
+              "maxItems": 16,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema125"
+              }
+            },
+            "maxWidth": {
+              "anyOf": [
+                {
+                  "maximum": 4096,
+                  "$ref": "#/$defs/__schema5"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "zoom": {
+              "maximum": 16,
+              "$ref": "#/$defs/__schema5"
+            },
+            "color": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema17"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "background": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/__schema17"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "version",
+            "glyphs",
+            "metrics",
+            "kerning",
+            "texts",
+            "maxWidth",
+            "zoom",
+            "color",
+            "background"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "jobId",
+        "attemptId",
+        "inputs",
+        "operation",
+        "recipe"
+      ],
+      "additionalProperties": false
+    },
+    "__schema123": {
+      "type": "object",
+      "properties": {
+        "codepoint": {
+          "$ref": "#/$defs/__schema119"
+        },
+        "page": {
+          "$ref": "#/$defs/__schema4"
+        },
+        "rect": {
+          "$ref": "#/$defs/__schema51"
+        },
+        "bearingX": {
+          "$ref": "#/$defs/__schema21"
+        },
+        "bearingY": {
+          "$ref": "#/$defs/__schema21"
+        },
+        "advanceX": {
+          "$ref": "#/$defs/__schema4"
+        }
+      },
+      "required": [
+        "codepoint",
+        "page",
+        "rect",
+        "bearingX",
+        "bearingY",
+        "advanceX"
+      ],
+      "additionalProperties": false
+    },
+    "__schema124": {
+      "type": "object",
+      "properties": {
+        "left": {
+          "$ref": "#/$defs/__schema119"
+        },
+        "right": {
+          "$ref": "#/$defs/__schema119"
+        },
+        "amount": {
+          "$ref": "#/$defs/__schema21"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "__schema125": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
     }
   }
 }

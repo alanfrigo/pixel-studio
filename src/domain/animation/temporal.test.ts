@@ -95,14 +95,14 @@ describe("canvas (domínio)", () => {
     // Célula ampliada com quadros gerados já na célula inteira (24×16): reduzir corta a camada.
     const base = clip();
     const grown: ClipPayload = { ...base, logicalSize: [24, 16], pivot: [12, 15], margins: { left: 4, right: 4, top: 0, bottom: 0 }, frames: base.frames.map((f) => ({ ...f, layers: [{ ...f.layers[0]!, rect: [0, 0, 24, 16], offset: [0, 0] }], sockets: [] })), events: [] };
-    expect(resizeClipCanvas(grown, { left: -4, right: -4, top: 0, bottom: 0 }).problems[0]).toMatch(/medir o conteúdo/);
+    expect(resizeClipCanvas(grown, { left: -4, right: -4, top: 0, bottom: 0 }).problems[0]).toMatchObject({ "pt-BR": expect.stringMatching(/medir o conteúdo/), en: expect.stringMatching(/measuring the frame content/) });
     const boxes = Object.fromEntries(grown.frames.map((f) => [f.frameId, [6, 2, 10, 13] as [number, number, number, number]]));
     const back = resizeClipCanvas(grown, { left: -4, right: -4, top: 0, bottom: 0 }, boxes);
     expect(back.problems).toEqual([]);
     expect(back.payload.frames[0]!.layers[0]).toMatchObject({ rect: [4, 0, 16, 16], offset: [0, 0] });
     const tight = Object.fromEntries(grown.frames.map((f) => [f.frameId, [1, 2, 20, 13] as [number, number, number, number]]));
-    expect(resizeClipCanvas(grown, { left: -4, right: -4, top: 0, bottom: 0 }, tight).problems.join(" ")).toMatch(/visíveis/);
-    expect(resizeClipCanvas(grown, { left: -6, right: 0, top: 0, bottom: 0 }, boxes).problems.join(" ")).toMatch(/margens/);
+    expect(resizeClipCanvas(grown, { left: -4, right: -4, top: 0, bottom: 0 }, tight).problems.map((p) => p["pt-BR"]).join(" ")).toMatch(/visíveis/);
+    expect(resizeClipCanvas(grown, { left: -6, right: 0, top: 0, bottom: 0 }, boxes).problems.map((p) => p["pt-BR"]).join(" ")).toMatch(/margens/);
   });
 
   it("base: vistas vão para a tela nova com o mesmo deslocamento do apoio", () => {

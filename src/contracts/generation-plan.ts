@@ -1,3 +1,4 @@
+import { LocalizedText } from "@/i18n/locales";
 import { z } from "zod";
 import { Capability } from "./capabilities";
 import {
@@ -8,9 +9,11 @@ import {
   DurationMs,
   HexColor,
   Id,
+  Insets,
   LanguageTag,
   NonNegInt,
   PosInt,
+  Rect,
   ReferenceRole,
   Sha256Hex,
   Size,
@@ -19,7 +22,7 @@ import {
 import { InpaintMaskConvention } from "./mask";
 import { Direction, ProjectionKind, WorldToViewMap } from "./projection";
 import { Playback } from "./sprites";
-import { UiState } from "./ui";
+import { MeterPart, UiState } from "./ui";
 import { Codepoint } from "./dialogue-audio";
 import { TilesetGuide } from "./world";
 import { OverlayCoverageParams } from "./equipment";
@@ -56,11 +59,14 @@ export const PlanPart = z.strictObject({
 });
 export type PlanPart = z.infer<typeof PlanPart>;
 
+/** Texto da estimativa: string (planos antigos, um idioma) ou bilíngue `{en, "pt-BR"}`; a interface escolhe o idioma. */
+const EstimateText = z.union([z.string().min(1).max(500), LocalizedText]);
+
 export const CostEstimate = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("known"), amount: CostAmount, basis: z.string().min(1).max(500) }),
-  z.strictObject({ kind: z.literal("range"), min: CostAmount, max: CostAmount, basis: z.string().min(1).max(500) }),
+  z.strictObject({ kind: z.literal("known"), amount: CostAmount, basis: EstimateText }),
+  z.strictObject({ kind: z.literal("range"), min: CostAmount, max: CostAmount, basis: EstimateText }),
   /** Custo desconhecido permanece desconhecido; nunca estimativa zero inventada. */
-  z.strictObject({ kind: z.literal("unknown"), reason: z.string().min(1).max(500) }),
+  z.strictObject({ kind: z.literal("unknown"), reason: EstimateText }),
 ]);
 export type CostEstimate = z.infer<typeof CostEstimate>;
 
@@ -99,6 +105,25 @@ export const ReferenceSheet = z.strictObject({
   frameIds: z.array(Id).min(1).max(64),
 });
 export type ReferenceSheet = z.infer<typeof ReferenceSheet>;
+
+/**
+ * Cartão U3 · folha de estados de UM componente na rota genérica: grade de
+ * células do mesmo tamanho lógico com espaçamento inteiro; a célula 0 mostra o
+ * estado-base aprovado e as seguintes recebem `states` na ordem.
+ */
+export const UiStateSheet = z.strictObject({
+  componentRevisionId: Id,
+  baseState: UiState,
+  cell: Size,
+  columns: z.number().int().min(1).max(8),
+  rows: z.number().int().min(1).max(8),
+  gapPx: NonNegInt.max(64),
+  states: z.array(UiState).min(1).max(7),
+  sheetSize: Size,
+  /** Área da legenda/miolo do componente, conferida em cada estado. */
+  contentPadding: Insets.nullable().optional(),
+});
+export type UiStateSheet = z.infer<typeof UiStateSheet>;
 
 // ---------------------------------------------------------------------------
 // Parâmetros por operação
@@ -258,13 +283,32 @@ const ops = {
           componentType: z.enum(["button", "panel", "slot", "meter", "menu_item"]),
           logicalSize: Size,
           requiredStates: z.array(UiState),
+          /** Cartão U3: componente a que a peça pertence (as três partes da barra compartilham), célula no template e parte da barra. */
+          componentId: Id.optional(),
+          cell: Rect.optional(),
+          meterPart: MeterPart.optional(),
         }),
       )
       .min(1),
+    /**
+     * Cartão U3 · rota genérica: o layout vira guia raster (primeira
+     * referência) em fundo de cor-chave; o modelo pinta as peças nas células e
+     * a separação é local. Ausente = operação nativa de template.
+     */
+    guide: z.strictObject({ backgroundKey: HexColor }).optional(),
   }),
   generate_ui_states: z.strictObject({
     componentRevisionIds: z.array(Id).min(1),
     requiredStates: z.array(UiState).min(1),
+    /** Cartão U3: cada estado descrito por nome e descrição. */
+    stateDescriptions: z.array(z.strictObject({ state: UiState, description: z.string().min(1).max(300) })).optional(),
+    /**
+     * Cartão U3 · rota genérica: uma folha por componente (célula 1 = estado-base
+     * aprovado como referência; demais = estados pedidos, mesma célula), com
+     * fundo de cor-chave. NÃO é geração nativa de estados. Ausente = nativa.
+     */
+    sheets: z.array(UiStateSheet).min(1).max(8).optional(),
+    backgroundKey: HexColor.optional(),
   }),
   generate_vfx: z.strictObject({
     logicalSize: Size,
@@ -275,16 +319,58 @@ const ops = {
   generate_portrait: z.strictObject({
     characterRevisionId: Id,
     logicalSize: Size,
+    /**
+     * Cartão D1 · `image_references` = rota genérica: o retrato é desenhado por
+     * imagem + referência da vista aprovada do personagem e conferido
+     * localmente. Ausente = operação nativa de retrato (capacidade `portrait`).
+     */
+    route: z.literal("image_references").optional(),
+    framing: z.enum(["bust", "head"]).optional(),
+    transparent: z.boolean().optional(),
+    /** Rota sem alfa: fundo de cor-chave pedido no prompt e removido localmente. */
+    backgroundKey: HexColor.nullable().optional(),
   }),
   generate_visemes: z.strictObject({
     portraitRevisionId: Id,
     expressionKey: Slug,
     visemeCount: z.number().int().min(1).max(32),
+    /** D1: IDs dos visemes na ordem da grade; mesma quantidade e ordem em toda expressão. */
+    visemeIds: z.array(Slug).min(1).max(32).optional(),
+    visemeSet: Slug.optional(),
+    /** Descrição da expressão (ex.: "sorriso largo, olhos semicerrados"). */
+    expressionBrief: z.string().max(500).optional(),
+    /** Regiões do retrato aprovado: o rosto pode mudar com a expressão; só a boca muda entre visemes. */
+    faceRect: Rect.optional(),
+    mouthRect: Rect.optional(),
+    /** Rota genérica: folha desenhada por imagem + referência do retrato aprovado na grade declarada (não é viseme nativo). */
+    sheet: ReferenceSheet.optional(),
   }),
   generate_pixel_font: z.strictObject({
     weight: z.enum(["light", "regular", "bold"]),
     glyphSize: PosInt,
     requiredCodepoints: z.array(Codepoint).min(1),
+    /**
+     * D1 · rota genérica: cada parte é uma página de glyphs desenhada na grade
+     * do gabarito (imagem + referências) e montada localmente em atlas bitmap
+     * com métricas medidas. `extend` desenha só os glyphs ausentes com
+     * referência dos glyphs-base aprovados. Ausente = fonte pixel nativa.
+     */
+    guide: z
+      .strictObject({
+        mode: z.enum(["base", "extend"]),
+        cell: Size,
+        columns: z.number().int().min(1).max(16),
+        rows: z.number().int().min(1).max(16),
+        baselineY: PosInt,
+        padLeft: NonNegInt,
+        capHeight: PosInt,
+        tracking: NonNegInt.max(4),
+        backgroundKey: HexColor,
+        inkColor: HexColor,
+        pages: z.array(z.strictObject({ partKey: z.string().min(1).max(64), codepoints: z.array(Codepoint).min(1).max(256) })).min(1).max(16),
+        baseRevisionId: Id.nullable(),
+      })
+      .optional(),
   }),
   generate_audio: z.strictObject({
     kind: z.enum(["music", "sfx"]),
@@ -480,6 +566,89 @@ export const GenerationPlan = z
       case "generate_map_object":
         requires("text_to_image");
         break;
+      // Cartão U3: sem capacidade nativa, o template vai como guia raster e os estados como folha por imagem + referência.
+      case "generate_ui_template": {
+        requires(p.params.guide ? "image_references" : "ui_template");
+        checkUnique(ctx, p.params.requestedComponents, (c) => c.localId, "Peça", ["params", "requestedComponents"]);
+        const [tw, th] = p.params.logicalSize;
+        p.params.requestedComponents.forEach((c, i) => {
+          if (p.params.guide && !c.cell) ctx.addIssue({ code: "custom", message: `Peça ${c.localId} sem célula na guia`, path: ["params", "requestedComponents", i, "cell"] });
+          if (c.cell && (c.cell[0] + c.cell[2] > tw || c.cell[1] + c.cell[3] > th)) {
+            ctx.addIssue({ code: "custom", message: `Célula de ${c.localId} fora do template ${tw}×${th}`, path: ["params", "requestedComponents", i, "cell"] });
+          }
+          if ((c.componentType === "meter") !== Boolean(c.meterPart) && p.params.guide) {
+            ctx.addIssue({ code: "custom", message: "Na guia, a barra é pedida como trilho, preenchimento e moldura separados", path: ["params", "requestedComponents", i, "meterPart"] });
+          }
+        });
+        break;
+      }
+      case "generate_ui_states": {
+        requires(p.params.sheets ? "image_references" : "ui_states");
+        const sheets = p.params.sheets ?? [];
+        checkUnique(ctx, sheets, (s) => s.componentRevisionId, "Folha", ["params", "sheets"]);
+        sheets.forEach((sheet, i) => {
+          if (!p.params.componentRevisionIds.includes(sheet.componentRevisionId)) ctx.addIssue({ code: "custom", message: `Folha de componente fora do plano: ${sheet.componentRevisionId}`, path: ["params", "sheets", i] });
+          if (sheet.columns * sheet.rows < sheet.states.length + 1) ctx.addIssue({ code: "custom", message: `Folha ${sheet.columns}×${sheet.rows} não comporta base + ${sheet.states.length} estados`, path: ["params", "sheets", i] });
+          if (sheet.states.includes(sheet.baseState)) ctx.addIssue({ code: "custom", message: "O estado-base aprovado não é gerado de novo", path: ["params", "sheets", i, "states"] });
+          const want = [sheet.gapPx + sheet.columns * (sheet.cell[0] + sheet.gapPx), sheet.gapPx + sheet.rows * (sheet.cell[1] + sheet.gapPx)];
+          if (sheet.sheetSize[0] !== want[0] || sheet.sheetSize[1] !== want[1]) ctx.addIssue({ code: "custom", message: `Folha deve medir ${want.join("×")}`, path: ["params", "sheets", i, "sheetSize"] });
+        });
+        if (p.params.sheets && p.params.componentRevisionIds.some((id) => !sheets.some((s) => s.componentRevisionId === id))) {
+          ctx.addIssue({ code: "custom", message: "Cada componente do plano tem a sua folha", path: ["params", "sheets"] });
+        }
+        break;
+      }
+      // Cartão D1: rota genérica (imagem + referências) ou capacidade nativa declarada; nunca as duas.
+      case "generate_portrait":
+        requires(p.params.route ? "image_references" : "portrait");
+        if (p.params.route && !p.sources.some((s) => s.role === "identity" && s.revisionId === p.params.characterRevisionId)) {
+          ctx.addIssue({ code: "custom", message: "A vista do personagem deve estar congelada nas fontes (papel identity)", path: ["sources"] });
+        }
+        break;
+      case "generate_visemes": {
+        requires(p.params.sheet ? "image_references" : "visemes");
+        const ids = p.params.visemeIds;
+        if (ids && ids.length !== p.params.visemeCount) {
+          ctx.addIssue({ code: "custom", message: `visemeIds tem ${ids.length} itens; visemeCount = ${p.params.visemeCount}`, path: ["params", "visemeIds"] });
+        }
+        if (ids && new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", message: "visemes repetidos", path: ["params", "visemeIds"] });
+        if (p.params.sheet) {
+          checkSheetCells(ctx, p.params.sheet, p.params.visemeCount);
+          if (!ids || p.params.sheet.frameIds.join("|") !== ids.join("|")) {
+            ctx.addIssue({ code: "custom", message: "A folha declara os visemes na mesma ordem de visemeIds", path: ["params", "sheet", "frameIds"] });
+          }
+          if (!p.params.faceRect || !p.params.mouthRect) ctx.addIssue({ code: "custom", message: "Rota genérica exige faceRect e mouthRect do retrato", path: ["params"] });
+          if (!p.sources.some((s) => s.role === "identity" && s.revisionId === p.params.portraitRevisionId)) {
+            ctx.addIssue({ code: "custom", message: "O retrato aprovado deve estar congelado nas fontes (papel identity)", path: ["sources"] });
+          }
+        }
+        break;
+      }
+      case "generate_pixel_font": {
+        const guide = p.params.guide;
+        requires(guide ? "image_references" : "pixel_font");
+        if (!guide) break;
+        if (guide.pages.map((g) => g.partKey).join("|") !== p.parts.map((part) => part.partKey).join("|")) {
+          ctx.addIssue({ code: "custom", message: "Cada parte do plano é uma página do gabarito, na mesma ordem", path: ["params", "guide", "pages"] });
+        }
+        guide.pages.forEach((page, i) => {
+          if (page.codepoints.length > guide.columns * guide.rows) {
+            ctx.addIssue({ code: "custom", message: `Página ${page.partKey} não comporta ${page.codepoints.length} glyphs`, path: ["params", "guide", "pages", i] });
+          }
+        });
+        const paged = guide.pages.flatMap((page) => page.codepoints);
+        const required = new Set(p.params.requiredCodepoints);
+        if (paged.length !== required.size || paged.some((c) => !required.has(c))) {
+          ctx.addIssue({ code: "custom", message: "As páginas cobrem exatamente os codepoints pedidos, sem repetição", path: ["params", "guide", "pages"] });
+        }
+        if (guide.baselineY > guide.cell[1] || guide.capHeight > guide.baselineY) {
+          ctx.addIssue({ code: "custom", message: "Baseline/altura de maiúscula fora da célula", path: ["params", "guide", "baselineY"] });
+        }
+        if (guide.mode === "extend" && (!guide.baseRevisionId || !p.sources.some((s) => s.revisionId === guide.baseRevisionId))) {
+          ctx.addIssue({ code: "custom", message: "Extensão exige a revisão-base da fonte congelada nas fontes", path: ["params", "guide", "baseRevisionId"] });
+        }
+        break;
+      }
       default:
         break;
     }

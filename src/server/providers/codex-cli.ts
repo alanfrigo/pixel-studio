@@ -1,3 +1,4 @@
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -266,21 +267,21 @@ function excerpt(text: string, max = 400): string {
 
 /** Falha sem imagem → erro classificado para o worker (auth, cota, recusa, incerto). */
 export function classifyCodexFailure(run: CodexRun, events: CodexEvents, timeoutMs: number): ProviderError {
-  if (run.missing) return new ProviderError("not_accepted", "Codex CLI não encontrado: instale com `npm install -g @openai/codex` e rode `codex login`");
+  if (run.missing) return new ProviderError("not_accepted", tx("Codex CLI não encontrado: instale com `npm install -g @openai/codex` e rode `codex login`", "Codex CLI not found: install it with `npm install -g @openai/codex` and run `codex login`"));
   const detail = excerpt([...events.errors, run.stderr].join("\n"));
-  if (AUTH_PATTERN.test(detail)) return new ProviderError("auth", `Codex sem login válido: rode \`codex login\` na máquina do servidor (${excerpt(detail, 160)})`);
-  if (LIMIT_PATTERN.test(detail)) return new ProviderError("rate_limited", `Limite de uso do Codex atingido: ${excerpt(detail, 200)}`);
+  if (AUTH_PATTERN.test(detail)) return new ProviderError("auth", tx(`Codex sem login válido: rode \`codex login\` na máquina do servidor (${excerpt(detail, 160)})`, `Codex has no valid login: run \`codex login\` on the server machine (${excerpt(detail, 160)})`));
+  if (LIMIT_PATTERN.test(detail)) return new ProviderError("rate_limited", tx(`Limite de uso do Codex atingido: ${excerpt(detail, 200)}`, `Codex usage limit reached: ${excerpt(detail, 200)}`));
   if (run.timedOut) {
     return events.started
-      ? new ProviderError("ambiguous", `O turno do Codex passou de ${Math.round(timeoutMs / 1000)} s e foi encerrado; a geração pode ter consumido cota`)
-      : new ProviderError("not_accepted", `O Codex não iniciou o turno em ${Math.round(timeoutMs / 1000)} s`);
+      ? new ProviderError("ambiguous", tx(`O turno do Codex passou de ${Math.round(timeoutMs / 1000)} s e foi encerrado; a geração pode ter consumido cota`, `The Codex turn ran past ${Math.round(timeoutMs / 1000)} s and was stopped; the generation may have used quota`))
+      : new ProviderError("not_accepted", tx(`O Codex não iniciou o turno em ${Math.round(timeoutMs / 1000)} s`, `Codex did not start the turn within ${Math.round(timeoutMs / 1000)} s`));
   }
   if (!events.started) {
-    if (MODEL_PATTERN.test(detail)) return new ProviderError("rejected", `O Codex recusou o modelo ou o esforço do perfil: ${excerpt(detail, 200)}`);
-    return new ProviderError("not_accepted", `O Codex encerrou antes de começar o turno (código ${run.status ?? "sinal"}): ${detail || "sem mensagem"}`);
+    if (MODEL_PATTERN.test(detail)) return new ProviderError("rejected", tx(`O Codex recusou o modelo ou o esforço do perfil: ${excerpt(detail, 200)}`, `Codex refused the profile's model or reasoning effort: ${excerpt(detail, 200)}`));
+    return new ProviderError("not_accepted", tx(`O Codex encerrou antes de começar o turno (código ${run.status ?? "sinal"}): ${detail || "sem mensagem"}`, `Codex exited before starting the turn (code ${run.status ?? "signal"}): ${detail || "no message"}`));
   }
   // Turno concluído sem imagem: recusa da ferramenta ou o agente não a chamou.
-  return new ProviderError("rejected", `O Codex terminou sem gerar imagem${events.lastMessage ? `: ${excerpt(events.lastMessage, 300)}` : ""}${detail ? ` (${excerpt(detail, 200)})` : ""}`);
+  return new ProviderError("rejected", tx(`O Codex terminou sem gerar imagem${events.lastMessage ? `: ${excerpt(events.lastMessage, 300)}` : ""}${detail ? ` (${excerpt(detail, 200)})` : ""}`, `Codex finished without generating an image${events.lastMessage ? `: ${excerpt(events.lastMessage, 300)}` : ""}${detail ? ` (${excerpt(detail, 200)})` : ""}`));
 }
 
 function extensionFor(mime: string): string {
@@ -353,7 +354,7 @@ export class CodexCliAdapter implements ProviderAdapter {
     const parsed = CodexCliConfig.safeParse(config ?? {});
     const command = parsed.success ? parsed.data.command : "codex";
     if (!findExecutable(command, envPath)) {
-      throw new DomainFailure("capability_missing", `Codex CLI não encontrado (${command}): instale com \`npm install -g @openai/codex\` e rode \`codex login\``, { profileId });
+      throw new DomainFailure("capability_missing", tx(`Codex CLI não encontrado (${command}): instale com \`npm install -g @openai/codex\` e rode \`codex login\``, `Codex CLI not found (${command}): install it with \`npm install -g @openai/codex\` and run \`codex login\``), { profileId });
     }
   }
 
@@ -369,17 +370,17 @@ export class CodexCliAdapter implements ProviderAdapter {
     return {
       kind: "known",
       amount: { amount: parts, unit: "generations" },
-      basis: `${parts} turno(s) do Codex com uma imagem cada, descontado(s) da cota do plano (com login por chave de API, cobrado na conta da API)`,
+      basis: tx(`${parts} turno(s) do Codex com uma imagem cada, descontado(s) da cota do plano (com login por chave de API, cobrado na conta da API)`, `${parts} Codex turn(s) with one image each, taken from the plan's quota (with API-key login, billed to the API account)`),
     };
   }
 
   async submit(req: ProviderSubmitRequest, signal: AbortSignal): Promise<SubmitOutcome> {
-    if (!genericSupports(req.operation)) throw new ProviderError("rejected", `Operação ${req.operation} não suportada pelo Codex CLI`);
+    if (!genericSupports(req.operation)) throw new ProviderError("rejected", tx(`Operação ${req.operation} não suportada pelo Codex CLI`, `Operation ${req.operation} is not supported by Codex CLI`));
     if (req.references.length > this.config.maxReferences) {
-      throw new ProviderError("rejected", `O perfil aceita até ${this.config.maxReferences} referências; o pedido tem ${req.references.length}`);
+      throw new ProviderError("rejected", tx(`O perfil aceita até ${this.config.maxReferences} referências; o pedido tem ${req.references.length}`, `The provider profile accepts up to ${this.config.maxReferences} references; the request has ${req.references.length}`));
     }
     for (const ref of req.references) {
-      if (sniff(ref.bytes)?.modality !== "raster") throw new ProviderError("rejected", `Referência ${ref.role} não é imagem; o Codex só recebe imagens anexadas`);
+      if (sniff(ref.bytes)?.modality !== "raster") throw new ProviderError("rejected", tx(`Referência ${ref.role} não é imagem; o Codex só recebe imagens anexadas`, `Reference ${ref.role} is not an image; Codex only receives attached images`));
     }
 
     mkdirSync(this.tmpDir, { recursive: true });
@@ -402,7 +403,7 @@ export class CodexCliAdapter implements ProviderAdapter {
       });
       const args = codexArgs({ config: this.config, model: this.profile.model, workdir, references: refs.map((r) => r.path), instruction });
       const run = await this.spawner(this.config.command, args, { cwd: workdir, signal, timeoutMs: this.config.timeoutMs, env: codexEnv(this.env) });
-      if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new ProviderError("ambiguous", "Turno do Codex interrompido");
+      if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new ProviderError("ambiguous", tx("Turno do Codex interrompido", "Codex turn interrupted"));
       const events = parseCodexEvents(run.stdout);
       const generated = readGeneratedImages(home, events.threadId);
       generatedDir = generated.dir;
@@ -416,29 +417,29 @@ export class CodexCliAdapter implements ProviderAdapter {
   }
 
   poll(): Promise<RemoteStatus> {
-    return Promise.reject(new ProviderError("rejected", "O Codex CLI responde de forma síncrona; não há job remoto a consultar"));
+    return Promise.reject(new ProviderError("rejected", tx("O Codex CLI responde de forma síncrona; não há job remoto a consultar", "Codex CLI responds synchronously; there is no remote job to poll")));
   }
 
   fetchResult(): Promise<ProviderResult> {
-    return Promise.reject(new ProviderError("rejected", "O Codex CLI responde de forma síncrona; não há job remoto a consultar"));
+    return Promise.reject(new ProviderError("rejected", tx("O Codex CLI responde de forma síncrona; não há job remoto a consultar", "Codex CLI responds synchronously; there is no remote job to poll")));
   }
 
   /** Verificação gratuita: versão, login e skill `imagegen` (nenhum turno é iniciado). */
-  async check(signal: AbortSignal): Promise<{ ok: boolean; message: string; details?: unknown }> {
+  async check(signal: AbortSignal): Promise<{ ok: boolean; message: LocalizedText; details?: unknown }> {
     const run = (args: string[]) => this.spawner(this.config.command, args, { cwd: this.tmpDir, signal, timeoutMs: 30_000, env: codexEnv(this.env) });
     const version = await run(["--version"]);
-    if (version.missing) return { ok: false, message: `Codex CLI não encontrado (${this.config.command}): instale com \`npm install -g @openai/codex\`` };
+    if (version.missing) return { ok: false, message: tx(`Codex CLI não encontrado (${this.config.command}): instale com \`npm install -g @openai/codex\``, `Codex CLI not found (${this.config.command}): install it with \`npm install -g @openai/codex\``) };
     const found = /(\d+\.\d+\.\d+)/.exec(version.stdout + version.stderr)?.[1] ?? null;
     if (!found || compareVersions(found, CODEX_MIN_VERSION) < 0) {
-      return { ok: false, message: `Codex CLI ${found ?? "de versão desconhecida"}: atualize para ${CODEX_MIN_VERSION} ou mais nova (ferramenta de imagem embutida)` };
+      return { ok: false, message: tx(`Codex CLI ${found ?? "de versão desconhecida"}: atualize para ${CODEX_MIN_VERSION} ou mais nova (ferramenta de imagem embutida)`, `Codex CLI ${found ?? "of unknown version"}: update to ${CODEX_MIN_VERSION} or newer (built-in image tool)`) };
     }
     const login = await run(["login", "status"]);
     const loginText = excerpt(`${login.stdout}\n${login.stderr}`, 120);
     const loggedIn = login.status === 0 && /logged in/i.test(loginText);
     const skill = existsSync(path.join(codexHome(this.env), "skills", ".system", "imagegen", "SKILL.md"));
     const details = { version: found, login: loginText, imagegenSkill: skill };
-    if (!loggedIn) return { ok: false, message: `Codex ${found} sem login: rode \`codex login\` (${loginText || "sem resposta"})`, details };
-    if (!skill) return { ok: false, message: `Codex ${found}: skill imagegen não encontrada em ${codexHome(this.env)}; atualize o Codex CLI`, details };
-    return { ok: true, message: `Codex ${found} · ${loginText} · skill imagegen presente`, details };
+    if (!loggedIn) return { ok: false, message: tx(`Codex ${found} sem login: rode \`codex login\` (${loginText || "sem resposta"})`, `Codex ${found} is not logged in: run \`codex login\` (${loginText || "no response"})`), details };
+    if (!skill) return { ok: false, message: tx(`Codex ${found}: skill imagegen não encontrada em ${codexHome(this.env)}; atualize o Codex CLI`, `Codex ${found}: imagegen skill not found in ${codexHome(this.env)}; update Codex CLI`), details };
+    return { ok: true, message: tx(`Codex ${found} · ${loginText} · skill imagegen presente`, `Codex ${found} · ${loginText} · imagegen skill present`), details };
   }
 }

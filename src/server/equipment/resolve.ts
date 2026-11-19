@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Direction, Id, LayerRef, type LoadoutPayload, Slug } from "@/contracts";
 import { exportBlockers, type ResolvedCombo, type Resolution, resolveLoadout } from "@/domain/equipment/resolve";
 import type { OverlayRef } from "@/domain/equipment/types";
+import { tx } from "@/i18n/locales";
 import { getProject } from "../catalog/catalog";
 import type { Db } from "../db/connection";
 import { DomainFailure } from "../errors";
@@ -198,7 +199,7 @@ export type ResolutionView = ReturnType<typeof resolutionView>;
 // ---------------------------------------------------------------------------
 
 export async function composeCombo(env: EquipmentEnv & { db: Db }, combo: ResolvedCombo, tolerancePx: number, opts: { baseOnly?: boolean } = {}) {
-  if (!combo.clip) throw new DomainFailure("coverage_incomplete", `Sem clipe para ${combo.key}`);
+  if (!combo.clip) throw new DomainFailure("coverage_incomplete", tx(`Sem clipe para ${combo.key}`, `No clip for ${combo.key}`));
   const inputs: { role: "layer"; sha256: string }[] = [];
   const ordinal = new Map<string, number>();
   const inputFor = (revisionId: string, fileKey: string) => {

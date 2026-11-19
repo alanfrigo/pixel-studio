@@ -3,7 +3,11 @@
 import { useMemo, useState } from "react";
 import type { BasePayload, ClipPayload, Direction } from "@/contracts";
 import { apiFetch } from "@/app/client/api";
-import { type AssetEntry, DIR_LABEL, DIRS, errorText, findRevision, isObject, type Overview, type ProfileInfo, routeLabel, uploadPng, viewUrl } from "./shared";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { animationMessages } from "@/i18n/messages/animation";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { type AssetEntry, DIRS, errorText, findRevision, isObject, type Overview, type ProfileInfo, routeLabel, uploadPng, viewUrl } from "./shared";
 import { DirectionChecks, PlanActions, ReviewButtons, type RunFn, ViewPicker } from "./temporal-ui";
 
 /**
@@ -16,6 +20,8 @@ import { DirectionChecks, PlanActions, ReviewButtons, type RunFn, ViewPicker } f
 type Props = { projectId: string; data: Overview; profile: ProfileInfo; run: RunFn; onChanged: () => void };
 
 export function StatesPanel({ projectId, data, profile, run, onChanged }: Props) {
+  const t = useMessages(animationMessages).states;
+  const locale = useLocale();
   const rows = data.states;
   const [identityId, setIdentityId] = useState(rows[0]?.identityAssetId ?? "");
   const row = rows.find((r) => r.identityAssetId === identityId) ?? rows[0];
@@ -27,8 +33,8 @@ export function StatesPanel({ projectId, data, profile, run, onChanged }: Props)
   const [stateKey, setStateKey] = useState("");
   const [description, setDescription] = useState("");
   const [directions, setDirections] = useState<Direction[]>([]);
-  const route = routeLabel(profile, "state");
-  if (!row) return <section className="muted">Nenhuma base ou objeto aprovado ainda.</section>;
+  const route = routeLabel(profile, "state", locale);
+  if (!row) return <section className="muted">{t.none}</section>;
   const dirs = directions.filter((d) => source?.views.includes(d));
   const plan =
     source && stateKey.trim() && description.trim() && dirs.length
@@ -36,27 +42,27 @@ export function StatesPanel({ projectId, data, profile, run, onChanged }: Props)
       : null;
   return (
     <section>
-      <h2>Estados · matriz de direções</h2>
+      <h2>{t.heading}</h2>
       <p className="small muted">
-        Estado visual é arte nova da mesma identidade (ferido, congelado, aberto), num asset próprio vinculado à origem — não é renomear nem trocar a postura de empunhadura. Rota deste perfil: <span className={route.ok ? (route.strategy === "native" ? "" : "anim-sheet") : "error"}>{route.text}</span>
+        {t.intro} <span className={route.ok ? (route.strategy === "native" ? "" : "anim-sheet") : "error"}>{route.text}</span>
       </p>
       <div className="row">
         <label>
-          Identidade
+          {t.identity}
           <select value={row.identityAssetId} onChange={(e) => setIdentityId(e.target.value)}>
             {rows.map((r) => (
               <option key={r.identityAssetId} value={r.identityAssetId}>
-                {r.identityName} {r.subject === "object" ? "(objeto)" : "(personagem)"}
+                {r.identityName} {r.subject === "object" ? t.objectSuffix : t.characterSuffix}
               </option>
             ))}
           </select>
         </label>
       </div>
       <StateMatrix projectId={projectId} data={data} row={row} onChanged={onChanged} />
-      <h3>Novo estado ou lacuna</h3>
+      <h3>{t.newHeading}</h3>
       <div className="row">
         <label>
-          Parte de
+          {t.from}
           <select value={source?.revisionId ?? ""} onChange={(e) => setSourceId(e.target.value)}>
             {sources.map((s) => (
               <option key={s.revisionId} value={s.revisionId}>
@@ -66,22 +72,25 @@ export function StatesPanel({ projectId, data, profile, run, onChanged }: Props)
           </select>
         </label>
         <label>
-          Chave do estado
-          <input value={stateKey} onChange={(e) => setStateKey(e.target.value.toLowerCase())} placeholder="ex.: open, wounded" />
+          {t.stateKey}
+          <input value={stateKey} onChange={(e) => setStateKey(e.target.value.toLowerCase())} placeholder={t.stateKeyPlaceholder} />
         </label>
         <label style={{ flex: 1 }}>
-          Mudança visual
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ex.: a tampa aberta revela o interior; mesma madeira e ferragens" />
+          {t.visualChange}
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t.visualChangePlaceholder} />
         </label>
       </div>
       <DirectionChecks available={source?.views ?? []} value={dirs} onChange={setDirections} />
-      <p className="small muted">Para preencher uma lacuna, marque só a direção faltante: as vistas já aprovadas do estado ficam com os mesmos arquivos.</p>
-      <PlanActions projectId={projectId} plan={plan} run={run} label="Gerar estado" />
+      <p className="small muted">{t.fillGapNote}</p>
+      <PlanActions projectId={projectId} plan={plan} run={run} label={t.generateState} />
     </section>
   );
 }
 
 function StateMatrix({ projectId, data, row, onChanged }: { projectId: string; data: Overview; row: Overview["states"][number]; onChanged: () => void }) {
+  const t = useMessages(animationMessages).states;
+  const c = useMessages(commonMessages);
+  const text = useText();
   const [open, setOpen] = useState<string | null>(null);
   const identity = findRevision(data, row.identityRevisionId);
   return (
@@ -89,9 +98,9 @@ function StateMatrix({ projectId, data, row, onChanged }: { projectId: string; d
       <table className="anim-matrix small">
         <thead>
           <tr>
-            <th>Estado</th>
+            <th>{t.stateColumn}</th>
             {DIRS.map((d) => (
-              <th key={d} title={DIR_LABEL[d]}>
+              <th key={d} title={c.directions[d]}>
                 {d}
               </th>
             ))}
@@ -129,19 +138,19 @@ function StateMatrix({ projectId, data, row, onChanged }: { projectId: string; d
                     );
                   if (row.directions.includes(d))
                     return (
-                      <td key={d} className="gap" title={gap?.reason ?? "ainda não gerada"}>
-                        lacuna
+                      <td key={d} className="gap" title={gap?.reason ? text(gap.reason as TextValue) : t.notGenerated}>
+                        {t.gap}
                       </td>
                     );
                   return (
-                    <td key={d} className="none" title="a fonte não tem esta vista">
+                    <td key={d} className="none" title={t.sourceLacksView}>
                       —
                     </td>
                   );
                 })}
                 <td>
                   <button type="button" className="secondary" onClick={() => setOpen(open === s.assetId ? null : s.assetId)}>
-                    Revisões ({s.revisions.filter((r) => r.status === "candidate").length} candidata(s))
+                    {t.revisionsButton(s.revisions.filter((r) => r.status === "candidate").length)}
                   </button>
                 </td>
               </tr>
@@ -159,7 +168,7 @@ function StateMatrix({ projectId, data, row, onChanged }: { projectId: string; d
               return (
                 <article key={r.id} className="small">
                   <p>
-                    r{r.number} · <span className={`badge state-${r.status}`}>{r.status}</span> · {r.views.join(", ")} · {r.operation ?? ""}{" "}
+                    r{r.number} · <span className={`badge state-${r.status}`}>{labelOf(c.revisionStatus, r.status)}</span> · {r.views.join(", ")} · {r.operation ?? ""}{" "}
                     <ReviewButtons projectId={projectId} assetId={s.assetId} revision={found.revision} activeRevisionId={s.approvedRevisionId} onChanged={onChanged} />
                   </p>
                   {r.status === "candidate" && (found.revision.payload as BasePayload).views.length > 1 && <ViewPicker projectId={projectId} revision={found.revision} onPublished={() => onChanged()} />}
@@ -177,6 +186,9 @@ function StateMatrix({ projectId, data, row, onChanged }: { projectId: string; d
 // ---------------------------------------------------------------------------
 
 export function ObjectsPanel({ projectId, data, profile, run, onChanged }: Props) {
+  const am = useMessages(animationMessages);
+  const t = am.objects;
+  const text = useText();
   const objects = data.bases.filter(isObject);
   const [objectId, setObjectId] = useState("");
   const entry: AssetEntry | undefined = objects.find((o) => o.asset.id === objectId) ?? objects[0];
@@ -184,27 +196,25 @@ export function ObjectsPanel({ projectId, data, profile, run, onChanged }: Props
   const payload = approved ? (approved.payload as BasePayload) : null;
   return (
     <section>
-      <h2>Objetos · vistas e animação</h2>
-      <p className="small muted">
-        Objeto (baú, tocha) é uma base sem rig humanoide: tem vistas, estados e clipes próprios. Vistas novas saem uma direção por vez na aba Vistas (rotação por direção); espelho de vistas só pela Biblioteca, como derivação explícita.
-      </p>
+      <h2>{t.heading}</h2>
+      <p className="small muted">{t.intro}</p>
       <NewObject projectId={projectId} data={data} onCreated={onChanged} />
       {objects.length > 0 && (
         <div className="row">
           <label>
-            Objeto
+            {t.object}
             <select value={entry?.asset.id ?? ""} onChange={(e) => setObjectId(e.target.value)}>
               {objects.map((o) => (
                 <option key={o.asset.id} value={o.asset.id}>
                   {o.asset.name}
-                  {o.asset.approvedRevisionId ? "" : " (sem aprovação)"}
+                  {o.asset.approvedRevisionId ? "" : t.notApproved}
                 </option>
               ))}
             </select>
           </label>
           {approved && payload && (
             <span className="small muted">
-              r{approved.number} · {payload.logicalSize.join("×")} · apoio {payload.groundOrigin.join(",")} · estado {payload.state} · vistas {payload.views.map((v) => v.direction).join(", ")}
+              r{approved.number} · {payload.logicalSize.join("×")} · {t.info(payload.groundOrigin.join(","), payload.state, payload.views.map((v) => v.direction).join(", "))}
             </span>
           )}
         </div>
@@ -216,7 +226,7 @@ export function ObjectsPanel({ projectId, data, profile, run, onChanged }: Props
             .map((r) => (
               <article key={r.id} className="small">
                 <p>
-                  Candidata r{r.number} · {(r.payload as BasePayload).views.map((v) => v.direction).join(", ")} · {(r.technicalReport as { routeLabel?: string; operation?: string } | null)?.routeLabel ?? (r.technicalReport as { operation?: string } | null)?.operation ?? r.origin}{" "}
+                  {am.shared.candidateRev(r.number)} · {(r.payload as BasePayload).views.map((v) => v.direction).join(", ")} · {reportRoute(r.technicalReport, text) ?? r.origin}{" "}
                   <ReviewButtons projectId={projectId} assetId={entry.asset.id} revision={r} activeRevisionId={entry.asset.approvedRevisionId} onChanged={onChanged} />
                 </p>
                 {(r.payload as BasePayload).views.length > 1 && <ViewPicker projectId={projectId} revision={r} onPublished={() => onChanged()} />}
@@ -232,6 +242,9 @@ export function ObjectsPanel({ projectId, data, profile, run, onChanged }: Props
 }
 
 function NewObject({ projectId, data, onCreated }: { projectId: string; data: Overview; onCreated: () => void }) {
+  const t = useMessages(animationMessages).objects;
+  const c = useMessages(commonMessages);
+  const locale = useLocale();
   const [name, setName] = useState("");
   const [direction, setDirection] = useState<Direction>("S");
   const [file, setFile] = useState<File | null>(null);
@@ -240,28 +253,28 @@ function NewObject({ projectId, data, onCreated }: { projectId: string; data: Ov
   const sources = data.imageSources.flatMap((s) => s.files.map((f) => ({ key: `${s.revisionId}|${f.fileKey}`, label: `${s.name} · ${f.fileKey}${f.width ? ` (${f.width}×${f.height})` : ""}`, revisionId: s.revisionId, fileKey: f.fileKey })));
   return (
     <details className="small">
-      <summary>Novo objeto a partir de imagem</summary>
+      <summary>{t.newSummary}</summary>
       <div className="row">
         <label>
-          Nome
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="ex.: Baú" />
+          {t.name}
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t.namePlaceholder} />
         </label>
         <label>
-          Vista
+          {t.view}
           <select value={direction} onChange={(e) => setDirection(e.target.value as Direction)}>
             {DIRS.map((d) => (
               <option key={d} value={d}>
-                {d} · {DIR_LABEL[d]}
+                {d} · {c.directions[d]}
               </option>
             ))}
           </select>
         </label>
         <label>
-          PNG local
+          {t.localPng}
           <input type="file" accept="image/png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </label>
         <label>
-          ou imagem aprovada
+          {t.orApprovedImage}
           <select value={sourceKey} onChange={(e) => setSourceKey(e.target.value)}>
             <option value="">—</option>
             {sources.map((s) => (
@@ -278,16 +291,16 @@ function NewObject({ projectId, data, onCreated }: { projectId: string; data: Ov
             setMessage(null);
             try {
               const src = sources.find((s) => s.key === sourceKey);
-              const image = file ? { from: "upload", uploadId: await uploadPng(projectId, file, file.name) } : { from: "revision", revisionId: src!.revisionId, fileKey: src!.fileKey };
+              const image = file ? { from: "upload", uploadId: await uploadPng(projectId, file, file.name, locale) } : { from: "revision", revisionId: src!.revisionId, fileKey: src!.fileKey };
               await apiFetch(`/projects/${projectId}/animation/objects`, { method: "POST", json: { name: name.trim(), image, direction } });
-              setMessage("Objeto criado como candidata: aprove-o abaixo para gerar vistas, estados e animação.");
+              setMessage(t.created);
               onCreated();
             } catch (err) {
               setMessage(errorText(err));
             }
           }}
         >
-          Criar objeto
+          {t.create}
         </button>
       </div>
       {message && <p>{message}</p>}
@@ -296,6 +309,10 @@ function NewObject({ projectId, data, onCreated }: { projectId: string; data: Ov
 }
 
 function AnimateObject({ projectId, data, profile, object, revisionId, views, run }: { projectId: string; data: Overview; profile: ProfileInfo; object: AssetEntry; revisionId: string; views: Direction[]; run: RunFn }) {
+  const am = useMessages(animationMessages);
+  const t = am.objects;
+  const c = useMessages(commonMessages);
+  const locale = useLocale();
   const [direction, setDirection] = useState<Direction>(views[0] ?? "S");
   const [action, setAction] = useState("open");
   const [description, setDescription] = useState("");
@@ -304,7 +321,7 @@ function AnimateObject({ projectId, data, profile, object, revisionId, views, ru
   const [playback, setPlayback] = useState<ClipPayload["playback"]>("once");
   const [keep, setKeep] = useState<boolean | null>(null);
   const [endId, setEndId] = useState("");
-  const route = routeLabel(profile, "objectAnimation");
+  const route = routeLabel(profile, "objectAnimation", locale);
   const keepFirst = keep ?? playback !== "loop";
   const ends = useMemo(() => {
     const row = data.states.find((r) => r.identityAssetId === object.asset.id);
@@ -327,52 +344,53 @@ function AnimateObject({ projectId, data, profile, object, revisionId, views, ru
       : null;
   return (
     <div>
-      <h3>Animar objeto</h3>
+      <h3>{t.animateHeading}</h3>
       <p className="small muted">
-        <span className={route.ok ? (route.strategy === "native" ? "" : "anim-sheet") : "error"}>{route.text}</span> · sem esqueleto humanoide; o pivô é o apoio do objeto.
+        <span className={route.ok ? (route.strategy === "native" ? "" : "anim-sheet") : "error"}>{route.text}</span>
+        {t.noHumanoid}
       </p>
       <div className="row">
         <label>
-          Direção
+          {am.shared.direction}
           <select value={direction} onChange={(e) => setDirection(e.target.value as Direction)}>
             {views.map((d) => (
               <option key={d} value={d}>
-                {d} · {DIR_LABEL[d]}
+                {d} · {c.directions[d]}
               </option>
             ))}
           </select>
         </label>
         <label>
-          Ação
+          {am.shared.action}
           <input value={action} onChange={(e) => setAction(e.target.value.toLowerCase())} />
         </label>
         <label style={{ flex: 1 }}>
-          Movimento
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="ex.: a tampa se abre devagar e para no alto" />
+          {t.motion}
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t.motionPlaceholder} />
         </label>
       </div>
       <div className="row">
         <label>
-          Quadros gerados
+          {t.generatedFrames}
           <input type="number" min={1} max={40} value={frames} onChange={(e) => setFrames(Math.max(1, Math.min(40, Number(e.target.value) || 1)))} />
         </label>
         <label>
-          ms por quadro
+          {am.shared.msPerFrame}
           <input type="number" min={1} max={60000} value={ms} onChange={(e) => setMs(Math.max(1, Number(e.target.value) || 1))} />
         </label>
         <label>
-          Repetição
+          {am.shared.playbackLabel}
           <select value={playback} onChange={(e) => setPlayback(e.target.value as ClipPayload["playback"])}>
-            <option value="once">uma vez</option>
-            <option value="loop">ciclo</option>
-            <option value="ping_pong">vai e volta</option>
+            <option value="once">{am.shared.playback.once}</option>
+            <option value="loop">{am.shared.playback.loop}</option>
+            <option value="ping_pong">{am.shared.playback.ping_pong}</option>
           </select>
         </label>
-        <label style={{ flexDirection: "row", alignItems: "center", gap: 4 }} title="A vista aprovada entra como quadro 0 (pixels exatos) e o clipe tem um quadro a mais que os gerados">
-          <input type="checkbox" checked={keepFirst} onChange={(e) => setKeep(e.target.checked)} /> manter a vista como quadro 0
+        <label style={{ flexDirection: "row", alignItems: "center", gap: 4 }} title={t.keepFirstTitle}>
+          <input type="checkbox" checked={keepFirst} onChange={(e) => setKeep(e.target.checked)} /> {t.keepFirst}
         </label>
         <label>
-          Pose final (opcional)
+          {t.endPose}
           <select value={endId} onChange={(e) => setEndId(e.target.value)}>
             <option value="">—</option>
             {ends.map((e) => (
@@ -383,11 +401,14 @@ function AnimateObject({ projectId, data, profile, object, revisionId, views, ru
           </select>
         </label>
       </div>
-      <p className="small muted">
-        Resultado esperado: {frames + (keepFirst ? 1 : 0)} quadros ({keepFirst ? "ref + " : ""}
-        {frames} gerados). O modelo desenha os gerados numa folha, fatiada e assentada no apoio localmente.
-      </p>
-      <PlanActions projectId={projectId} plan={route.ok ? plan : null} run={run} label="Animar objeto" />
+      <p className="small muted">{t.expected(frames + (keepFirst ? 1 : 0), keepFirst, frames)}</p>
+      <PlanActions projectId={projectId} plan={route.ok ? plan : null} run={run} label={t.animate} />
     </div>
   );
+}
+
+/** Rota gravada no relatório técnico (bilíngue ou texto simples) ou a operação. */
+function reportRoute(report: unknown, text: (t: TextValue | null | undefined) => string): string | null {
+  const r = report as { routeLabel?: TextValue; operation?: string } | null;
+  return r?.routeLabel ? text(r.routeLabel) : (r?.operation ?? null);
 }

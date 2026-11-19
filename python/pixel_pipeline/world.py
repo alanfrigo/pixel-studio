@@ -14,8 +14,9 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
+from pixel_pipeline.i18n import tx
 from pixel_pipeline.operations import inputs_by_ordinal, load_rgba, optional_input, recipe_of, respond, write_png
-from pixel_pipeline.protocol import PipelineError, input_by_role
+from pixel_pipeline.protocol import PipelineError, Text, input_by_role
 
 Json = dict[str, Any]
 Rgba = tuple[int, int, int, int]
@@ -92,14 +93,14 @@ def _smooth_noise_2d(seed: int, key: str, x: float, y: float, spacing: float = 5
 def _layers(request: Json, workdir: Path, needed: int) -> list[Image.Image]:
     found = inputs_by_ordinal(request, workdir, "layer")
     if len(found) < needed:
-        raise PipelineError("invalid_request", f"Operação exige {needed} entrada(s) com papel 'layer'")
+        raise PipelineError("invalid_request", tx(f"Operação exige {needed} entrada(s) com papel 'layer'", f"Operation requires {needed} input(s) with role 'layer'"))
     return [load_rgba(found[k]) for k in sorted(found)]
 
 
 def _crop(image: Image.Image, rect: list[int]) -> Image.Image:
     x, y, w, h = rect
     if x + w > image.width or y + h > image.height:
-        raise PipelineError("geometry_mismatch", f"Retângulo [{x}, {y}, {w}, {h}] excede {image.width}×{image.height}")
+        raise PipelineError("geometry_mismatch", tx(f"Retângulo [{x}, {y}, {w}, {h}] excede {image.width}×{image.height}", f"Rectangle [{x}, {y}, {w}, {h}] exceeds {image.width}×{image.height}"))
     return image.crop((x, y, x + w, y + h))
 
 
@@ -140,7 +141,7 @@ def _mean_color(pixels: list[Rgba]) -> tuple[float, float, float, float]:
     return tuple(sum(c[i] for c in canon) / n for i in range(4))  # type: ignore[return-value]
 
 
-def _axis_seams(px, w: int, h: int, axis: str, threshold: float, material_problems: list[str]) -> Json:
+def _axis_seams(px, w: int, h: int, axis: str, threshold: float, material_problems: list[Text]) -> Json:
     """Junção das bordas opostas (coluna W−1 com 0, ou linha H−1 com 0) × vizinhos internos.
 
     Dois testes, ambos com o limiar declarado do material:
@@ -190,17 +191,17 @@ def _axis_seams(px, w: int, h: int, axis: str, threshold: float, material_proble
     }
 
 
-def _material_problems(image: Image.Image) -> tuple[list[str], Json]:
+def _material_problems(image: Image.Image) -> tuple[list[Text], Json]:
     """Material vai de borda a borda: transparência ou imagem chapada não demonstram repetição."""
     alpha = image.getchannel("A").histogram()
     total = image.width * image.height
     opaque = sum(alpha[250:]) / total
     colors = len({_canon(p) for p in image.get_flattened_data()})
-    problems = []
+    problems: list[Text] = []
     if opaque < 0.99:
-        problems.append(f"Material com transparência: só {opaque:.0%} dos pixels são opacos")
+        problems.append(tx(f"Material com transparência: só {opaque:.0%} dos pixels são opacos", f"Material has transparency: only {opaque:.0%} of the pixels are opaque"))
     if colors <= 2:
-        problems.append(f"Material chapado ({colors} cor(es)): a repetição é trivial e não demonstra emenda")
+        problems.append(tx(f"Material chapado ({colors} cor(es)): a repetição é trivial e não demonstra emenda", f"Flat material ({colors} color(s)): repetition is trivial and does not prove the seam"))
     return problems, {"opaqueFraction": round(opaque, 4), "distinctColors": colors}
 
 
@@ -211,10 +212,10 @@ def texture_seams(request: Json, workdir: Path) -> Json:
     image = load_rgba(source_path)
     w, h = image.size
     if w < 2 or h < 2:
-        raise PipelineError("unsupported_input", "Textura precisa de ao menos 2×2 px")
+        raise PipelineError("unsupported_input", tx("Textura precisa de ao menos 2×2 px", "Texture must be at least 2×2 px"))
     axes = recipe["axes"]
     if not axes["x"] and not axes["y"]:
-        raise PipelineError("invalid_request", "Informe ao menos um eixo de repetição")
+        raise PipelineError("invalid_request", tx("Informe ao menos um eixo de repetição", "Specify at least one repeat axis"))
     threshold = float(recipe["threshold"])
     px = image.load()
     problems, material = _material_problems(image)
@@ -263,7 +264,16 @@ def texture_seams(request: Json, workdir: Path) -> Json:
     passed_axes = [a for a in ("x", "y") if report[a] is not None and report[a]["passed"]]
     failed_axes = [a for a in ("x", "y") if report[a] is not None and not report[a]["passed"]]
     report["passedAxes"] = passed_axes
-    warnings = [*problems, *(f"Emenda discrepante no eixo {a}: candidata não é repetível nesse eixo; revise ou corrija por inpainting" for a in failed_axes)]
+    warnings = [
+        *problems,
+        *(
+            tx(
+                f"Emenda discrepante no eixo {a}: candidata não é repetível nesse eixo; revise ou corrija por inpainting",
+                f"Seam mismatch on axis {a}: the candidate does not repeat on that axis; review it or fix it with inpainting",
+            )
+            for a in failed_axes
+        ),
+    ]
     outputs = [
         write_png(workdir, mosaic, "out/mosaic.png", "mosaic"),
         write_png(workdir, lines, "out/mosaic-lines.png", "mosaic_lines"),
@@ -335,7 +345,7 @@ def corner_guides(request: Json, workdir: Path) -> Json:
     w, h = recipe["cellSize"]
     band = int(recipe["bandPx"])
     if 2 * band >= min(w, h):
-        raise PipelineError("invalid_request", f"Faixa de {band} px grande demais para a célula {w}×{h}")
+        raise PipelineError("invalid_request", tx(f"Faixa de {band} px grande demais para a célula {w}×{h}", f"{band} px band too large for the {w}×{h} cell"))
     seed = int(recipe["seed"])
     diagonals = recipe["diagonals"]
     pa, pb = tex_a.load(), tex_b.load()
@@ -369,13 +379,13 @@ def corner_guides(request: Json, workdir: Path) -> Json:
         if corner_px != bits:
             corners_ok = False
         tiles.append({"mask": mask, "rect": [ox, oy, w, h], "bPixels": b_pixels})
-    warnings: list[str] = []
+    warnings: list[Text] = []
     for name, tex in (("A", tex_a), ("B", tex_b)):
         if tex.size != (w, h):
-            warnings.append(f"Textura {name} tem {tex.width}×{tex.height}, a célula {w}×{h}: a continuidade entre tiles depende da textura repetir nesse período")
+            warnings.append(tx(f"Textura {name} tem {tex.width}×{tex.height}, a célula {w}×{h}: a continuidade entre tiles depende da textura repetir nesse período", f"Texture {name} is {tex.width}×{tex.height}, the cell {w}×{h}: continuity between tiles depends on the texture repeating at that period"))
     report = {"cellSize": [w, h], "bandPx": band, "seed": seed, "diagonals": diagonals, "tiles": tiles, "cornerAgreement": corners_ok, "method": "corner_template_v1"}
     if not corners_ok:
-        raise PipelineError("internal", "Os gabaritos não concordam no pixel de canto")
+        raise PipelineError("internal", tx("Os gabaritos não concordam no pixel de canto", "The templates disagree on the corner pixel"))
     return respond(
         [write_png(workdir, atlas, "out/atlas.png", "atlas"), write_png(workdir, terrain, "out/terrain.png", "terrain")],
         report,
@@ -450,7 +460,7 @@ def side_guides(request: Json, workdir: Path) -> Json:
     w, h = recipe["cellSize"]
     depth = int(recipe["surfaceDepthPx"])
     if depth >= h:
-        raise PipelineError("invalid_request", "Superfície mais funda que a célula")
+        raise PipelineError("invalid_request", tx("Superfície mais funda que a célula", "Surface deeper than the cell"))
     configs = recipe["configurations"]
     cols = int(recipe["columns"])
     rows = math.ceil(len(configs) / cols)
@@ -458,7 +468,7 @@ def side_guides(request: Json, workdir: Path) -> Json:
     tiles = []
     for i, config in enumerate(configs):
         if config not in SIDE_EXPOSURE:
-            raise PipelineError("invalid_request", f"Configuração lateral desconhecida: {config}")
+            raise PipelineError("invalid_request", tx(f"Configuração lateral desconhecida: {config}", f"Unknown side configuration: {config}"))
         ox, oy = (i % cols) * w, (i // cols) * h
         atlas.paste(_side_tile(config, body, surface, w, h, depth), (ox, oy))
         tiles.append({"configuration": config, "rect": [ox, oy, w, h], "exposed": SIDE_EXPOSURE[config]})
@@ -533,7 +543,7 @@ def tileset_seams(request: Json, workdir: Path) -> Json:
     crops: dict[str, Image.Image] = {}
     for t in tiles:
         if t["rect"][2] != w or t["rect"][3] != h:
-            raise PipelineError("geometry_mismatch", f"Tile {t['key']} não tem o tamanho da célula")
+            raise PipelineError("geometry_mismatch", tx(f"Tile {t['key']} não tem o tamanho da célula", f"Tile {t['key']} does not have the cell size"))
         crops[t["key"]] = _crop(atlas, t["rect"])
     loaded = {k: im.load() for k, im in crops.items()}
     interior = {k: _tile_interior(loaded[k], w, h) for k in crops}
@@ -542,7 +552,7 @@ def tileset_seams(request: Json, workdir: Path) -> Json:
     sample_w, sample_h = recipe["sample"]["size"]
     cells: list[str] = recipe["sample"]["cells"]
     if len(cells) != sample_w * sample_h:
-        raise PipelineError("invalid_request", "Amostra com número de células diferente do tamanho")
+        raise PipelineError("invalid_request", tx("Amostra com número de células diferente do tamanho", "Sample cell count differs from its size"))
 
     if recipe["layout"] == "corner":
         pairs = _corner_pairs([t for t in tiles if "mask" in t])
@@ -590,7 +600,7 @@ def tileset_seams(request: Json, workdir: Path) -> Json:
     if band > 0 and guide_path is not None:
         guide = load_rgba(guide_path)
         if guide.size != atlas.size:
-            raise PipelineError("geometry_mismatch", "Gabarito e atlas com tamanhos diferentes")
+            raise PipelineError("geometry_mismatch", tx("Gabarito e atlas com tamanhos diferentes", "Template and atlas have different sizes"))
         gp = guide.load()
         ap = atlas.load()
         locked = []
@@ -672,19 +682,23 @@ def tileset_seams(request: Json, workdir: Path) -> Json:
 
     warnings = []
     if flagged:
-        warnings.append(f"{len(flagged)} par(es) com emenda discrepante (razão > {threshold}); revise antes de aprovar")
+        warnings.append(tx(f"{len(flagged)} par(es) com emenda discrepante (razão > {threshold}); revise antes de aprovar", f"{len(flagged)} pair(s) with a mismatched seam (ratio > {threshold}); review before approving"))
     if report["edgeLines"]["flagged"]:
-        warnings.append(f"Linha de borda visível em {len(report['edgeLines']['flagged'])} tile(s): a borda externa destoa do miolo e desenha a grade no mosaico")
+        warnings.append(tx(f"Linha de borda visível em {len(report['edgeLines']['flagged'])} tile(s): a borda externa destoa do miolo e desenha a grade no mosaico", f"Visible edge line on {len(report['edgeLines']['flagged'])} tile(s): the outer edge clashes with the interior and draws the grid on the mosaic"))
     if report.get("missingMasks"):
-        warnings.append(f"Máscaras ausentes: {', '.join(str(m) for m in report['missingMasks'])}; o conjunto não está completo")
+        warnings.append(tx(f"Máscaras ausentes: {', '.join(str(m) for m in report['missingMasks'])}; o conjunto não está completo", f"Missing masks: {', '.join(str(m) for m in report['missingMasks'])}; the set is not complete"))
     if report.get("gaps"):
-        warnings.append(f"Configurações ausentes usadas na amostra: {', '.join(report['gaps'])}")
+        warnings.append(tx(f"Configurações ausentes usadas na amostra: {', '.join(report['gaps'])}", f"Missing configurations used in the sample: {', '.join(report['gaps'])}"))
     if report["locked"] and not report["locked"]["passed"]:
-        warnings.append("A faixa de borda travada diverge do gabarito em algum tile")
+        warnings.append(tx("A faixa de borda travada diverge do gabarito em algum tile", "The locked edge band differs from the template on some tile"))
     if report["locked"] and report["locked"]["frameFlagged"]:
         warnings.append(
-            f"Moldura visível em {len(report['locked']['frameFlagged'])} tile(s): o miolo gerado tem acabamento diferente da faixa travada "
-            "(as emendas encaixam, mas o mosaico mostra a grade); tente faixa menor/modo livre ou edite só a peça"
+            tx(
+                f"Moldura visível em {len(report['locked']['frameFlagged'])} tile(s): o miolo gerado tem acabamento diferente da faixa travada "
+                "(as emendas encaixam, mas o mosaico mostra a grade); tente faixa menor/modo livre ou edite só a peça",
+                f"Visible border on {len(report['locked']['frameFlagged'])} tile(s): the generated interior has a different finish from the locked band "
+                "(the seams fit, but the mosaic shows the grid); try a smaller band or free mode, or edit only the piece",
+            )
         )
     return respond(outputs, report, warnings)
 
@@ -703,7 +717,7 @@ def tile_edit_mask(request: Json, workdir: Path) -> Json:
         x0, y0, rw, rh = region["rect"]
         band = int(region["bandPx"])
         if x0 + rw > w or y0 + rh > h:
-            raise PipelineError("geometry_mismatch", "Região fora do gabarito")
+            raise PipelineError("geometry_mismatch", tx("Região fora do gabarito", "Region outside the template"))
         for y in range(y0 + band, y0 + rh - band):
             for x in range(x0 + band, x0 + rw - band):
                 if alpha[x, y] == 0:
@@ -717,7 +731,7 @@ def tile_edit_mask(request: Json, workdir: Path) -> Json:
                 mp[x, y] = 255
     edited = mask.histogram()[255]
     if edited == 0:
-        raise PipelineError("invalid_request", "Nenhum pixel editável: a faixa travada cobre as regiões inteiras")
+        raise PipelineError("invalid_request", tx("Nenhum pixel editável: a faixa travada cobre as regiões inteiras", "No editable pixel: the locked band covers the whole regions"))
     out = Image.merge("RGB", (mask, mask, mask))
     return respond([write_png(workdir, out, "out/edit-mask.png", "edit_mask")], {"editedPixels": edited, "protectedPixels": w * h - edited, "size": [w, h]})
 
@@ -748,7 +762,7 @@ def iso_pieces(request: Json, workdir: Path) -> Json:
     prop = layers[1] if len(layers) > 1 else None
     dw, dh = recipe["diamond"]
     if dw % 2 or dh % 2:
-        raise PipelineError("invalid_request", "Losango deve ter largura e altura pares")
+        raise PipelineError("invalid_request", tx("Losango deve ter largura e altura pares", "Diamond must have even width and height"))
     bh = int(recipe["blockHeightPx"])
     tp = texture.load()
     tw, th = texture.size
@@ -847,7 +861,7 @@ def iso_check(request: Json, workdir: Path) -> Json:
         base = _visual_base(crops[key])
         sx, sy = p["supportPoint"]
         if base is None:
-            props.append({"key": key, "ok": False, "reason": "prop sem pixels visíveis"})
+            props.append({"key": key, "ok": False, "reason": tx("prop sem pixels visíveis", "prop has no visible pixels")})
             continue
         dx, dy = _r(base[0] - sx), base[1] - sy
         ok = abs(dy) <= 2 and abs(dx) <= max(2.0, crops[key].width / 8)
@@ -857,7 +871,7 @@ def iso_check(request: Json, workdir: Path) -> Json:
     patch = recipe["patch"]
     cols, rows = patch["size"]
     if len(patch["cells"]) != cols * rows:
-        raise PipelineError("invalid_request", "Retalho com número de células diferente do tamanho")
+        raise PipelineError("invalid_request", tx("Retalho com número de células diferente do tamanho", "Patch cell count differs from its size"))
 
     def top(i: int, j: int) -> tuple[float, float]:
         return ((i - j) * dw / 2, (i + j) * dh / 2)
@@ -869,18 +883,18 @@ def iso_check(request: Json, workdir: Path) -> Json:
             if cell["key"] is None:
                 continue
             p = pieces[cell["key"]]
-            tx, ty = top(i, j)
-            x = tx - p["groundOrigin"][0]
-            y = ty - p["groundOrigin"][1] - cell["elevation"] * step
+            top_x, top_y = top(i, j)
+            x = top_x - p["groundOrigin"][0]
+            y = top_y - p["groundOrigin"][1] - cell["elevation"] * step
             items.append((i + j, cell["elevation"], 0 if p["kind"] == "floor" else 1, crops[cell["key"]], x, y, ("cell", i, j, cell["elevation"])))
     placements = []
     for pr in patch["props"]:
         p = pieces[pr["key"]]
         i, j = pr["cell"]
         fw, fh = p["footprintCells"]
-        tx, ty = top(i, j)
+        top_x, top_y = top(i, j)
         elevation = patch["cells"][j * cols + i]["elevation"] if i < cols and j < rows else 0
-        center = (tx + (fw - fh) * dw / 4, ty + (fw + fh) * dh / 4 - elevation * step)
+        center = (top_x + (fw - fh) * dw / 4, top_y + (fw + fh) * dh / 4 - elevation * step)
         x, y = center[0] - p["supportPoint"][0], center[1] - p["supportPoint"][1]
         items.append((i + j + fw - 1 + fh - 1, elevation, 2, crops[pr["key"]], x, y, ("prop", pr["key"])))
         placements.append({"key": pr["key"], "cell": [i, j], "drawAt": [_r(x), _r(y)], "supportScreen": [_r(x + p["supportPoint"][0]), _r(y + p["supportPoint"][1])], "cellCenter": [_r(center[0]), _r(center[1])]})
@@ -888,9 +902,9 @@ def iso_check(request: Json, workdir: Path) -> Json:
     probe = Image.new("RGBA", (max(6, dw // 6), max(12, dh * 3 // 2)), (0, 0, 0, 0))
     ImageDraw.Draw(probe).rectangle([0, 0, probe.width - 1, probe.height - 1], fill=(250, 210, 60, 255), outline=(20, 20, 28, 255))
     for (i, j) in patch["probes"]:
-        tx, ty = top(i, j)
+        top_x, top_y = top(i, j)
         elevation = patch["cells"][j * cols + i]["elevation"] if i < cols and j < rows else 0
-        cx, cy = tx, ty + dh / 2 - elevation * step
+        cx, cy = top_x, top_y + dh / 2 - elevation * step
         items.append((i + j, elevation, 1.5, probe, cx - probe.width / 2, cy - probe.height, ("probe", i, j)))
 
     xs = [it[4] for it in items] + [it[4] + it[3].width for it in items]
@@ -930,9 +944,9 @@ def iso_check(request: Json, workdir: Path) -> Json:
     draw = ImageDraw.Draw(zoomed)
     for j in range(rows):
         for i in range(cols):
-            tx, ty = top(i, j)
-            tx, ty = (tx + ox) * k, (ty + oy) * k
-            outline = [(tx, ty), (tx + dw / 2 * k, ty + dh / 2 * k), (tx, ty + dh * k), (tx - dw / 2 * k, ty + dh / 2 * k), (tx, ty)]
+            top_x, top_y = top(i, j)
+            top_x, top_y = (top_x + ox) * k, (top_y + oy) * k
+            outline = [(top_x, top_y), (top_x + dw / 2 * k, top_y + dh / 2 * k), (top_x, top_y + dh * k), (top_x - dw / 2 * k, top_y + dh / 2 * k), (top_x, top_y)]
             draw.line(outline, fill=SEAM_LINE, width=1)
     for pl in placements:
         sx, sy = pl["supportScreen"][0] * k, pl["supportScreen"][1] * k
@@ -949,13 +963,13 @@ def iso_check(request: Json, workdir: Path) -> Json:
     }
     warnings = []
     if any(not f["ok"] for f in floors):
-        warnings.append("Peça de chão não cobre o losango (um PNG quadrado com prompt 'isométrico' não basta)")
+        warnings.append(tx("Peça de chão não cobre o losango (um PNG quadrado com prompt 'isométrico' não basta)", "Floor piece does not cover the diamond (a square PNG with an 'isometric' prompt is not enough)"))
     if any(not p["ok"] for p in props):
-        warnings.append("Base visual do prop longe do ponto de apoio declarado")
+        warnings.append(tx("Base visual do prop longe do ponto de apoio declarado", "Prop's visual base is far from the declared support point"))
     if holes or overlaps:
-        warnings.append(f"Retalho com {holes} buraco(s) e {overlaps} sobreposição(ões) entre losangos")
+        warnings.append(tx(f"Retalho com {holes} buraco(s) e {overlaps} sobreposição(ões) entre losangos", f"Patch with {holes} hole(s) and {overlaps} overlap(s) between diamonds"))
     if any(not pl["ok"] for pl in placements):
-        warnings.append("Apoio do prop fora do centro da célula")
+        warnings.append(tx("Apoio do prop fora do centro da célula", "Prop support point off the cell center"))
     return respond(
         [write_png(workdir, canvas, "out/patch.png", "patch"), write_png(workdir, zoomed, "out/patch-zoom.png", "patch_zoom")],
         report,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type AssetFamily, Id } from "@/contracts";
+import { tx } from "@/i18n/locales";
 import { createAsset, getAsset, listAssets, listRevisions } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import type { Studio } from "../studio";
@@ -32,7 +33,7 @@ export const AssetTarget = z.union([z.strictObject({ assetId: Id }), z.strictObj
 export function ensureAsset(studio: Studio, projectId: string, target: z.infer<typeof AssetTarget>, family: AssetFamily, kind: string) {
   if ("assetId" in target) {
     const asset = getAsset(studio.db, projectId, target.assetId);
-    if (asset.family !== family || asset.kind !== kind) throw new DomainFailure("validation_failed", `O asset é ${asset.family}/${asset.kind}; esperado ${family}/${kind}`);
+    if (asset.family !== family || asset.kind !== kind) throw new DomainFailure("validation_failed", tx(`O asset é ${asset.family}/${asset.kind}; esperado ${family}/${kind}`, `The asset is ${asset.family}/${asset.kind}; expected ${family}/${kind}`));
     return asset;
   }
   return createAsset(studio.db, studio.clock, { projectId, family, kind, name: target.name });

@@ -87,10 +87,11 @@ describe.skipIf(!existsSync(PYTHON))("inpainting (cartão E1)", () => {
     const { project, source } = await setup();
     const maskId = await upload(project.id, "margem.png", lakeMask());
     const planned = await buildInpaintPlan(studio, project.id, input(source.id, maskId));
-    expect(planned.modeLabel).toBe("Inpainting com máscara nativa");
+    expect(planned.modeLabel).toEqual({ "pt-BR": "Inpainting com máscara nativa", en: "Inpainting with a native mask" });
     expect(planned.plan.requiredCapabilities).toEqual(["native_mask"]);
     expect(planned.mask.emptyMask).toBe(false);
-    expect(planned.scope).toMatch(/protegido\(s\) saem idênticos/);
+    expect(planned.scope["pt-BR"]).toMatch(/protegido\(s\) saem idênticos/);
+    expect(planned.scope.en).toMatch(/protected pixel\(s\) come out identical/);
 
     const { job } = submitJob(studio, project.id, { kind: "generation", request: { plan: planned.plan, planDigest: planned.digest, targetAssetId: source.assetId } }, "inpaint-1");
     await studio.runner().runOnce();
@@ -129,7 +130,7 @@ describe.skipIf(!existsSync(PYTHON))("inpainting (cartão E1)", () => {
     const full = await upload(project.id, "cheia.png", encodePng(fullImg));
     const planned = await buildInpaintPlan(studio, project.id, input(source.id, full));
     expect(planned.mask.fullMask).toBe(true);
-    expect(planned.scope).toMatch(/Máscara cheia: regeneração integral/);
+    expect(planned.scope["pt-BR"]).toMatch(/Máscara cheia: regeneração integral/);
   });
 
   it("perfil sem máscara nativa não vira inpainting nativo: o modo candidata é escolha explícita e identificada", async () => {
@@ -150,7 +151,7 @@ describe.skipIf(!existsSync(PYTHON))("inpainting (cartão E1)", () => {
     expect((err as DomainFailure).code).toBe("capability_missing");
     expect((err as DomainFailure).message).toMatch(/não recebe máscara nativa.*candidato editado \+ recorte local/);
     const candidate = await buildInpaintPlan(studio, project.id, input(source.id, maskId, "candidate-composite", "or"));
-    expect(candidate.modeLabel).toBe("Candidato editado + recorte local; sem condicionamento nativo por máscara");
+    expect(candidate.modeLabel["pt-BR"]).toBe("Candidato editado + recorte local; sem condicionamento nativo por máscara");
     expect(candidate.plan.requiredCapabilities).toEqual(["image_edit"]);
     expect(candidate.plan.prompt.compiled).toMatch(/A imagem 2 é a mesma imagem com a região a mudar pintada de magenta/);
   });

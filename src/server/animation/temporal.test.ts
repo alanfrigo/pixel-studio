@@ -474,7 +474,8 @@ describe.skipIf(!existsSync(PYTHON))("estados e edição temporal (cartão S3)",
     // Estado: folha 1×1 da vista S a 8× → o "modelo" devolve o baú aberto deslocado; o casamento assenta no apoio do original.
     respond = () => ({ status: 200, body: { data: [{ b64_json: b64(sheet([chest(true, 2, -1)], 1, 1, 8)) }], usage: { cost: 0.011 } } });
     const state = buildCreateStatePlan(studio, project.id, { operation: "create_state", providerProfileId: "or", sourceRevisionId: closed.id, stateKey: "open", description: "tampa aberta", directions: ["S"] });
-    expect(state.route.label).toMatch(/rota genérica; não é estado nativo/);
+    expect(state.route.label["pt-BR"]).toMatch(/rota genérica; não é estado nativo/);
+    expect(state.route.label.en).toMatch(/generic route; not a native state/);
     expect(state.plan.requiredCapabilities).toEqual(["image_references"]);
     expect(state.plan.prompt.compiled).not.toMatch(/#[0-9a-f]{6}/i);
     const run = runAnimation(studio, project.id, { plan: { operation: "create_state", providerProfileId: "or", sourceRevisionId: closed.id, stateKey: "open", description: "tampa aberta", directions: ["S"] } });
@@ -501,7 +502,7 @@ describe.skipIf(!existsSync(PYTHON))("estados e edição temporal (cartão S3)",
     };
     respond = () => ({ status: 200, body: { data: [{ b64_json: b64(sheet([ajar(1), ajar(2)], 2, 2, 8)) }], usage: { cost: 0.012 } } });
     const interp = runAnimation(studio, project.id, { plan: { operation: "interpolate_frames", providerProfileId: "or", start: { kind: "view", baseRevisionId: closed.id, direction: "S" }, end: { kind: "view", baseRevisionId: open.id, direction: "S" }, action: "a tampa abre", count: 2, transitionMs: 200 } });
-    expect(interp.route.label).toMatch(/não é interpolação nativa/);
+    expect(interp.route.label["pt-BR"]).toMatch(/não é interpolação nativa/);
     await runAll();
     const tclip = resultOf(project.id, interp.job.id);
     expect((tclip.payload as ClipPayload).frames.map((f) => f.frameId)).toEqual(["start", "start-end-i01", "start-end-i02", "end"]);
@@ -514,7 +515,7 @@ describe.skipIf(!existsSync(PYTHON))("estados e edição temporal (cartão S3)",
     const candidate = new Uint8Array(await studio.blobs.read(composed.outputs.find((o) => o.role === "sheet")!.blob.sha256));
     respond = () => ({ status: 200, body: { data: [{ b64_json: b64(candidate) }], usage: { cost: 0.013 } } });
     const fix = await runAnimationChecked(studio, project.id, { plan: { operation: "correct_frame", providerProfileId: "or", clipRevisionId: clip.id, frameId: "contact", instruction: "dobre o cotovelo", mode: "candidate-composite" } });
-    expect(fix.route.label).toMatch(/Candidato editado \+ recorte local/);
+    expect(fix.route.label["pt-BR"]).toMatch(/Candidato editado \+ recorte local/);
     expect(err(() => buildCorrectFramePlan(studio, project.id, { operation: "correct_frame", providerProfileId: "or", clipRevisionId: clip.id, frameId: "contact", instruction: "x", mode: "native-mask" }))?.message).toMatch(/não recebe máscara nativa/);
     await runAll();
     const fixed = resultOf(project.id, fix.job.id);
@@ -527,7 +528,7 @@ describe.skipIf(!existsSync(PYTHON))("estados e edição temporal (cartão S3)",
     recorded.length = 0;
     respond = () => ({ status: 200, body: { data: [{ b64_json: b64(sheet([chest(false, 0, -1), chest(false, 0, -3), chest(true, 0, -2), chest(true)], 2, 2, 8)) }], usage: { cost: 0.014 } } });
     const anim = runAnimation(studio, project.id, { plan: { operation: "animate_object", providerProfileId: "or", objectRevisionId: closed.id, direction: "S", action: "open", description: "a tampa abre", durationsMs: [90, 90, 110, 200], playback: "once", endFrame: { revisionId: open.id, direction: "S" } } });
-    expect(anim.route.label).toMatch(/não é animação nativa/);
+    expect(anim.route.label["pt-BR"]).toMatch(/não é animação nativa/);
     await runAll();
     const animRev = resultOf(project.id, anim.job.id);
     expect((animRev.payload as ClipPayload).frames.map((f) => f.frameId)).toEqual(["ref", "f01", "f02", "f03", "f04"]);
@@ -546,7 +547,7 @@ describe.skipIf(!existsSync(PYTHON))("estados e edição temporal (cartão S3)",
     expect(Object.values(await composedRgba(editRev))).toEqual(Object.values(await composedRgba(clip)));
     const potion = getRevision(studio.db, project.id, revisionMap["potion-v1"]!);
     const outfit = runAnimation(studio, project.id, { plan: { operation: "transfer_outfit", providerProfileId: "or", clipRevisionId: clip.id, outfitRevisionId: potion.id, outfitFileKey: potion.files.find((f) => f.mime === "image/png" && f.role !== "raw")!.fileKey } });
-    expect(outfit.route.label).toMatch(/não overlay modular/);
+    expect(outfit.route.label["pt-BR"]).toMatch(/não overlay modular/);
     await runAll();
     expect((resultOf(project.id, outfit.job.id).payload as ClipPayload).state).toMatch(/^outfit_/);
   });

@@ -1,5 +1,7 @@
 "use client";
 
+import { isLocalized, type Locale, type TextValue } from "@/i18n/locales";
+
 /** Cliente das rotas `/api/v1` com erros estruturados `{code, message, details}`. */
 
 export class ApiError extends Error {
@@ -31,17 +33,31 @@ export function newKey(prefix: string): string {
   return `${prefix}:${crypto.randomUUID()}`;
 }
 
-export function formatBytes(n: number): string {
+export function formatBytes(n: number, locale: Locale): string {
+  const one = (v: number) => new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v);
   if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 ** 3) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (n < 1024 * 1024) return `${one(n / 1024)} KB`;
+  if (n < 1024 ** 3) return `${one(n / 1024 / 1024)} MB`;
+  return `${one(n / 1024 ** 3)} GB`;
+}
+
+/**
+ * Mensagem de um erro gravado (job, upload, exportação): `messages[idioma]`
+ * quando o servidor gravou os dois idiomas, senão `message` (dado antigo).
+ */
+export function errorMessage(error: unknown, locale: Locale): string | null {
+  if (typeof error === "string") return error;
+  if (error === null || typeof error !== "object") return null;
+  const e = error as { message?: unknown; messages?: unknown };
+  if (isLocalized(e.messages)) return e.messages[locale];
+  if (isLocalized(e.message)) return e.message[locale];
+  return typeof e.message === "string" ? e.message : null;
 }
 
 export interface Health {
   ok: boolean;
   sqlite: { version: string; schemaVersion: number; latest: number };
   storage: { dataDir: string; freeBytes: number };
-  python: { ok: boolean; pillow?: string; python?: string; error?: string };
+  python: { ok: boolean; pillow?: string; python?: string; error?: TextValue };
   worker: { online: boolean; workers: { worker_id: string; current_job_id: string | null }[] };
 }

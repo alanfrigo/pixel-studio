@@ -4,6 +4,8 @@ import type { BasePayload, ClipPayload, Direction, GenerationPlan, MotionPayload
 import type { animationOverview } from "@/server/animation/service";
 import type { RevisionView } from "@/server/catalog/catalog";
 import { ApiError, apiFetch } from "@/app/client/api";
+import { type Locale, pick, type TextValue } from "@/i18n/locales";
+import { commonMessages } from "@/i18n/messages/common";
 
 /** Tipos e chamadas compartilhados pela página de animação (cartão S1). */
 
@@ -15,7 +17,8 @@ export interface PlanPreview {
   plan: GenerationPlan;
   digest: string;
   destination: { name: string; simulated: boolean };
-  route: { strategy: "native" | "reference_sheet"; label: string };
+  /** Rótulo da rota: bilíngue (servidor atual) ou texto gravado num idioma só. */
+  route: { strategy: "native" | "reference_sheet"; label: TextValue };
   summary: Record<string, unknown>;
   costCheck: { kind: string; withinCeiling: boolean | null };
 }
@@ -27,7 +30,6 @@ export interface RunResult extends PlanPreview {
 }
 
 export const DIRS: Direction[] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-export const DIR_LABEL: Record<Direction, string> = { N: "norte", NE: "nordeste", E: "leste", SE: "sudeste", S: "sul", SW: "sudoeste", W: "oeste", NW: "noroeste" };
 
 export function mediaUrl(projectId: string, fileId: string): string {
   return `/api/v1/projects/${projectId}/media/${fileId}`;
@@ -106,19 +108,20 @@ export function clipFrameLayers(projectId: string, revision: RevisionView): Laye
 }
 
 /** Envia um PNG como upload do projeto e espera a normalização (máscara, imagem de objeto). */
-export async function uploadPng(projectId: string, bytes: Uint8Array | Blob, name: string): Promise<string> {
+export async function uploadPng(projectId: string, bytes: Uint8Array | Blob, name: string, locale: Locale): Promise<string> {
+  const m = commonMessages[locale].upload;
   const form = new FormData();
   form.append("file", bytes instanceof Blob ? bytes : new Blob([bytes as BlobPart], { type: "image/png" }), name);
   const res = await fetch(`/api/v1/projects/${projectId}/uploads`, { method: "POST", body: form });
   const body = (await res.json()) as { upload?: { id: string }; message?: string };
-  if (!res.ok || !body.upload) throw new Error(body.message ?? "Falha ao enviar a imagem");
+  if (!res.ok || !body.upload) throw new Error(body.message ?? m.failed);
   for (let i = 0; i < 60; i++) {
     const { upload } = await apiFetch<{ upload: { id: string; status: string } }>(`/projects/${projectId}/uploads/${body.upload.id}`);
     if (upload.status === "ready") return upload.id;
-    if (upload.status === "rejected") throw new Error("A imagem não pôde ser importada");
+    if (upload.status === "rejected") throw new Error(m.rejected);
     await new Promise((r) => setTimeout(r, 400));
   }
-  throw new Error("A importação demorou demais");
+  throw new Error(m.timeout);
 }
 
 export function findRevision(data: Overview, revisionId: string | null | undefined): { asset: AssetEntry["asset"]; revision: RevisionView } | null {
@@ -134,8 +137,9 @@ export function isObject(entry: AssetEntry): boolean {
   return entry.revisions.some((r) => (r.payload as BasePayload).subject === "object");
 }
 
-export function routeLabel(profile: ProfileInfo, key: string): { ok: boolean; text: string; strategy?: string } {
+/** Rota de um perfil no idioma da tela (o servidor pode mandar o rótulo bilíngue ou texto simples). */
+export function routeLabel(profile: ProfileInfo, key: string, locale: Locale): { ok: boolean; text: string; strategy?: string } {
   const r = profile.routes[key];
-  if (!r) return { ok: false, text: "indisponível" };
-  return "label" in r ? { ok: true, text: r.label, strategy: r.strategy } : { ok: false, text: r.unavailable };
+  if (!r) return { ok: false, text: commonMessages[locale].unavailable };
+  return "label" in r ? { ok: true, text: pick(r.label as TextValue, locale), strategy: r.strategy } : { ok: false, text: pick(r.unavailable as TextValue, locale) };
 }

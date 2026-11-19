@@ -1,3 +1,4 @@
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { z } from "zod";
 import {
   CostAmount,
@@ -14,7 +15,7 @@ import {
   type StylePayload,
 } from "@/contracts";
 import { closestView, DIRECTION_LABEL } from "@/domain/animation/directions";
-import { type ActionPreset, findPreset, presetRevisionId } from "@/domain/animation/presets";
+import { type ActionPreset, findPreset, presetRevisionId, presetText } from "@/domain/animation/presets";
 import { sheetLayout } from "@/domain/animation/timeline";
 import { canonicalDigest } from "@/domain/canonical-json";
 import { validatePlanReferences } from "@/domain/plan/references";
@@ -100,7 +101,7 @@ export interface AnimationPlanResult {
   plan: GenerationPlan;
   digest: string;
   destination: { profileId: string; name: string; transport: string; simulated: boolean };
-  route: { strategy: AnimationRoute["strategy"]; label: string };
+  route: { strategy: AnimationRoute["strategy"]; label: LocalizedText };
   summary: { direction: Direction; action: string; frameIds: string[]; durationsMs: number[]; playback: string } | { view: Direction; sourceView: Direction; projection: string } | Record<string, unknown>;
   /** Atalho de um clique: o plano é enviável sem formulário? (custo conhecido dentro do teto ou desconhecido autorizado). */
   costCheck: { kind: CostEstimate["kind"]; withinCeiling: boolean | null };
@@ -118,7 +119,7 @@ export interface Env {
 
 export function env(studio: Studio, projectId: string, profileId: string, language?: "pt-BR" | "en"): Env {
   const project = getProject(studio.db, projectId);
-  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", "Projeto sem estilo ativo");
+  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", tx("Projeto sem estilo ativo", "Project has no active style"));
   const style = getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload;
   studio.providers.assertReady(profileId);
   const adapter = studio.providers.adapterFor(profileId);
@@ -131,7 +132,7 @@ function sheetFor(e: Env, frameIds: string[], cell: [number, number], references
   const nativeAlpha = e.adapter.capabilities("generate_asset").includes("alpha_output") && (alphaReferences === undefined || alphaReferences === references);
   const max = e.adapter.limits?.("animate_text").maxReferences;
   if (max !== undefined && references > max) {
-    throw new DomainFailure("capability_missing", `A rota aceita até ${max} referência(s); este modo envia ${references} (base${references > 1 ? " + guia de poses" : ""})`, { maxReferences: max });
+    throw new DomainFailure("capability_missing", tx(`A rota aceita até ${max} referência(s); este modo envia ${references} (base${references > 1 ? " + guia de poses" : ""})`, `The route accepts up to ${max} reference(s); this mode sends ${references} (base${references > 1 ? " + pose guide" : ""})`), { maxReferences: max });
   }
   return { ...sheetLayout(frameIds.length), cell, backgroundKey: nativeAlpha ? null : chooseKeyColor(e.style.palette.colors.map((c) => c.hex)), frameIds };
 }
@@ -141,7 +142,7 @@ function checkCeiling(estimate: CostEstimate, ceiling: z.infer<typeof CostAmount
   const amount = estimate.kind === "known" ? estimate.amount : estimate.max;
   if (amount.unit !== ceiling.unit) return null;
   if (amount.amount > ceiling.amount) {
-    throw new DomainFailure("budget_exceeded", `Estimativa ${amount.amount} ${amount.unit} excede o teto autorizado de ${ceiling.amount} ${ceiling.unit}; nada foi enviado`, {
+    throw new DomainFailure("budget_exceeded", tx(`Estimativa ${amount.amount} ${amount.unit} excede o teto autorizado de ${ceiling.amount} ${ceiling.unit}; nada foi enviado`, `Estimate ${amount.amount} ${amount.unit} exceeds the authorized cost ceiling of ${ceiling.amount} ${ceiling.unit}; nothing was sent`), {
       needsConfiguration: true,
       estimate,
       ceiling,
@@ -154,7 +155,7 @@ export function finish(e: Env, plan: GenerationPlan, route: AnimationRoute, summ
   const withinCeiling = checkCeiling(plan.limits.estimate, ceiling);
   const parsed = GenerationPlan.safeParse(plan);
   if (!parsed.success) {
-    throw new DomainFailure("validation_failed", parsed.error.issues[0]?.message ?? "Plano inválido", {
+    throw new DomainFailure("validation_failed", parsed.error.issues[0]?.message ?? tx("Plano inválido", "Invalid plan"), {
       issues: parsed.error.issues.slice(0, 10).map((i) => ({ path: i.path.map(String), message: i.message })),
     });
   }
@@ -218,13 +219,19 @@ export function approvedMotionFor(db: Db, projectId: string, baseAssetId: string
 export function buildAnimatePresetPlan(studio: Studio, projectId: string, raw: AnimatePresetPlanInput): AnimationPlanResult {
   const input = AnimatePresetPlanInput.parse(raw);
   const preset = findPreset(input.presetKey, input.presetVersion);
-  if (!preset) throw new DomainFailure("not_found", `Preset ${input.presetKey}${input.presetVersion ? ` v${input.presetVersion}` : ""} não existe`);
+  if (!preset) throw new DomainFailure("not_found", tx(`Preset ${input.presetKey}${input.presetVersion ? ` v${input.presetVersion}` : ""} não existe`, `Preset ${input.presetKey}${input.presetVersion ? ` v${input.presetVersion}` : ""} does not exist`));
   const e = env(studio, projectId, input.providerProfileId, input.language);
   const base = loadBase(studio.db, projectId, input.baseRevisionId);
   const { file, size } = viewFile(base, input.direction);
   const durations = input.durationsMs ?? preset.durationsMs;
   if (durations.length !== preset.frameIds.length) {
-    throw new DomainFailure("validation_failed", `O preset ${preset.label} tem ${preset.frameIds.length} quadros; foram informadas ${durations.length} durações`);
+    throw new DomainFailure(
+      "validation_failed",
+      tx(
+        `O preset ${preset.label} tem ${preset.frameIds.length} quadros; foram informadas ${durations.length} durações`,
+        `Preset ${presetText(preset).label.en} has ${preset.frameIds.length} frames; ${durations.length} durations were given`,
+      ),
+    );
   }
 
   let motionRevisionId: string | null = null;
@@ -233,7 +240,11 @@ export function buildAnimatePresetPlan(studio: Studio, projectId: string, raw: A
     motionRevisionId = input.motionRevisionId ?? approvedMotionFor(studio.db, projectId, base.asset.id, preset.action, input.direction);
     if (!motionRevisionId) {
       // Parâmetro faltante abre a configuração (editor de esqueleto com o preset), sem chamada paga.
-      throw new DomainFailure("coverage_incomplete", `O preset ${preset.label} é de esqueleto: aprove um movimento ${preset.action} (${input.direction}) para ${base.asset.name} no editor antes do clique`, {
+      const message = tx(
+        `O preset ${preset.label} é de esqueleto: aprove um movimento ${preset.action} (${input.direction}) para ${base.asset.name} no editor antes do clique`,
+        `Preset ${presetText(preset).label.en} is skeleton-based: approve a ${preset.action} motion (${input.direction}) for ${base.asset.name} in the editor before the one-click run`,
+      );
+      throw new DomainFailure("coverage_incomplete", message, {
         needsConfiguration: true,
         reason: "motion_missing",
         presetKey: preset.key,
@@ -241,7 +252,7 @@ export function buildAnimatePresetPlan(studio: Studio, projectId: string, raw: A
     }
     motion = motionSource(studio.db, projectId, motionRevisionId, 1);
     if (motion.motion.payload.poses.length !== preset.frameIds.length || motion.motion.payload.direction !== input.direction) {
-      throw new DomainFailure("validation_failed", `O movimento aprovado tem ${motion.motion.payload.poses.length} poses (${motion.motion.payload.direction}); o preset pede ${preset.frameIds.length} na direção ${input.direction}`);
+      throw new DomainFailure("validation_failed", tx(`O movimento aprovado tem ${motion.motion.payload.poses.length} poses (${motion.motion.payload.direction}); o preset pede ${preset.frameIds.length} na direção ${input.direction}`, `The approved motion has ${motion.motion.payload.poses.length} poses (${motion.motion.payload.direction}); the preset needs ${preset.frameIds.length} facing ${input.direction}`));
     }
   }
 
@@ -343,7 +354,7 @@ export function buildAnimateSkeletonPlan(studio: Studio, projectId: string, raw:
   const m = motion.motion.payload;
   const { file, size } = viewFile(base, m.direction);
   if (m.generationCell[0] !== size[0] || m.generationCell[1] !== size[1]) {
-    throw new DomainFailure("validation_failed", `O movimento foi feito para ${m.generationCell.join("×")}; a base tem ${size.join("×")}`);
+    throw new DomainFailure("validation_failed", tx(`O movimento foi feito para ${m.generationCell.join("×")}; a base tem ${size.join("×")}`, `The motion was made for ${m.generationCell.join("×")}; the base is ${size.join("×")}`));
   }
   const route = chooseRoute(e.adapter, "animate_skeleton", { mode: "skeleton", customSkeleton: m.skeleton.kind === "custom" }, e.profileId);
   const frameIds = m.poses.map((p) => p.poseId);
@@ -381,7 +392,7 @@ export function buildRotateViewsPlan(studio: Studio, projectId: string, raw: Rot
   const base = loadBase(studio.db, projectId, input.baseRevisionId);
   const approved = base.payload.views.map((v) => v.direction);
   if (approved.includes(input.view)) {
-    throw new DomainFailure("validation_failed", `A vista ${input.view} já está aprovada nesta base; vistas aprovadas não são regeradas`);
+    throw new DomainFailure("validation_failed", tx(`A vista ${input.view} já está aprovada nesta base; vistas aprovadas não são regeradas`, `View ${input.view} is already approved on this base; approved views are not regenerated`));
   }
   const sourceView = closestView(input.view, approved)!;
   const { file, size } = viewFile(base, sourceView);

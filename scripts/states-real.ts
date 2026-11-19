@@ -20,6 +20,7 @@
  */
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pick } from "@/i18n/locales";
 import type { BasePayload, ClipPayload } from "@/contracts";
 import { buildClareira } from "@/fixtures/clareira";
 import { createImage, encodePng, fillRect } from "@/lib/media/png";
@@ -123,7 +124,7 @@ async function framesOf(revision: RevisionView): Promise<string[]> {
     sheet: null,
     emitFrames: true,
   });
-  if (out.status === "error") throw new Error(out.message);
+  if (out.status === "error") throw new Error(pick(out.message, "pt-BR"));
   const shas = [];
   for (const o of out.outputs.filter((x) => x.role === "frame")) shas.push((await studio.blobs.putFile(o.absolutePath)).sha256);
   return shas;
@@ -137,7 +138,7 @@ async function contactSheet(name: string, shas: string[], cell: [number, number]
     columns: shas.length,
     gap: 8,
   });
-  if (out.status === "error") throw new Error(out.message);
+  if (out.status === "error") throw new Error(pick(out.message, "pt-BR"));
   await copyFile(out.outputs[0]!.absolutePath, path.join(outDir, `${name}.png`));
 }
 const viewSha = (revision: RevisionView, direction = "S") => revision.files.find((f) => f.fileKey === (revision.payload as BasePayload).views.find((v) => v.direction === direction)!.fileId)!.sha256;
@@ -194,7 +195,7 @@ async function interpolation(model: string, profileId: string, tagOf: (k: string
       const run = runAnimation(studio, project.id, {
         plan: { operation: "interpolate_frames", providerProfileId: profileId, start: { kind: "view", baseRevisionId: closed.id, direction: "S" }, end: { kind: "view", baseRevisionId: open.id, direction: "S" }, action: "the lid opens", count: 2, transitionMs: 200, newClip: { action: "open", startMs: 150, endMs: 250, playback: "once" }, language: "en" },
       });
-      return { jobId: run.job.id, route: run.route.label, prompt: run.plan.prompt.compiled };
+      return { jobId: run.job.id, route: run.route.label["pt-BR"], prompt: run.plan.prompt.compiled };
     },
     async (rev) => contactSheet(tagOf("interpolacao-folha"), await framesOf(rev), [64, 64]),
   );
@@ -261,7 +262,7 @@ for (const route of routes) {
     "estado-aberto",
     async () => {
       const run = runAnimation(studio, project.id, { plan: { operation: "create_state", providerProfileId: profileId, sourceRevisionId: closed.id, stateKey: "open", description: "the lid is open and raised, revealing the dark interior with a few gold coins; same wood, iron bands, lock, scale and ground spot", directions: ["S"], language: "en" } });
-      return { jobId: run.job.id, route: run.route.label, prompt: run.plan.prompt.compiled };
+      return { jobId: run.job.id, route: run.route.label["pt-BR"], prompt: run.plan.prompt.compiled };
     },
     async (rev) => contactSheet(tagOf("estado-aberto-folha"), [viewSha(closed), viewSha(rev)], [64, 64]),
   );
@@ -287,7 +288,7 @@ for (const route of routes) {
           language: "en",
         },
       });
-      return { jobId: run.job.id, route: run.route.label, prompt: run.plan.prompt.compiled };
+      return { jobId: run.job.id, route: run.route.label["pt-BR"], prompt: run.plan.prompt.compiled };
     },
     async (rev) => contactSheet(tagOf("animacao-abrir-folha"), await framesOf(rev), [64, 64]),
   );
@@ -303,7 +304,7 @@ for (const route of routes) {
       const run = await runAnimationChecked(studio, project.id, {
         plan: { operation: "correct_frame", providerProfileId: profileId, clipRevisionId: attack.id, frameId: "contact", maskUploadId: maskUpload.id, instruction: "bend the sword arm at the elbow a little more; the hand keeps holding the sword grip", mode: "candidate-composite", language: "en" },
       });
-      return { jobId: run.job.id, route: run.route.label, prompt: run.plan.prompt.compiled };
+      return { jobId: run.job.id, route: run.route.label["pt-BR"], prompt: run.plan.prompt.compiled };
     },
     async (rev) => {
       const before = await framesOf(attack);

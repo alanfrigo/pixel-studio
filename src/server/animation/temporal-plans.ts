@@ -1,3 +1,4 @@
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { z } from "zod";
 import {
   type Capability,
@@ -50,17 +51,17 @@ const commonT = {
 };
 
 export const TEMPORAL_ROUTE_LABELS = {
-  state_sheet: "Estado redesenhado por imagem + referência (rota genérica; não é estado nativo)",
-  object_sheet: "Folha de quadros do objeto por imagem + referência (rota genérica; não é animação nativa)",
-  interpolate_native: "Interpolação nativa do provedor: devolve só os intermediários",
-  interpolate_sheet: "Intermediários desenhados por imagem + referências (rota genérica; não é interpolação nativa)",
-  edit_native: "Edição de trecho nativa do provedor (quadros inteiros, sem máscara)",
-  edit_sheet: "Trecho redesenhado por imagem + referência (rota genérica; não é edição nativa)",
-  outfit_native: "Transferência de roupa nativa do provedor: clipe vestido, não overlay modular",
-  outfit_sheet: "Clipe vestido por imagem + referências (rota genérica): candidato achatado, não overlay modular",
-  correct_native: "Correção com máscara nativa do provedor no quadro",
-  correct_candidate: "Candidato editado + recorte local; sem condicionamento nativo por máscara",
-} as const;
+  state_sheet: tx("Estado redesenhado por imagem + referência (rota genérica; não é estado nativo)", "State redrawn via image + reference (generic route; not a native state)"),
+  object_sheet: tx("Folha de quadros do objeto por imagem + referência (rota genérica; não é animação nativa)", "Object frame sheet via image + reference (generic route; not native animation)"),
+  interpolate_native: tx("Interpolação nativa do provedor: devolve só os intermediários", "Provider's native interpolation: returns only the in-betweens"),
+  interpolate_sheet: tx("Intermediários desenhados por imagem + referências (rota genérica; não é interpolação nativa)", "In-betweens drawn via image + references (generic route; not native interpolation)"),
+  edit_native: tx("Edição de trecho nativa do provedor (quadros inteiros, sem máscara)", "Provider's native segment edit (whole frames, no mask)"),
+  edit_sheet: tx("Trecho redesenhado por imagem + referência (rota genérica; não é edição nativa)", "Segment redrawn via image + reference (generic route; not a native edit)"),
+  outfit_native: tx("Transferência de roupa nativa do provedor: clipe vestido, não overlay modular", "Provider's native outfit transfer: dressed clip, not a modular overlay"),
+  outfit_sheet: tx("Clipe vestido por imagem + referências (rota genérica): candidato achatado, não overlay modular", "Dressed clip via image + references (generic route): flattened candidate, not a modular overlay"),
+  correct_native: tx("Correção com máscara nativa do provedor no quadro", "Frame correction with the provider's native mask"),
+  correct_candidate: tx("Candidato editado + recorte local; sem condicionamento nativo por máscara", "Edited candidate + local crop; no native mask conditioning"),
+} as const satisfies Record<string, LocalizedText>;
 
 // ---------------------------------------------------------------------------
 // Peças comuns
@@ -70,12 +71,12 @@ export const TEMPORAL_ROUTE_LABELS = {
  * Rota pela capacidade: nativa (quando a operação tem uma), senão folha por
  * imagem + referências, senão bloqueio antes de cobrar.
  */
-export function chooseTemporalRoute(e: Pick<Env, "adapter" | "profileId">, operation: PlanOperation, native: { required: Capability[]; label: string } | null, sheet: string): AnimationRoute {
+export function chooseTemporalRoute(e: Pick<Env, "adapter" | "profileId">, operation: PlanOperation, native: { required: Capability[]; label: LocalizedText } | null, sheet: LocalizedText): AnimationRoute {
   const offered = e.adapter.capabilities(operation);
   if (native && native.required.every((c) => offered.includes(c))) return { strategy: "native", required: native.required, label: native.label };
   if (offered.includes("image_references")) return { strategy: "reference_sheet", required: ["image_references"], label: sheet };
   const nativeMissing = native?.required.filter((c) => !offered.includes(c)) ?? [];
-  throw new DomainFailure("capability_missing", `O perfil ${e.profileId} não oferece ${nativeMissing.length ? `${nativeMissing.join(", ")} nem ` : ""}imagem + referências para ${operation}`, {
+  throw new DomainFailure("capability_missing", tx(`O perfil ${e.profileId} não oferece ${nativeMissing.length ? `${nativeMissing.join(", ")} nem ` : ""}imagem + referências para ${operation}`, `Provider profile ${e.profileId} offers ${nativeMissing.length ? `neither ${nativeMissing.join(", ")} nor ` : "no "}image + references for ${operation}`), {
     missing: [...nativeMissing, "image_references"],
     offered,
   });
@@ -85,7 +86,7 @@ export function chooseTemporalRoute(e: Pick<Env, "adapter" | "profileId">, opera
 function temporalSheet(e: Env, operation: PlanOperation, frameIds: string[], cell: [number, number], references: number): ReferenceSheet {
   const lim = e.adapter.limits?.(operation);
   if (lim?.maxReferences !== undefined && references > lim.maxReferences) {
-    throw new DomainFailure("capability_missing", `A rota aceita até ${lim.maxReferences} referência(s); esta operação envia ${references}`, { maxReferences: lim.maxReferences });
+    throw new DomainFailure("capability_missing", tx(`A rota aceita até ${lim.maxReferences} referência(s); esta operação envia ${references}`, `The route accepts up to ${lim.maxReferences} reference(s); this operation sends ${references}`), { maxReferences: lim.maxReferences });
   }
   const nativeAlpha = e.adapter.capabilities("generate_asset").includes("alpha_output") && (lim?.alphaReferences === undefined || lim.alphaReferences === references);
   return { ...sheetLayout(frameIds.length), cell, backgroundKey: nativeAlpha ? null : chooseKeyColor(e.style.palette.colors.map((c) => c.hex)), frameIds };
@@ -108,7 +109,7 @@ export function subjectOf(base: LoadedBase): "character" | "object" {
 
 function approvedClip(db: Db, projectId: string, clipRevisionId: string) {
   const clip = loadClip(db, projectId, clipRevisionId);
-  if (clip.revision.status !== "approved") throw new DomainFailure("source_not_approved", `O clipe ${clip.asset.name} r${clip.revision.number} precisa estar aprovado`);
+  if (clip.revision.status !== "approved") throw new DomainFailure("source_not_approved", tx(`O clipe ${clip.asset.name} r${clip.revision.number} precisa estar aprovado`, `Clip ${clip.asset.name} r${clip.revision.number} must be approved`));
   return clip;
 }
 
@@ -116,7 +117,7 @@ function approvedClip(db: Db, projectId: string, clipRevisionId: string) {
 function fileSources(revision: RevisionView, fileIds: string[], role: PlanSource["role"], firstOrdinal: number): PlanSource[] {
   return fileIds.map((fileId, i) => {
     const file = revision.files.find((f) => f.fileKey === fileId);
-    if (!file || file.mime !== "image/png") throw new DomainFailure("not_found", `A revisão r${revision.number} não tem o arquivo ${fileId}`);
+    if (!file || file.mime !== "image/png") throw new DomainFailure("not_found", tx(`A revisão r${revision.number} não tem o arquivo ${fileId}`, `Revision r${revision.number} has no file ${fileId}`));
     return { ordinal: firstOrdinal + i, revisionId: revision.id, fileId, sha256: file.sha256, role };
   });
 }
@@ -124,7 +125,7 @@ function fileSources(revision: RevisionView, fileIds: string[], role: PlanSource
 function orderedFrameIds(clip: ReturnType<typeof loadClip>, frameIds: string[]): string[] {
   const order = clip.payload.frames.map((f) => f.frameId);
   const unique = [...new Set(frameIds)];
-  for (const id of unique) if (!order.includes(id)) throw new DomainFailure("not_found", `O quadro ${id} não existe em ${clip.asset.name} r${clip.revision.number}`);
+  for (const id of unique) if (!order.includes(id)) throw new DomainFailure("not_found", tx(`O quadro ${id} não existe em ${clip.asset.name} r${clip.revision.number}`, `Frame ${id} does not exist in ${clip.asset.name} r${clip.revision.number}`));
   return unique.sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
 
@@ -190,10 +191,10 @@ export function buildCreateStatePlan(studio: Studio, projectId: string, raw: Cre
   const source = loadBase(studio.db, projectId, input.sourceRevisionId);
   const subject = subjectOf(source);
   if (input.stateKey === source.payload.state) {
-    throw new DomainFailure("validation_failed", `A fonte já está no estado ${input.stateKey}: um estado novo muda a arte, não só o nome`);
+    throw new DomainFailure("validation_failed", tx(`A fonte já está no estado ${input.stateKey}: um estado novo muda a arte, não só o nome`, `The source is already in state ${input.stateKey}: a new state changes the art, not just the name`));
   }
   if (knownStances(studio.db, projectId, source).includes(input.stateKey)) {
-    throw new DomainFailure("validation_failed", `${input.stateKey} é uma postura de empunhadura, não um estado visual (ferido, congelado, aberto)`);
+    throw new DomainFailure("validation_failed", tx(`${input.stateKey} é uma postura de empunhadura, não um estado visual (ferido, congelado, aberto)`, `${input.stateKey} is a grip stance, not a visual state (hurt, frozen, open)`));
   }
   const directions = sortDirections(input.directions);
   // Sem herdar cobertura inexistente: cada direção pedida precisa de vista aprovada na fonte.
@@ -202,9 +203,9 @@ export function buildCreateStatePlan(studio: Studio, projectId: string, raw: Cre
   const stateAsset = findStateAsset(studio.db, projectId, identity.asset, input.stateKey);
   const existing = stateAsset?.approvedRevisionId ? loadBase(studio.db, projectId, stateAsset.approvedRevisionId) : null;
   if (existing) {
-    if (existing.payload.state !== input.stateKey) throw new DomainFailure("validation_failed", `O asset ${stateAsset!.name} guarda o estado ${existing.payload.state}`);
+    if (existing.payload.state !== input.stateKey) throw new DomainFailure("validation_failed", tx(`O asset ${stateAsset!.name} guarda o estado ${existing.payload.state}`, `Asset ${stateAsset!.name} holds state ${existing.payload.state}`));
     const overlap = directions.filter((d) => existing.payload.views.some((v) => v.direction === d));
-    if (overlap.length > 0) throw new DomainFailure("validation_failed", `As vistas ${overlap.join(", ")} do estado ${input.stateKey} já estão aprovadas; vistas aprovadas não são regeradas`);
+    if (overlap.length > 0) throw new DomainFailure("validation_failed", tx(`As vistas ${overlap.join(", ")} do estado ${input.stateKey} já estão aprovadas; vistas aprovadas não são regeradas`, `Views ${overlap.join(", ")} of state ${input.stateKey} are already approved; approved views are not regenerated`));
   }
   const route = chooseTemporalRoute(e, "create_state", null, TEMPORAL_ROUTE_LABELS.state_sheet);
   const cell = source.payload.logicalSize;
@@ -258,7 +259,7 @@ export type AnimateObjectPlanInput = z.input<typeof AnimateObjectPlanInput>;
 function loadObject(db: Db, projectId: string, revisionId: string): LoadedBase {
   const object = loadBase(db, projectId, revisionId);
   if (subjectOf(object) !== "object") {
-    throw new DomainFailure("validation_failed", `${object.asset.name} é um personagem; a animação de objeto parte de um objeto (sem rig humanoide). Para personagens use um clique, texto ou esqueleto`);
+    throw new DomainFailure("validation_failed", tx(`${object.asset.name} é um personagem; a animação de objeto parte de um objeto (sem rig humanoide). Para personagens use um clique, texto ou esqueleto`, `${object.asset.name} is a character; object animation starts from an object (no humanoid rig). For characters use one-click, text or skeleton`));
   }
   return object;
 }
@@ -270,10 +271,10 @@ export function buildAnimateObjectPlan(studio: Studio, projectId: string, raw: A
   const { file, size } = viewFile(object, input.direction);
   let end: { revision: RevisionView; file: { fileKey: string; sha256: string } } | null = null;
   if (input.endFrame) {
-    if (input.endFrame.direction !== input.direction) throw new DomainFailure("validation_failed", "O quadro final usa a mesma direção da animação");
+    if (input.endFrame.direction !== input.direction) throw new DomainFailure("validation_failed", tx("O quadro final usa a mesma direção da animação", "The end frame uses the same direction as the animation"));
     const target = loadObject(studio.db, projectId, input.endFrame.revisionId);
     if (target.payload.logicalSize.join("x") !== size.join("x") || target.payload.groundOrigin.join(",") !== object.payload.groundOrigin.join(",")) {
-      throw new DomainFailure("validation_failed", "Início e fim precisam da mesma célula e do mesmo pivô");
+      throw new DomainFailure("validation_failed", tx("Início e fim precisam da mesma célula e do mesmo pivô", "Start and end need the same cell and the same pivot"));
     }
     end = { revision: target.revision, file: viewFile(target, input.direction).file };
   }
@@ -319,8 +320,8 @@ export function buildAnimateObjectPlan(studio: Studio, projectId: string, raw: A
       expectedFrames: frameIds.length,
       keepFirstFrame,
       keepFirstFrameNote: keepFirstFrame
-        ? "A vista aprovada fica como quadro 0 (ref): o resultado tem um quadro a mais que os gerados"
-        : "Só os quadros gerados entram: a referência não é repetida no ciclo",
+        ? tx("A vista aprovada fica como quadro 0 (ref): o resultado tem um quadro a mais que os gerados", "The approved view stays as frame 0 (ref): the result has one more frame than was generated")
+        : tx("Só os quadros gerados entram: a referência não é repetida no ciclo", "Only the generated frames go in: the reference is not repeated in the cycle"),
       durationsMs: [...(keepFirstFrame ? [plan.params.firstFrameMs as number] : []), ...input.durationsMs],
       playback: input.playback,
       objectAssetId: object.asset.id,
@@ -361,11 +362,11 @@ export function buildInterpolatePlan(studio: Studio, projectId: string, raw: Int
   let subject = "o sujeito";
   let names: [string, string];
   if (start.kind === "clip_frame" && end.kind === "clip_frame") {
-    if (start.clipRevisionId !== end.clipRevisionId) throw new DomainFailure("validation_failed", "Os dois keyframes de um clipe vêm da mesma revisão de clipe (mesma célula e pivô)");
+    if (start.clipRevisionId !== end.clipRevisionId) throw new DomainFailure("validation_failed", tx("Os dois keyframes de um clipe vêm da mesma revisão de clipe (mesma célula e pivô)", "Both keyframes of a clip come from the same clip revision (same cell and pivot)"));
     const clip = approvedClip(studio.db, projectId, start.clipRevisionId);
-    if (start.frameId === end.frameId) throw new DomainFailure("validation_failed", "Escolha dois quadros diferentes");
+    if (start.frameId === end.frameId) throw new DomainFailure("validation_failed", tx("Escolha dois quadros diferentes", "Pick two different frames"));
     if (!adjacent(clip.payload, start.frameId, end.frameId)) {
-      throw new DomainFailure("validation_failed", `${end.frameId} precisa vir logo depois de ${start.frameId} no clipe: os intermediários entram entre os dois, sem duplicar nenhum extremo`);
+      throw new DomainFailure("validation_failed", tx(`${end.frameId} precisa vir logo depois de ${start.frameId} no clipe: os intermediários entram entre os dois, sem duplicar nenhum extremo`, `${end.frameId} must come right after ${start.frameId} in the clip: the in-betweens go between the two, without duplicating either end`));
     }
     const { layouts: l, files } = frameLayouts(clip.payload, [start.frameId, end.frameId], 0);
     layouts = l;
@@ -377,12 +378,12 @@ export function buildInterpolatePlan(studio: Studio, projectId: string, raw: Int
     subject = clip.asset.name;
     names = [start.frameId, end.frameId];
   } else if (start.kind === "view" && end.kind === "view") {
-    if (start.direction !== end.direction) throw new DomainFailure("validation_failed", "Os dois keyframes usam a mesma direção");
+    if (start.direction !== end.direction) throw new DomainFailure("validation_failed", tx("Os dois keyframes usam a mesma direção", "Both keyframes use the same direction"));
     const a = loadBase(studio.db, projectId, start.baseRevisionId);
     const b = loadBase(studio.db, projectId, end.baseRevisionId);
-    if (a.revision.id === b.revision.id) throw new DomainFailure("validation_failed", "Escolha duas vistas diferentes (ex.: dois estados)");
+    if (a.revision.id === b.revision.id) throw new DomainFailure("validation_failed", tx("Escolha duas vistas diferentes (ex.: dois estados)", "Pick two different views (e.g. two states)"));
     if (a.payload.logicalSize.join("x") !== b.payload.logicalSize.join("x") || a.payload.groundOrigin.join(",") !== b.payload.groundOrigin.join(",")) {
-      throw new DomainFailure("validation_failed", `Os keyframes precisam da mesma célula e do mesmo pivô (${a.payload.logicalSize.join("×")} @ ${a.payload.groundOrigin.join(",")} × ${b.payload.logicalSize.join("×")} @ ${b.payload.groundOrigin.join(",")})`);
+      throw new DomainFailure("validation_failed", tx(`Os keyframes precisam da mesma célula e do mesmo pivô (${a.payload.logicalSize.join("×")} @ ${a.payload.groundOrigin.join(",")} × ${b.payload.logicalSize.join("×")} @ ${b.payload.groundOrigin.join(",")})`, `Keyframes need the same cell and the same pivot (${a.payload.logicalSize.join("×")} @ ${a.payload.groundOrigin.join(",")} × ${b.payload.logicalSize.join("×")} @ ${b.payload.groundOrigin.join(",")})`));
     }
     const fa = viewFile(a, start.direction).file;
     const fb = viewFile(b, end.direction).file;
@@ -400,7 +401,7 @@ export function buildInterpolatePlan(studio: Studio, projectId: string, raw: Int
     subject = identityOf(studio.db, projectId, a).asset.name;
     names = ["start", "end"];
   } else {
-    throw new DomainFailure("validation_failed", "Os dois keyframes são do mesmo tipo: dois quadros vizinhos de um clipe ou duas vistas (estados) na mesma direção");
+    throw new DomainFailure("validation_failed", tx("Os dois keyframes são do mesmo tipo: dois quadros vizinhos de um clipe ou duas vistas (estados) na mesma direção", "Both keyframes must be the same kind: two neighboring frames of a clip or two views (states) in the same direction"));
   }
   const route = chooseTemporalRoute(e, "interpolate_frames", { required: ["frame_interpolation"], label: TEMPORAL_ROUTE_LABELS.interpolate_native }, TEMPORAL_ROUTE_LABELS.interpolate_sheet);
   const count = route.strategy === "native" ? null : (input.count ?? 2);
@@ -426,7 +427,7 @@ export function buildInterpolatePlan(studio: Studio, projectId: string, raw: Int
       intermediateIds: ids,
       transitionMs: input.transitionMs,
       endpoints: names,
-      note: "Os extremos ficam como estão (mesmo hash) e não se repetem; os intermediários recebem IDs novos e tempos explícitos",
+      note: tx("Os extremos ficam como estão (mesmo hash) e não se repetem; os intermediários recebem IDs novos e tempos explícitos", "The ends stay as they are (same hash) and are not repeated; the in-betweens get new IDs and explicit timings"),
     },
     input.costCeiling,
   );
@@ -465,7 +466,7 @@ export function buildEditAnimationPlan(studio: Studio, projectId: string, raw: E
     limits: limits(e, "edit_animation", input.costCeiling),
     params: { clipRevisionId: clip.revision.id, frameIds, description: input.description, logicalSize: cell, frames: layouts, ...(sheet ? { sheet } : {}) },
   };
-  return finish(e, plan, route, { clipAssetId: clip.asset.id, frameIds, protectedFrameIds: protectedIds, note: "Só o trecho vira candidato; os demais quadros ficam pelo hash" }, input.costCeiling);
+  return finish(e, plan, route, { clipAssetId: clip.asset.id, frameIds, protectedFrameIds: protectedIds, note: tx("Só o trecho vira candidato; os demais quadros ficam pelo hash", "Only the segment becomes a candidate; the other frames are kept by hash") }, input.costCeiling);
 }
 
 // ---------------------------------------------------------------------------
@@ -490,12 +491,12 @@ export function buildTransferOutfitPlan(studio: Studio, projectId: string, raw: 
   const clip = approvedClip(studio.db, projectId, input.clipRevisionId);
   const frameIds = orderedFrameIds(clip, input.frameIds ?? clip.payload.frames.map((f) => f.frameId));
   const outfit = getRevision(studio.db, projectId, input.outfitRevisionId);
-  if (outfit.status !== "approved") throw new DomainFailure("source_not_approved", `A referência da roupa r${outfit.number} precisa estar aprovada`);
+  if (outfit.status !== "approved") throw new DomainFailure("source_not_approved", tx(`A referência da roupa r${outfit.number} precisa estar aprovada`, `The outfit reference r${outfit.number} must be approved`));
   const outfitFile = outfit.files.find((f) => f.fileKey === input.outfitFileKey);
-  if (!outfitFile || outfitFile.mime !== "image/png") throw new DomainFailure("not_found", `A revisão da roupa não tem a imagem ${input.outfitFileKey}`);
+  if (!outfitFile || outfitFile.mime !== "image/png") throw new DomainFailure("not_found", tx(`A revisão da roupa não tem a imagem ${input.outfitFileKey}`, `The outfit revision has no image ${input.outfitFileKey}`));
   const outfitAsset = getAsset(studio.db, projectId, outfit.assetId);
   const stateKey = input.stateKey ?? `outfit_${slugify(outfitAsset.name).slice(0, 50) || "roupa"}`;
-  if (!stateKey.startsWith("outfit_")) throw new DomainFailure("validation_failed", "O estado do clipe vestido começa por outfit_");
+  if (!stateKey.startsWith("outfit_")) throw new DomainFailure("validation_failed", tx("O estado do clipe vestido começa por outfit_", "The dressed clip state starts with outfit_"));
   const cell = clip.payload.logicalSize;
   const { layouts, files } = frameLayouts(clip.payload, frameIds, 0);
   const sources = fileSources(clip.revision, files, "source", 0);
@@ -523,7 +524,10 @@ export function buildTransferOutfitPlan(studio: Studio, projectId: string, raw: 
       stateKey,
       frameIds,
       outfitAssetId: outfitAsset.id,
-      note: "Publica um clipe candidato vestido (mesmos quadros e célula). Não é overlay modular e não substitui a base limpa; a cobertura modular é extraída depois, pelo fluxo de equipamentos",
+      note: tx(
+        "Publica um clipe candidato vestido (mesmos quadros e célula). Não é overlay modular e não substitui a base limpa; a cobertura modular é extraída depois, pelo fluxo de equipamentos",
+        "Publishes a dressed candidate clip (same frames and cell). It is not a modular overlay and does not replace the clean base; modular coverage is extracted later, in the equipment flow",
+      ),
     },
     input.costCeiling,
   );
@@ -560,10 +564,10 @@ export function buildCorrectFramePlan(studio: Studio, projectId: string, raw: Co
   const clip = approvedClip(studio.db, projectId, input.clipRevisionId);
   const order = clip.payload.frames.map((f) => f.frameId);
   const index = order.indexOf(input.frameId);
-  if (index < 0) throw new DomainFailure("not_found", `O quadro ${input.frameId} não existe em ${clip.asset.name} r${clip.revision.number}`);
+  if (index < 0) throw new DomainFailure("not_found", tx(`O quadro ${input.frameId} não existe em ${clip.asset.name} r${clip.revision.number}`, `Frame ${input.frameId} does not exist in ${clip.asset.name} r${clip.revision.number}`));
   const frame = clip.payload.frames[index]!;
   const partId = input.partId ?? (frame.layers.length === 1 ? frame.layers[0]!.partId : "body");
-  if (!frame.layers.some((l) => l.partId === partId)) throw new DomainFailure("not_found", `O quadro ${input.frameId} não tem a camada ${partId}`);
+  if (!frame.layers.some((l) => l.partId === partId)) throw new DomainFailure("not_found", tx(`O quadro ${input.frameId} não tem a camada ${partId}`, `Frame ${input.frameId} has no layer ${partId}`));
   const neighbors = input.contextFrameIds ?? [order[index - 1], order[index + 1] ?? (clip.payload.playback === "loop" ? order[0] : undefined)].filter((id): id is string => Boolean(id) && id !== input.frameId);
   const context = orderedFrameIds(clip, neighbors).filter((id) => id !== input.frameId).slice(0, 2);
   const cell = clip.payload.logicalSize;
@@ -573,8 +577,14 @@ export function buildCorrectFramePlan(studio: Studio, projectId: string, raw: Co
     throw new DomainFailure(
       "capability_missing",
       input.mode === "native-mask"
-        ? `O perfil ${e.profileId} não recebe máscara nativa${offered.includes("image_edit") ? '; ele aceita "candidato editado + recorte local", que é outro modo e precisa ser escolhido explicitamente' : ""}`
-        : `O perfil ${e.profileId} não edita a partir do quadro de origem (precisa aceitar o quadro e a guia como referências)`,
+        ? tx(
+            `O perfil ${e.profileId} não recebe máscara nativa${offered.includes("image_edit") ? '; ele aceita "candidato editado + recorte local", que é outro modo e precisa ser escolhido explicitamente' : ""}`,
+            `Provider profile ${e.profileId} does not accept a native mask${offered.includes("image_edit") ? '; it accepts "edited candidate + local crop", which is a different mode and must be chosen explicitly' : ""}`,
+          )
+        : tx(
+            `O perfil ${e.profileId} não edita a partir do quadro de origem (precisa aceitar o quadro e a guia como referências)`,
+            `Provider profile ${e.profileId} cannot edit from the source frame (it must accept the frame and the guide as references)`,
+          ),
       { missing: required.filter((c) => !offered.includes(c)), offered },
     );
   }
@@ -589,9 +599,9 @@ export function buildCorrectFramePlan(studio: Studio, projectId: string, raw: Co
   let maskUpload: ReturnType<typeof getUpload> | null = null;
   if (input.maskUploadId) {
     maskUpload = getUpload(studio.db, projectId, input.maskUploadId);
-    if (maskUpload.status !== "ready" || maskUpload.modality !== "raster") throw new DomainFailure("validation_failed", "A máscara precisa ser uma imagem já importada");
+    if (maskUpload.status !== "ready" || maskUpload.modality !== "raster") throw new DomainFailure("validation_failed", tx("A máscara precisa ser uma imagem já importada", "The mask must be an already imported image"));
     const { width, height } = (maskUpload.metadata ?? {}) as { width?: number; height?: number };
-    if (width !== cell[0] || height !== cell[1]) throw new DomainFailure("validation_failed", `A máscara tem ${width}×${height}; a célula do clipe é ${cell.join("×")}`);
+    if (width !== cell[0] || height !== cell[1]) throw new DomainFailure("validation_failed", tx(`A máscara tem ${width}×${height}; a célula do clipe é ${cell.join("×")}`, `The mask is ${width}×${height}; the clip cell is ${cell.join("×")}`));
     sources.push({ ordinal: sources.length, revisionId: clip.revision.id, fileId: maskUpload.id, sha256: maskUpload.normalizedSha256 ?? maskUpload.sha256, role: "edit_mask" });
   }
   const sheet = route.strategy === "reference_sheet" ? temporalSheet(e, "correct_frame", [input.frameId], cell, 2 + context.length) : undefined;
@@ -630,9 +640,9 @@ export function buildCorrectFramePlan(studio: Studio, projectId: string, raw: Co
       frameId: input.frameId,
       partId,
       contextFrameIds: context,
-      mask: maskUpload ? "região marcada" : "quadro inteiro (sem máscara)",
+      mask: maskUpload ? tx("região marcada", "marked region") : tx("quadro inteiro (sem máscara)", "whole frame (no mask)"),
       modeLabel: route.label,
-      note: "Só o quadro alvo muda; os demais quadros ficam com os mesmos hashes e o RGBA protegido é restaurado byte a byte",
+      note: tx("Só o quadro alvo muda; os demais quadros ficam com os mesmos hashes e o RGBA protegido é restaurado byte a byte", "Only the target frame changes; the other frames keep the same hashes and the protected RGBA is restored byte for byte"),
     },
     input.costCeiling,
   );

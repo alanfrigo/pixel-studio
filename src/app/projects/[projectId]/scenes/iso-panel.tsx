@@ -5,6 +5,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { type BasePayload, DIRECTIONS_8, type Direction, type IsoTilesetPayload, type TilemapPayload } from "@/contracts";
 import { characterView, type IsoActor, isoDrawList, isoWorld, occludersOf, stepActor, viewForWorld } from "@/domain/scenes/iso-walk";
 import { apiFetch } from "@/app/client/api";
+import { useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { scenesMessages } from "@/i18n/messages/scenes";
 import { errorText, fileOf, flatRevisions, mediaUrl, PIXEL, type ScenesCatalog } from "./scenes-client";
 import { Message } from "./shared";
 
@@ -24,6 +27,8 @@ interface OpenedMap {
 const KEYS: Record<string, Direction> = { ArrowUp: "N", ArrowRight: "E", ArrowDown: "S", ArrowLeft: "W" };
 
 export function IsoPanel({ projectId, catalog }: { projectId: string; catalog: ScenesCatalog }) {
+  const { iso: m, shared: sm } = useMessages(scenesMessages);
+  const text = useText();
   const characters = flatRevisions(catalog.characters);
   const [mapId, setMapId] = useState("");
   const [charId, setCharId] = useState("");
@@ -40,12 +45,12 @@ export function IsoPanel({ projectId, catalog }: { projectId: string; catalog: S
     if (!mapId) return;
     apiFetch<OpenedMap>(`/projects/${projectId}/world/maps/${mapId}`)
       .then((o) => {
-        if (o.tileset.kind !== "isometric") throw new Error("O mapa não é isométrico");
+        if (o.tileset.kind !== "isometric") throw new Error(m.notIsometric);
         setOpened(o);
         setActor({ cell: [0, 0], facing: "S" });
       })
       .catch((err) => setMessage(errorText(err)));
-  }, [mapId, projectId]);
+  }, [mapId, projectId, m.notIsometric]);
 
   useEffect(() => {
     const wanted: [string, string][] = [];
@@ -74,7 +79,8 @@ export function IsoPanel({ projectId, catalog }: { projectId: string; catalog: S
     if (!world) return;
     const r = stepActor(world, actor, dir);
     setActor(r.actor);
-    setStatus(r.moved ? `andou para ${dir} (mundo) → vista ${viewForWorld(dir, base?.orientation?.worldToView)}` : `bloqueado: ${r.reason}`);
+    // O motivo vem da regra de domínio: texto simples ou bilíngue.
+    setStatus(r.moved ? m.walked(dir, viewForWorld(dir, base?.orientation?.worldToView)) : m.blocked(text(r.reason as TextValue | null)));
   }
   const moveRef = useRef(move);
   useEffect(() => {
@@ -131,10 +137,10 @@ export function IsoPanel({ projectId, catalog }: { projectId: string; catalog: S
   return (
     <>
       <section>
-        <h2>Prévia isométrica com personagem</h2>
+        <h2>{m.title}</h2>
         <div className="row">
           <label>
-            Mapa isométrico (T1)
+            {m.isoMap}
             <select value={mapId} onChange={(e) => setMapId(e.target.value)}>
               <option value="">—</option>
               {catalog.isoMaps.map((m) => (
@@ -145,7 +151,7 @@ export function IsoPanel({ projectId, catalog }: { projectId: string; catalog: S
             </select>
           </label>
           <label>
-            Personagem
+            {m.character}
             <select value={charId} onChange={(e) => setCharId(e.target.value)}>
               <option value="">—</option>
               {characters.map(({ asset, revision }) => (
@@ -158,14 +164,15 @@ export function IsoPanel({ projectId, catalog }: { projectId: string; catalog: S
         </div>
         {catalog.isoMaps.length === 0 && (
           <p className="small muted">
-            Crie um mapa isométrico com um prop alto no <Link href={`/projects/${projectId}/world?tab=maps`}>editor de mapas do T1</Link>.
+            {m.createMapBefore}
+            <Link href={`/projects/${projectId}/world?tab=maps`}>{sm.mapEditorLink}</Link>.
           </p>
         )}
         {drawn && (
           <div className="grid2">
             <div>
               <canvas ref={canvasRef} tabIndex={0} className="pixel bg-checker" style={{ ...PIXEL, maxWidth: "100%", outline: "1px dashed #666" }} />
-              <p className="small muted">Clique no mapa e use as setas (direções do mundo: ↑ N, → E, ↓ S, ← W) ou os botões.</p>
+              <p className="small muted">{m.keysHint}</p>
               <div className="row">
                 {DIRECTIONS_8.map((d) => (
                   <button key={d} type="button" className="secondary" onClick={() => move(d)}>
@@ -176,15 +183,17 @@ export function IsoPanel({ projectId, catalog }: { projectId: string; catalog: S
             </div>
             <div className="small">
               <p>
-                Célula {actor.cell.join(",")} · elevação {drawn.elevation} · olhando para <strong>{actor.facing}</strong> no mundo → vista <strong>{view?.view}</strong>{" "}
-                {view?.art ? "" : <span className="error">(vista ausente na base: sem espelho nem rotação de bitmap; gere a vista na animação)</span>}
+                {m.position(actor.cell.join(","), drawn.elevation)}
+                <strong>{actor.facing}</strong>
+                {m.worldToView}
+                <strong>{view?.view}</strong> {view?.art ? "" : <span className="error">{m.missingView}</span>}
               </p>
-              <p>{hiddenBy.length ? `Atrás de: ${hiddenBy.join(", ")} (coberto pela região de oclusão)` : "Na frente: nada cobre o personagem"}</p>
+              <p>{hiddenBy.length ? m.behind(hiddenBy.join(", ")) : m.inFront}</p>
               <p className="muted">{status}</p>
               <table>
                 <thead>
                   <tr>
-                    <th>Mundo</th>
+                    <th>{m.world}</th>
                     {DIRECTIONS_8.map((d) => (
                       <th key={d}>{d}</th>
                     ))}
@@ -192,7 +201,7 @@ export function IsoPanel({ projectId, catalog }: { projectId: string; catalog: S
                 </thead>
                 <tbody>
                   <tr>
-                    <td>Vista</td>
+                    <td>{m.view}</td>
                     {DIRECTIONS_8.map((d) => {
                       const v = viewForWorld(d, base?.orientation?.worldToView);
                       return (

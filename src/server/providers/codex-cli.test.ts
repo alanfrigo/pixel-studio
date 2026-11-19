@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { canonicalDigest } from "@/domain/canonical-json";
+import { pick } from "@/i18n/locales";
 import { createImage, encodePng, fillRect } from "@/lib/media/png";
 import { listRevisions } from "../catalog/catalog";
 import { iconPlan, makeTestStudio, seedIconJob, type TestStudio } from "../testing";
@@ -245,10 +246,10 @@ describe("adaptador Codex CLI", () => {
     mkdirSync(path.join(home, "skills", ".system", "imagegen"), { recursive: true });
     writeFileSync(path.join(home, "skills", ".system", "imagegen", "SKILL.md"), "---\nname: imagegen\n---\n");
     const adapter = new CodexCliAdapter(profile(), { command: fake });
-    expect(await adapter.check(signal())).toMatchObject({ ok: true, message: expect.stringMatching(/Codex 0\.169\.0 · Logged in using ChatGPT · skill imagegen presente/) });
+    expect(await adapter.check(signal())).toMatchObject({ ok: true, message: { "pt-BR": expect.stringMatching(/Codex 0\.169\.0 · Logged in using ChatGPT · skill imagegen presente/), en: expect.stringMatching(/imagegen skill present/) } });
     process.env.CODEX_FAKE_MODE = "logged_out";
-    expect(await adapter.check(signal())).toMatchObject({ ok: false, message: expect.stringMatching(/sem login/) });
-    expect(await new CodexCliAdapter(profile(), { command: path.join(root, "nao-existe") }).check(signal())).toMatchObject({ ok: false, message: expect.stringMatching(/não encontrado/) });
+    expect(await adapter.check(signal())).toMatchObject({ ok: false, message: { "pt-BR": expect.stringMatching(/sem login/) } });
+    expect(await new CodexCliAdapter(profile(), { command: path.join(root, "nao-existe") }).check(signal())).toMatchObject({ ok: false, message: { "pt-BR": expect.stringMatching(/não encontrado/) } });
     expect(calls()).toHaveLength(0); // nenhuma checagem iniciou turno
     expect(findExecutable("codex", path.dirname(fake))).toBe(fake);
     expect(() => CodexCliAdapter.assertInstalled({ command: "nao-existe-codex" }, "codex", path.dirname(fake))).toThrow(/Codex CLI não encontrado/);
@@ -267,7 +268,7 @@ describe.skipIf(!existsSync(`${process.cwd()}/python/.venv/bin/python`))("cadast
     const matrix = capabilityMatrix(studio.db, "codex");
     expect(matrix.filter((m) => m.operation === "generate_asset").map((m) => m.capability).sort()).toEqual(["alpha_output", "image_references", "text_to_image"]);
     expect(matrix.find((m) => m.capability === "image_references")?.limits).toEqual({ maxReferences: 5 });
-    expect(matrix.every((m) => m.status === "declared" && m.contractSnapshot?.includes("Codex CLI"))).toBe(true);
+    expect(matrix.every((m) => m.status === "declared" && pick(m.contractSnapshot, "en").includes("Codex CLI"))).toBe(true);
     expect(ProfileInput.safeParse({ id: "x", name: "X", transport: "codex_cli", secretRef: "OPENAI_API_KEY", config: {} }).success).toBe(false);
     expect(ProfileInput.safeParse({ id: "simulated", name: "X", transport: "codex_cli", config: {} }).success).toBe(false);
     expect(ProfileInput.safeParse({ id: "x", name: "X", transport: "codex_cli", model: "gpt-x", config: {} }).success).toBe(true);

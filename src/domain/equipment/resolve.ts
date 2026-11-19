@@ -1,4 +1,5 @@
 import type { LoadoutPayload } from "@/contracts";
+import { tx } from "@/i18n/locales";
 import { type ClipLookup, lookupClip, requestedCombos } from "./clips";
 import { coverageMatrix, type CoverageMatrix } from "./coverage";
 import { buildFrameStack, type FrameStack } from "./order";
@@ -67,7 +68,10 @@ export function resolveLoadout(input: ResolveInput): Resolution {
     global.push({
       kind: "incompatible_rig",
       blocking: true,
-      message: `${o.name} r${o.number} foi feita para outra base (rig ${o.payload.rigRevisionId}); este conjunto usa ${rig.revisionId}`,
+      message: tx(
+        `${o.name} r${o.number} foi feita para outra base (rig ${o.payload.rigRevisionId}); este conjunto usa ${rig.revisionId}`,
+        `${o.name} r${o.number} was made for another base (rig ${o.payload.rigRevisionId}); this loadout uses ${rig.revisionId}`,
+      ),
       where: { overlayRevisionId: o.revisionId, overlayName: o.name },
       action: { kind: "create_coverage", label: ACTION_LABEL.create_coverage },
     });
@@ -78,7 +82,7 @@ export function resolveLoadout(input: ResolveInput): Resolution {
         global.push({
           kind: "style_mismatch",
           blocking: false,
-          message: `${o.name} r${o.number} foi gerada com outro guia de estilo`,
+          message: tx(`${o.name} r${o.number} foi gerada com outro guia de estilo`, `${o.name} r${o.number} was generated with a different style guide`),
           where: { overlayRevisionId: o.revisionId, overlayName: o.name },
           action: { kind: "review", label: ACTION_LABEL.review },
         });
@@ -93,8 +97,8 @@ export function resolveLoadout(input: ResolveInput): Resolution {
       kind: stance.pinnedRejected ? "stance_incompatible" : "stance_none",
       blocking: true,
       message: stance.pinnedRejected
-        ? `A postura ${stance.pinnedRejected} não é aceita por todas as peças (${detail})`
-        : `Nenhuma postura do rig serve a todas as peças (${detail})`,
+        ? tx(`A postura ${stance.pinnedRejected} não é aceita por todas as peças (${detail})`, `Stance ${stance.pinnedRejected} is not accepted by every piece (${detail})`)
+        : tx(`Nenhuma postura do rig serve a todas as peças (${detail})`, `No rig stance fits every piece (${detail})`),
       where: stance.pinnedRejected ? { stance: stance.pinnedRejected } : {},
       action: { kind: "replace_item", label: ACTION_LABEL.replace_item },
     });
@@ -102,7 +106,7 @@ export function resolveLoadout(input: ResolveInput): Resolution {
     global.push({
       kind: "stance_ambiguous",
       blocking: true,
-      message: `As peças servem a mais de uma postura (${stance.candidates.join(", ")}): escolha uma`,
+      message: tx(`As peças servem a mais de uma postura (${stance.candidates.join(", ")}): escolha uma`, `The pieces fit more than one stance (${stance.candidates.join(", ")}): choose one`),
       where: {},
       action: { kind: "pick_stance", label: ACTION_LABEL.pick_stance },
     });
@@ -131,7 +135,7 @@ export function resolveLoadout(input: ResolveInput): Resolution {
         const live = lookupClip(input.clips, { rigRevisionId: rig.revisionId, stance: stanceKey, ...combo });
         if (live.status === "resolved" && live.clipRevisionId !== pinned) update = { clipRevisionId: live.clipRevisionId };
         if (!clip) {
-          pendencies.push({ kind: "missing_clip", blocking: true, message: `Clipe ${pinned} do snapshot não está disponível`, where, action: { kind: "review", label: ACTION_LABEL.review } });
+          pendencies.push({ kind: "missing_clip", blocking: true, message: tx(`Clipe ${pinned} do snapshot não está disponível`, `Snapshot clip ${pinned} is not available`), where, action: { kind: "review", label: ACTION_LABEL.review } });
         }
       } else {
         lookup = lookupClip(input.clips, { rigRevisionId: rig.revisionId, stance: stanceKey, ...combo }, pinned);
@@ -140,7 +144,10 @@ export function resolveLoadout(input: ResolveInput): Resolution {
           pendencies.push({
             kind: "ambiguous_clip",
             blocking: true,
-            message: `${lookup.candidates.length} clipes aprovados servem a ${combo.action}/${combo.direction} em ${stanceKey}: escolha a variante`,
+            message: tx(
+              `${lookup.candidates.length} clipes aprovados servem a ${combo.action}/${combo.direction} em ${stanceKey}: escolha a variante`,
+              `${lookup.candidates.length} approved clips fit ${combo.action}/${combo.direction} in ${stanceKey}: choose the variant`,
+            ),
             where,
             action: { kind: "pick_variant", label: ACTION_LABEL.pick_variant },
           });
@@ -148,9 +155,14 @@ export function resolveLoadout(input: ResolveInput): Resolution {
           pendencies.push({
             kind: "missing_clip",
             blocking: true,
-            message: `Falta o clipe ${combo.action} na postura ${stanceKey}, direção ${combo.direction}${
-              lookup.linkable.length ? ` (há ${lookup.linkable.length} clipe(s) de outra postura que podem ser vinculados como compartilhados, se a pose servir)` : ""
-            }`,
+            message: tx(
+              `Falta o clipe ${combo.action} na postura ${stanceKey}, direção ${combo.direction}${
+                lookup.linkable.length ? ` (há ${lookup.linkable.length} clipe(s) de outra postura que podem ser vinculados como compartilhados, se a pose servir)` : ""
+              }`,
+              `Missing clip ${combo.action} in stance ${stanceKey}, direction ${combo.direction}${
+                lookup.linkable.length ? ` (${lookup.linkable.length} clip(s) from another stance can be linked as shared, if the pose fits)` : ""
+              }`,
+            ),
             where,
             action: { kind: "create_variant", label: ACTION_LABEL.create_variant },
           });
@@ -177,7 +189,10 @@ export function resolveLoadout(input: ResolveInput): Resolution {
               ? {
                   kind: "stale_coverage",
                   blocking: true,
-                  message: `${gap.overlayName} cobre ${gap.partId === "rigid" ? "a vista rígida" : `a parte ${gap.partId}`} só numa revisão anterior deste clipe (frame ${stack.frameId}): revise ou revincule`,
+                  message: tx(
+                    `${gap.overlayName} cobre ${gap.partId === "rigid" ? "a vista rígida" : `a parte ${gap.partId}`} só numa revisão anterior deste clipe (frame ${stack.frameId}): revise ou revincule`,
+                    `${gap.overlayName} covers ${gap.partId === "rigid" ? "the rigid view" : `part ${gap.partId}`} only in an earlier revision of this clip (frame ${stack.frameId}): review or rebind`,
+                  ),
                   where: { ...fw, overlayRevisionId: gap.overlayRevisionId, overlayName: gap.overlayName, partId: gap.partId },
                   action: { kind: "rebind", label: ACTION_LABEL.rebind },
                 }
@@ -186,10 +201,16 @@ export function resolveLoadout(input: ResolveInput): Resolution {
                   blocking: true,
                   message:
                     gap.kind === "rigid"
-                      ? `${gap.overlayName} não está posicionada no frame ${stack.frameId} (${combo.action}/${combo.direction}, ${stanceKey})`
-                      : `Falta ${gap.partId} de ${gap.overlayName} no frame ${stack.frameId} (${combo.action}/${combo.direction}, ${stanceKey})`,
+                      ? tx(
+                          `${gap.overlayName} não está posicionada no frame ${stack.frameId} (${combo.action}/${combo.direction}, ${stanceKey})`,
+                          `${gap.overlayName} is not placed in frame ${stack.frameId} (${combo.action}/${combo.direction}, ${stanceKey})`,
+                        )
+                      : tx(
+                          `Falta ${gap.partId} de ${gap.overlayName} no frame ${stack.frameId} (${combo.action}/${combo.direction}, ${stanceKey})`,
+                          `Missing ${gap.partId} of ${gap.overlayName} in frame ${stack.frameId} (${combo.action}/${combo.direction}, ${stanceKey})`,
+                        ),
                   where: { ...fw, overlayRevisionId: gap.overlayRevisionId, overlayName: gap.overlayName, partId: gap.partId },
-                  action: { kind: "create_coverage", label: gap.kind === "rigid" ? "Posicionar vista" : "Criar cobertura" },
+                  action: { kind: "create_coverage", label: gap.kind === "rigid" ? tx("Posicionar vista", "Place view") : tx("Criar cobertura", "Create coverage") },
                 },
           );
         }

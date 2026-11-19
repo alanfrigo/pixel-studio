@@ -1,3 +1,4 @@
+import type { TextValue } from "@/i18n/locales";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PythonOperation } from "@/contracts";
@@ -29,7 +30,7 @@ export interface EquipmentOutput {
 export interface EquipmentRun {
   status: "ok" | "needs_review";
   report: Record<string, unknown>;
-  warnings: string[];
+  warnings: TextValue[];
   outputs: EquipmentOutput[];
 }
 

@@ -1,3 +1,4 @@
+import { pick, tx } from "@/i18n/locales";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { type ClipPayload, type Direction, type GenerationPlan, type MotionPayload, type ReferenceSheet } from "@/contracts";
@@ -50,7 +51,7 @@ function frozenMotion(db: Db, projectId: string, plan: GenerationPlan): MotionPa
   const source = plan.sources.find((s) => s.role === "motion");
   if (!source) return null;
   const revision = getRevision(db, projectId, source.revisionId);
-  if (canonicalDigest(revision.payload) !== source.sha256) throw new DomainFailure("validation_failed", "Movimento diverge do digest congelado no plano");
+  if (canonicalDigest(revision.payload) !== source.sha256) throw new DomainFailure("validation_failed", tx("Movimento diverge do digest congelado no plano", "Motion differs from the digest frozen in the plan"));
   return revision.payload as MotionPayload;
 }
 
@@ -59,7 +60,7 @@ export function frameSpec(db: Db, projectId: string, plan: AnimationPlan): Frame
   switch (plan.operation) {
     case "animate_preset": {
       const preset = parsePresetRevisionId(plan.params.presetRevisionId)?.preset;
-      if (!preset) throw new DomainFailure("not_found", `Preset ${plan.params.presetRevisionId} desconhecido`);
+      if (!preset) throw new DomainFailure("not_found", tx(`Preset ${plan.params.presetRevisionId} desconhecido`, `Unknown preset ${plan.params.presetRevisionId}`));
       return {
         frameIds: [...preset.frameIds],
         durationsMs: plan.params.durationsMs,
@@ -107,14 +108,14 @@ export function referenceScale([w, h]: [number, number]): number {
 export async function scaledReference(env: PipelineEnv, dir: string, sha256: string, size: [number, number], key: string | null): Promise<Uint8Array> {
   const k = referenceScale(size);
   const out = await pythonWith(env, dir, "make_thumbnail", [{ role: "source", sha256 }], { version: 1, maxSize: Math.max(size[0], size[1]) * k, ...(key ? { flattenOnto: key } : {}) });
-  if (out.status === "error") throw new DomainFailure("internal", `Falha ao preparar a referência: ${out.message}`);
+  if (out.status === "error") throw new DomainFailure("internal", tx(`Falha ao preparar a referência: ${pick(out.message, "pt-BR")}`, `Failed to prepare the reference: ${pick(out.message, "en")}`));
   return new Uint8Array(await readFile(out.outputs[0]!.absolutePath));
 }
 
 async function baseSize(env: PipelineEnv, plan: GenerationPlan): Promise<{ sha256: string; size: [number, number] }> {
   const source = plan.sources.find((s) => s.role === "base" || s.role === "identity")!;
   const info = readPngInfo(await env.blobs.read(source.sha256));
-  if (!info) throw new DomainFailure("validation_failed", "A vista da base não é PNG");
+  if (!info) throw new DomainFailure("validation_failed", tx("A vista da base não é PNG", "The base view is not a PNG"));
   return { sha256: source.sha256, size: [info.width, info.height] };
 }
 
@@ -148,17 +149,17 @@ async function loadAnimationInputs(ctx: HandlerContext, plan: AnimationPlan) {
 export async function processNativeFrame(env: PipelineEnv, plan: GenerationPlan, sha256: string, dir: string): Promise<ProcessResult> {
   const { size } = await baseSize(env, plan);
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
-  if (ingest.status === "error") throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+  if (ingest.status === "error") throw new DomainFailure("validation_failed", tx(`Resposta do provedor não é uma imagem utilizável: ${pick(ingest.message, "pt-BR")}`, `Provider response is not a usable image: ${pick(ingest.message, "en")}`), { code: ingest.code });
   let out = ingest.outputs.find((o) => o.role === "normalized")!;
   const steps: Record<string, unknown>[] = [];
   const warnings = [...ingest.warnings];
   if (out.width !== size[0] || out.height !== size[1]) {
     const current = await env.blobs.putFile(out.absolutePath);
     const fit = await python(env, path.join(dir, "fit"), "fit_logical", current.sha256, { version: 1, targetSize: size, exactAspect: true, alphaThreshold: 128 });
-    if (fit.status === "error") throw new DomainFailure("validation_failed", `Quadro fora da célula ${size.join("×")}: ${fit.message}`, { code: fit.code });
+    if (fit.status === "error") throw new DomainFailure("validation_failed", tx(`Quadro fora da célula ${size.join("×")}: ${pick(fit.message, "pt-BR")}`, `Frame does not fit the ${size.join("×")} cell: ${pick(fit.message, "en")}`), { code: fit.code });
     out = fit.outputs.find((o) => o.role === "fitted")!;
     steps.push({ operation: "fit_logical", ...fit.report });
-    warnings.push(`Quadro veio com ${ingest.report.size} e foi levado à célula ${size.join("×")}`, ...fit.warnings);
+    warnings.push(tx(`Quadro veio com ${ingest.report.size} e foi levado à célula ${size.join("×")}`, `Frame came in at ${ingest.report.size} and was fitted to the ${size.join("×")} cell`), ...fit.warnings);
   }
   const stored = await env.blobs.putFile(out.absolutePath);
   const processed: ProcessedPart = {
@@ -183,7 +184,7 @@ export async function processSheet(env: PipelineEnv, plan: GenerationPlan, sha25
   const sheet = sheetOf(plan)!;
   const base = await baseSize(env, plan);
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
-  if (ingest.status === "error") throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+  if (ingest.status === "error") throw new DomainFailure("validation_failed", tx(`Resposta do provedor não é uma imagem utilizável: ${pick(ingest.message, "pt-BR")}`, `Provider response is not a usable image: ${pick(ingest.message, "en")}`), { code: ingest.code });
   let out = ingest.outputs.find((o) => o.role === "normalized")!;
   const warnings = [...ingest.warnings];
   const steps: Record<string, unknown>[] = [];
@@ -191,7 +192,7 @@ export async function processSheet(env: PipelineEnv, plan: GenerationPlan, sha25
   const step = async (name: "unzoom" | "remove_background_flood", recipe: Record<string, unknown>, role: string) => {
     const current = await env.blobs.putFile(out.absolutePath);
     const result = await python(env, path.join(dir, name), name, current.sha256, recipe);
-    if (result.status === "error") throw new DomainFailure("validation_failed", `Etapa ${name} falhou: ${result.message}`, { code: result.code });
+    if (result.status === "error") throw new DomainFailure("validation_failed", tx(`Etapa ${name} falhou: ${pick(result.message, "pt-BR")}`, `Step ${name} failed: ${pick(result.message, "en")}`), { code: result.code });
     out = result.outputs.find((o) => o.role === role)!;
     warnings.push(...result.warnings);
     steps.push({ operation: name, ...result.report });
@@ -225,7 +226,7 @@ export async function processSheet(env: PipelineEnv, plan: GenerationPlan, sha25
     ],
     { version: 1, columns: sheet.columns, rows: sheet.rows, frameIds, cell: sheet.cell, alphaThreshold: 128, scaleTolerance: 0.15, keepHorizontalOffsets: keepHorizontal(plan) },
   );
-  if (sliced.status === "error") throw new DomainFailure("validation_failed", `A folha não pôde ser fatiada: ${sliced.message}`, { code: sliced.code });
+  if (sliced.status === "error") throw new DomainFailure("validation_failed", tx(`A folha não pôde ser fatiada: ${pick(sliced.message, "pt-BR")}`, `The sheet could not be sliced: ${pick(sliced.message, "en")}`), { code: sliced.code });
   warnings.push(...sliced.warnings);
   steps.push({ operation: "animation_sheet", ...sliced.report });
   const strip = sliced.outputs.find((o) => o.role === "strip")!;
@@ -273,14 +274,14 @@ function publishClip(ctx: HandlerContext, plan: AnimationPlan, asset: AssetView,
   } else {
     // Contagem exata: nunca descartar ou duplicar quadros em silêncio.
     if (processedRows.length !== spec.frameIds.length) {
-      throw new DomainFailure("validation_failed", `O provedor devolveu ${processedRows.length} quadro(s); o plano pede ${spec.frameIds.length}. Respostas brutas guardadas no job.`, {
+      throw new DomainFailure("validation_failed", tx(`O provedor devolveu ${processedRows.length} quadro(s); o plano pede ${spec.frameIds.length}. Respostas brutas guardadas no job.`, `The provider returned ${processedRows.length} frame(s); the plan asks for ${spec.frameIds.length}. Raw responses are kept in the job.`), {
         received: processedRows.length,
         expected: spec.frameIds.length,
       });
     }
     frames = processedRows.map(({ processed }, i) => ({ frameId: spec.frameIds[i]!, sha256: processed.normalizedSha256 }));
   }
-  if (frames.map((f) => f.frameId).join("|") !== spec.frameIds.join("|")) throw new DomainFailure("validation_failed", "Ordem ou IDs dos quadros divergem do plano");
+  if (frames.map((f) => f.frameId).join("|") !== spec.frameIds.join("|")) throw new DomainFailure("validation_failed", tx("Ordem ou IDs dos quadros divergem do plano", "Frame order or IDs differ from the plan"));
 
   const base = loadBase(ctx.db, ctx.job.project_id, plan.params.baseRevisionId, { approved: false });
   const [w, h] = base.payload.logicalSize;
@@ -344,7 +345,7 @@ function publishClip(ctx: HandlerContext, plan: AnimationPlan, asset: AssetView,
 export const animationPipeline: OperationPipeline = {
   validateTarget({ asset }) {
     if (asset.family !== "character" || asset.kind !== "clip") {
-      throw new DomainFailure("validation_failed", `A animação publica num clipe (character/clip); o alvo é ${asset.family}/${asset.kind}`);
+      throw new DomainFailure("validation_failed", tx(`A animação publica num clipe (character/clip); o alvo é ${asset.family}/${asset.kind}`, `Animation publishes to a clip (character/clip); the target is ${asset.family}/${asset.kind}`));
     }
   },
   loadInputs: (ctx, plan) => loadAnimationInputs(ctx, plan as AnimationPlan),

@@ -1,4 +1,5 @@
 import { type RoomDoor, type RoomFloorPlan, type RoomPayload, type RoomProjection, ROOM_MAX_COLS, ROOM_MAX_ROWS } from "@/contracts";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { isoScreenToCell } from "../world/iso";
 
 /**
@@ -31,17 +32,18 @@ export function doorCells(door: Pick<RoomDoor, "cell" | "side">): [number, numbe
 
 export interface PlanProblem {
   path: string;
-  message: string;
+  /** Mensagem nos dois idiomas (o editor mostra no idioma da interface). */
+  message: LocalizedText;
 }
 
 /** Problemas da planta e das portas; vazio = pode enviar. */
 export function floorPlanProblems(plan: RoomFloorPlan, doors: readonly DoorInput[]): PlanProblem[] {
   const problems: PlanProblem[] = [];
   const [cols, rows] = plan.size;
-  if (cols > ROOM_MAX_COLS || rows > ROOM_MAX_ROWS) problems.push({ path: "floorPlan.size", message: `Planta limitada a ${ROOM_MAX_COLS} × ${ROOM_MAX_ROWS} células` });
-  if (plan.cells.length !== cols * rows) problems.push({ path: "floorPlan.cells", message: `Planta deve ter ${cols * rows} células` });
+  if (cols > ROOM_MAX_COLS || rows > ROOM_MAX_ROWS) problems.push({ path: "floorPlan.size", message: tx(`Planta limitada a ${ROOM_MAX_COLS} × ${ROOM_MAX_ROWS} células`, `The floor plan is limited to ${ROOM_MAX_COLS} × ${ROOM_MAX_ROWS} cells`) });
+  if (plan.cells.length !== cols * rows) problems.push({ path: "floorPlan.cells", message: tx(`Planta deve ter ${cols * rows} células`, `The floor plan must have ${cols * rows} cells`) });
   const floor = plan.cells.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
-  if (floor.length === 0) problems.push({ path: "floorPlan.cells", message: "Planta sem piso" });
+  if (floor.length === 0) problems.push({ path: "floorPlan.cells", message: tx("Planta sem piso", "The floor plan has no floor") });
   else {
     // O piso precisa ser uma peça só (4-vizinhança).
     const seen = new Set<number>([floor[0]!]);
@@ -59,21 +61,28 @@ export function floorPlanProblems(plan: RoomFloorPlan, doors: readonly DoorInput
         }
       }
     }
-    if (seen.size !== floor.length) problems.push({ path: "floorPlan.cells", message: "O piso precisa ser uma peça só (sem ilhas separadas)" });
+    if (seen.size !== floor.length) problems.push({ path: "floorPlan.cells", message: tx("O piso precisa ser uma peça só (sem ilhas separadas)", "The floor must be a single piece (no separate islands)") });
   }
-  if (doors.length < 1 || doors.length > 8) problems.push({ path: "doors", message: "A sala precisa de 1 a 8 portas" });
+  if (doors.length < 1 || doors.length > 8) problems.push({ path: "doors", message: tx("A sala precisa de 1 a 8 portas", "The room needs 1 to 8 doors") });
   const taken = new Map<string, string>();
   doors.forEach((d, i) => {
     const where = `doors.${i}`;
     for (const [c, r] of doorCells(d)) {
       if (!isFloor(plan, c, r)) {
-        problems.push({ path: where, message: `${d.doorId}: célula ${c},${r} não é piso${d.side === "E" || d.side === "W" ? " (passagem lateral ocupa duas células: a indicada e a de baixo)" : ""}` });
+        const side = d.side === "E" || d.side === "W";
+        problems.push({
+          path: where,
+          message: tx(
+            `${d.doorId}: célula ${c},${r} não é piso${side ? " (passagem lateral ocupa duas células: a indicada e a de baixo)" : ""}`,
+            `${d.doorId}: cell ${c},${r} is not floor${side ? " (a side passage takes two cells: the given one and the one below)" : ""}`,
+          ),
+        });
         continue;
       }
       const [dx, dy] = DOOR_DELTA[d.side];
-      if (isFloor(plan, c + dx, r + dy)) problems.push({ path: where, message: `${d.doorId}: o lado ${d.side} de ${c},${r} não é parede` });
+      if (isFloor(plan, c + dx, r + dy)) problems.push({ path: where, message: tx(`${d.doorId}: o lado ${d.side} de ${c},${r} não é parede`, `${d.doorId}: the ${d.side} side of ${c},${r} is not a wall`) });
       const key = `${d.side}:${c},${r}`;
-      if (taken.has(key)) problems.push({ path: where, message: `${d.doorId} sobrepõe ${taken.get(key)}` });
+      if (taken.has(key)) problems.push({ path: where, message: tx(`${d.doorId} sobrepõe ${taken.get(key)}`, `${d.doorId} overlaps ${taken.get(key)}`) });
       taken.set(key, d.doorId);
     }
     if (d.side === "E" || d.side === "W") {
@@ -82,7 +91,7 @@ export function floorPlanProblems(plan: RoomFloorPlan, doors: readonly DoorInput
       const dx = DOOR_DELTA[d.side][0];
       for (const k of [2, 3]) {
         if (isFloor(plan, c, r + k) && isFloor(plan, c + dx, r + k)) {
-          problems.push({ path: where, message: `${d.doorId}: canto interno a menos de duas células de parede abaixo da passagem` });
+          problems.push({ path: where, message: tx(`${d.doorId}: canto interno a menos de duas células de parede abaixo da passagem`, `${d.doorId}: inner corner less than two wall cells below the passage`) });
           break;
         }
         if (!isFloor(plan, c, r + k)) break;
@@ -91,7 +100,7 @@ export function floorPlanProblems(plan: RoomFloorPlan, doors: readonly DoorInput
   });
   const ids = new Set<string>();
   doors.forEach((d, i) => {
-    if (ids.has(d.doorId)) problems.push({ path: `doors.${i}`, message: `Porta repetida: ${d.doorId}` });
+    if (ids.has(d.doorId)) problems.push({ path: `doors.${i}`, message: tx(`Porta repetida: ${d.doorId}`, `Duplicate door: ${d.doorId}`) });
     ids.add(d.doorId);
   });
   return problems;
@@ -176,7 +185,7 @@ export function gridWalkable(room: Pick<RoomPayload, "projection" | "cellPx" | "
 
 export interface DoorLink {
   ok: boolean;
-  problems: string[];
+  problems: LocalizedText[];
   /** Deslocamento da imagem de B em relação à de A, em px, para as portas encostarem. */
   offsetPx: [number, number] | null;
   method: "anchors" | "grid" | null;
@@ -193,15 +202,20 @@ export function linkDoors(
   b: Pick<RoomPayload, "projection" | "cellPx" | "gridOrigin" | "tileSize" | "doors" | "picture">,
   bDoorId: string,
 ): DoorLink {
-  const problems: string[] = [];
+  const problems: LocalizedText[] = [];
   const da = a.doors.find((d) => d.doorId === aDoorId);
   const db = b.doors.find((d) => d.doorId === bDoorId);
-  if (!da || !db) return { ok: false, problems: [`Porta inexistente: ${!da ? aDoorId : bDoorId}`], offsetPx: null, method: null };
-  if (a.projection !== b.projection) problems.push(`Vistas diferentes: ${a.projection} × ${b.projection}`);
+  if (!da || !db) return { ok: false, problems: [tx(`Porta inexistente: ${!da ? aDoorId : bDoorId}`, `Door does not exist: ${!da ? aDoorId : bDoorId}`)], offsetPx: null, method: null };
+  if (a.projection !== b.projection) problems.push(tx(`Vistas diferentes: ${a.projection} × ${b.projection}`, `Different views: ${a.projection} × ${b.projection}`));
   if (a.cellPx[0] !== b.cellPx[0] || a.cellPx[1] !== b.cellPx[1] || a.tileSize !== b.tileSize) {
-    problems.push(`Escalas diferentes: célula ${a.cellPx.join("×")} (tile ${a.tileSize}) × ${b.cellPx.join("×")} (tile ${b.tileSize})`);
+    problems.push(
+      tx(
+        `Escalas diferentes: célula ${a.cellPx.join("×")} (tile ${a.tileSize}) × ${b.cellPx.join("×")} (tile ${b.tileSize})`,
+        `Different scales: cell ${a.cellPx.join("×")} (tile ${a.tileSize}) × ${b.cellPx.join("×")} (tile ${b.tileSize})`,
+      ),
+    );
   }
-  if (OPPOSITE[da.side] !== db.side) problems.push(`Lados não se encontram: ${da.side} de A precisa de ${OPPOSITE[da.side]} em B (recebido ${db.side})`);
+  if (OPPOSITE[da.side] !== db.side) problems.push(tx(`Lados não se encontram: ${da.side} de A precisa de ${OPPOSITE[da.side]} em B (recebido ${db.side})`, `Sides do not meet: ${da.side} on A needs ${OPPOSITE[da.side]} on B (got ${db.side})`));
   if (problems.length) return { ok: false, problems, offsetPx: null, method: null };
   if (a.projection === "top_down" && da.anchorPx && db.anchorPx) {
     return { ok: true, problems, offsetPx: [da.anchorPx[0] - db.anchorPx[0], da.anchorPx[1] - db.anchorPx[1]], method: "anchors" };
@@ -251,12 +265,12 @@ export function furnitureCells(room: Pick<RoomPayload, "projection" | "cellPx" |
 }
 
 /** Apoio e footprint do móvel caem no piso da sala? (o prompt não decide; a planta sim). */
-export function furnitureProblems(room: Pick<RoomPayload, "projection" | "cellPx" | "gridOrigin" | "floorPlan">, supportAt: readonly [number, number], object: Pick<FurnitureObject, "footprintCells">): string[] {
-  const problems: string[] = [];
+export function furnitureProblems(room: Pick<RoomPayload, "projection" | "cellPx" | "gridOrigin" | "floorPlan">, supportAt: readonly [number, number], object: Pick<FurnitureObject, "footprintCells">): LocalizedText[] {
+  const problems: LocalizedText[] = [];
   const under = roomCellAt(room, supportAt);
-  if (!isFloor(room.floorPlan, under[0], under[1])) problems.push(`Apoio em ${supportAt.join(",")} fora do piso (célula ${under.join(",")})`);
+  if (!isFloor(room.floorPlan, under[0], under[1])) problems.push(tx(`Apoio em ${supportAt.join(",")} fora do piso (célula ${under.join(",")})`, `Support point at ${supportAt.join(",")} is off the floor (cell ${under.join(",")})`));
   const off = furnitureCells(room, supportAt, object.footprintCells).filter(([c, r]) => !isFloor(room.floorPlan, c, r));
-  if (off.length) problems.push(`Footprint sai do piso nas células ${off.map((c) => c.join(",")).join("; ")}`);
+  if (off.length) problems.push(tx(`Footprint sai do piso nas células ${off.map((c) => c.join(",")).join("; ")}`, `Footprint leaves the floor at cells ${off.map((c) => c.join(",")).join("; ")}`));
   return problems;
 }
 

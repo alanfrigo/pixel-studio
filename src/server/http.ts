@@ -1,3 +1,4 @@
+import { type Locale, type LocalizedText, isLocalized, localeOf, tx } from "@/i18n/locales";
 import { z } from "zod";
 import { DomainFailure, toDomainError } from "./errors";
 import { type Studio, webStudio } from "./studio";
@@ -24,12 +25,12 @@ function hostname(host: string): string {
 export function checkRequestOrigin(req: Request, mutation: boolean): void {
   const host = req.headers.get("host") ?? "";
   if (!allowedHosts().has(hostname(host))) {
-    throw new HttpError(403, "forbidden_host", "Host não autorizado: o Studio atende apenas no endereço local");
+    throw new HttpError(403, "forbidden_host", tx("Host não autorizado: o Studio atende apenas no endereço local", "Host not allowed: the Studio only serves its local address"));
   }
   if (!mutation) return;
   const fetchSite = req.headers.get("sec-fetch-site");
   if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
-    throw new HttpError(403, "forbidden_origin", "Requisição de outra origem recusada");
+    throw new HttpError(403, "forbidden_origin", tx("Requisição de outra origem recusada", "Cross-origin request refused"));
   }
   const origin = req.headers.get("origin");
   if (origin && origin !== "null") {
@@ -39,17 +40,25 @@ export function checkRequestOrigin(req: Request, mutation: boolean): void {
     } catch {
       /* origem malformada */
     }
-    if (originHost !== host) throw new HttpError(403, "forbidden_origin", "Requisição de outra origem recusada");
+    if (originHost !== host) throw new HttpError(403, "forbidden_origin", tx("Requisição de outra origem recusada", "Cross-origin request refused"));
   }
 }
 
+/** Erro de transporte (host, origem, tamanho). Como `DomainFailure`: mensagem bilíngue, `Error.message` em português. */
 export class HttpError extends Error {
+  readonly messages: LocalizedText | null;
+
   constructor(
     readonly status: number,
     readonly code: string,
-    message: string,
+    message: string | LocalizedText,
   ) {
-    super(message);
+    super(isLocalized(message) ? message["pt-BR"] : message);
+    this.messages = isLocalized(message) ? message : null;
+  }
+
+  toJSON(locale?: Locale): { code: string; message: string; messages?: LocalizedText } {
+    return { code: this.code, message: locale && this.messages ? this.messages[locale] : this.message, ...(this.messages ? { messages: this.messages } : {}) };
   }
 }
 
@@ -59,18 +68,18 @@ export function json(data: unknown, status = 200, headers: HeadersInit = {}): Re
 
 export async function readJson<T>(req: Request, schema: z.ZodType<T>): Promise<T> {
   const length = Number(req.headers.get("content-length") ?? 0);
-  if (length > MAX_JSON_BYTES) throw new HttpError(413, "payload_too_large", "Corpo da requisição grande demais");
+  if (length > MAX_JSON_BYTES) throw new HttpError(413, "payload_too_large", tx("Corpo da requisição grande demais", "Request body too large"));
   const text = await req.text();
-  if (text.length > MAX_JSON_BYTES) throw new HttpError(413, "payload_too_large", "Corpo da requisição grande demais");
+  if (text.length > MAX_JSON_BYTES) throw new HttpError(413, "payload_too_large", tx("Corpo da requisição grande demais", "Request body too large"));
   let body: unknown;
   try {
     body = text ? JSON.parse(text) : {};
   } catch {
-    throw new DomainFailure("validation_failed", "Corpo não é JSON válido");
+    throw new DomainFailure("validation_failed", tx("Corpo não é JSON válido", "Body is not valid JSON"));
   }
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    throw new DomainFailure("validation_failed", "Campos inválidos", {
+    throw new DomainFailure("validation_failed", tx("Campos inválidos", "Invalid fields"), {
       issues: parsed.error.issues.slice(0, 20).map((i) => ({ path: i.path.map(String), message: i.message })),
     });
   }
@@ -93,11 +102,12 @@ export function api<P extends Record<string, string> = Record<string, never>>(
       const params = await ctx.params;
       return await handler(req, { params, studio: webStudio() });
     } catch (err) {
-      if (err instanceof HttpError) return json({ code: err.code, message: err.message }, err.status);
+      const locale = localeOf(req);
+      if (err instanceof HttpError) return json(err.toJSON(locale), err.status);
       const failure = toDomainError(err);
       if (failure.code === "internal") console.error("[api]", req.method, new URL(req.url).pathname, err);
       // Recurso de outro projeto responde como inexistente.
-      const body = failure.code === "cross_project_reference" ? { ...failure.toJSON(), code: "not_found" } : failure.toJSON();
+      const body = failure.code === "cross_project_reference" ? { ...failure.toJSON(locale), code: "not_found" } : failure.toJSON(locale);
       return json(body, failure.status);
     }
   };

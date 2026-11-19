@@ -14,8 +14,9 @@ from typing import Any
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+from pixel_pipeline.i18n import tx
 from pixel_pipeline.operations import _block_mode, binary_mask, hex_rgb, inputs_by_ordinal, load_rgba, optional_input, recipe_of, respond, write_png
-from pixel_pipeline.protocol import PipelineError, input_by_role
+from pixel_pipeline.protocol import PipelineError, Text, input_by_role
 from pixel_pipeline.world import _axis_seams, _checker, _zoom
 
 Json = dict[str, Any]
@@ -72,13 +73,13 @@ def scene_layer_check(request: Json, workdir: Path) -> Json:
     axes = recipe["axes"]
     threshold = recipe["threshold"]
     report: Json = {"size": [w, h], "threshold": threshold, "method": SEAM_METHOD, "x": None, "y": None, "ground": None}
-    warnings: list[str] = []
+    warnings: list[Text] = []
     for axis in ("x", "y"):
         if axes[axis]:
             r = _axis_seams(px, w, h, axis, threshold, [])
             report[axis] = r
             if not r["passed"]:
-                warnings.append(f"Emenda em {axis.upper()} reprovada (emenda/interior {r['ratio']} > {threshold}): o plano não repete nesse eixo")
+                warnings.append(tx(f"Emenda em {axis.upper()} reprovada (emenda/interior {r['ratio']} > {threshold}): o plano não repete nesse eixo", f"Seam on {axis.upper()} failed (seam/interior {r['ratio']} > {threshold}): the layer does not repeat on that axis"))
     alpha = img.getchannel("A")
     hist = alpha.histogram()
     report["opaqueFraction"] = round(sum(hist[250:]) / (w * h), 4)
@@ -90,13 +91,13 @@ def scene_layer_check(request: Json, workdir: Path) -> Json:
     gy = recipe.get("groundLineY")
     if gy is not None:
         if gy >= h:
-            raise PipelineError("geometry_mismatch", f"Linha do chão {gy} fora do plano de {h} px")
+            raise PipelineError("geometry_mismatch", tx(f"Linha do chão {gy} fora do plano de {h} px", f"Ground line {gy} outside the {h} px layer"))
         row = [px[x, gy][3] for x in range(w)]
         gaps = [x for x, a in enumerate(row) if a == 0]
         continuous = not gaps and (not axes["x"] or (row[0] > 0 and row[-1] > 0))
         report["ground"] = {"y": gy, "gaps": len(gaps), "firstGap": gaps[0] if gaps else None, "continuous": continuous}
         if not continuous:
-            warnings.append(f"Linha do chão (y={gy}) interrompida em {len(gaps)} px")
+            warnings.append(tx(f"Linha do chão (y={gy}) interrompida em {len(gaps)} px", f"Ground line (y={gy}) broken over {len(gaps)} px"))
     nx = 3 if axes["x"] else 1
     ny = 3 if axes["y"] else 1
     mosaic = Image.new("RGBA", (w * nx, h * ny), (0, 0, 0, 0))
@@ -125,13 +126,13 @@ def scene_compose(request: Json, workdir: Path) -> Json:
     for n, layer in enumerate(recipe["layers"]):
         path = found.get(layer["inputOrdinal"])
         if path is None:
-            raise PipelineError("invalid_request", f"Plano {n} cita entrada {layer['inputOrdinal']} inexistente")
+            raise PipelineError("invalid_request", tx(f"Plano {n} cita entrada {layer['inputOrdinal']} inexistente", f"Layer {n} references missing input {layer['inputOrdinal']}"))
         layers.append((layer, load_rgba(path)))
     span, steps = recipe["spanPx"], recipe["steps"]
     stops = [round(span * i / steps) for i in range(steps + 1)]
     gy = recipe.get("groundLineY")
     if gy is not None and gy >= ch:
-        raise PipelineError("geometry_mismatch", f"Linha do chão {gy} fora da cena de {ch} px")
+        raise PipelineError("geometry_mismatch", tx(f"Linha do chão {gy} fora da cena de {ch} px", f"Ground line {gy} outside the {ch} px scene"))
     frames = []
     images = []
     for cam in stops:
@@ -157,9 +158,9 @@ def scene_compose(request: Json, workdir: Path) -> Json:
     }
     warnings = []
     if report["uncoveredFrames"]:
-        warnings.append(f"{report['uncoveredFrames']} quadro(s) da rolagem deixam pixels sem nenhum plano (buraco no fundo)")
+        warnings.append(tx(f"{report['uncoveredFrames']} quadro(s) da rolagem deixam pixels sem nenhum plano (buraco no fundo)", f"{report['uncoveredFrames']} scroll frame(s) leave pixels with no layer at all (hole in the background)"))
     if report["groundContinuous"] is False:
-        warnings.append("A linha do chão se interrompe em algum quadro da rolagem")
+        warnings.append(tx("A linha do chão se interrompe em algum quadro da rolagem", "The ground line breaks in some scroll frame"))
     return respond([write_png(workdir, images[0], "out/image.png", "image"), write_png(workdir, strip, "out/strip.png", "strip")], report, warnings)
 
 
@@ -169,13 +170,13 @@ def scene_overlay(request: Json, workdir: Path) -> Json:
     _, scene_path = input_by_role(request, workdir, "source")
     found = inputs_by_ordinal(request, workdir, "layer")
     if not found:
-        raise PipelineError("invalid_request", "Sobreposição exige o personagem como entrada 'layer'")
+        raise PipelineError("invalid_request", tx("Sobreposição exige o personagem como entrada 'layer'", "Overlay requires the character as a 'layer' input"))
     scene = load_rgba(scene_path)
     spec = recipe["character"]
     sheet = load_rgba(found[min(found)])
     rx, ry, rw, rh = spec["rect"]
     if rx + rw > sheet.width or ry + rh > sheet.height:
-        raise PipelineError("geometry_mismatch", f"Vista [{rx}, {ry}, {rw}, {rh}] fora do arquivo do personagem {sheet.width}×{sheet.height}")
+        raise PipelineError("geometry_mismatch", tx(f"Vista [{rx}, {ry}, {rw}, {rh}] fora do arquivo do personagem {sheet.width}×{sheet.height}", f"View [{rx}, {ry}, {rw}, {rh}] outside the {sheet.width}×{sheet.height} character file"))
     character = Image.new("RGBA", tuple(spec["logicalSize"]), (0, 0, 0, 0))
     character.alpha_composite(sheet.crop((rx, ry, rx + rw, ry + rh)), dest=tuple(spec["offset"]))
     px, py = spec["pivot"]
@@ -211,7 +212,7 @@ def room_guide(request: Json, workdir: Path) -> Json:
     cols, rows = recipe["size"]
     cells = recipe["cells"]
     if len(cells) != cols * rows:
-        raise PipelineError("invalid_request", f"Planta deve ter {cols * rows} células")
+        raise PipelineError("invalid_request", tx(f"Planta deve ter {cols * rows} células", f"Floor plan must have {cols * rows} cells"))
     colors = {k: (*hex_rgb(v), 255) for k, v in recipe["colors"].items()}
     img = Image.new("RGBA", (pw, ph), colors["rock"])
     draw = ImageDraw.Draw(img)
@@ -293,7 +294,7 @@ def room_cutout(request: Json, workdir: Path) -> Json:
     piece_mask = ImageChops.multiply(binary_mask(mask_path, size, "editMask"), solid)
     bbox = piece_mask.getbbox()
     if not bbox:
-        raise PipelineError("geometry_mismatch", "Máscara da peça vazia (ou só sobre pixels transparentes): nada a recortar")
+        raise PipelineError("geometry_mismatch", tx("Máscara da peça vazia (ou só sobre pixels transparentes): nada a recortar", "Piece mask is empty (or only over transparent pixels): nothing to cut out"))
     shadow_path = optional_input(request, workdir, "removeMask")
     painted = alpha.point(lambda a: 255 if a > 0 else 0)
     shadow_mask = ImageChops.subtract(ImageChops.multiply(_mask_or_empty(shadow_path, size, "removeMask"), painted), piece_mask)
@@ -351,7 +352,7 @@ def room_cutout(request: Json, workdir: Path) -> Json:
     warnings = []
     if report["needsReconstruction"]:
         warnings.append(
-            f"O contorno da peça é {context_opaque:.0%} piso/parede pintados: a área que ela cobria nunca foi pintada e precisa ser reconstruída por inpainting (apagar o alfa não basta)"
+            tx(f"O contorno da peça é {context_opaque:.0%} piso/parede pintados: a área que ela cobria nunca foi pintada e precisa ser reconstruída por inpainting (apagar o alfa não basta)", f"The piece's outline is {context_opaque:.0%} painted floor/wall: the area it covered was never painted and must be rebuilt by inpainting (clearing alpha is not enough)")
         )
     return respond(outputs, report, warnings)
 
@@ -369,7 +370,7 @@ def room_compose(request: Json, workdir: Path) -> Json:
     for n, item in enumerate(recipe["items"]):
         path = found.get(item["inputOrdinal"])
         if path is None:
-            raise PipelineError("invalid_request", f"Item {n} cita entrada {item['inputOrdinal']} inexistente")
+            raise PipelineError("invalid_request", tx(f"Item {n} cita entrada {item['inputOrdinal']} inexistente", f"Item {n} references missing input {item['inputOrdinal']}"))
         img = cache.setdefault(item["inputOrdinal"], load_rgba(path))
         _place(canvas, img, item["at"][0], item["at"][1])
     zoom = recipe["zoom"]
@@ -385,7 +386,7 @@ def scene_fit(request: Json, workdir: Path) -> Json:
     _, path = input_by_role(request, workdir, "source")
     img = load_rgba(path)
     w, h = img.size
-    warnings: list[str] = []
+    warnings: list[Text] = []
     crop = [0, 0, w, h]
     if abs((w / h) / (tw / th) - 1) > 0.01:
         # Proporção diferente da pedida: recorta o centro (nunca estica nem põe faixas).
@@ -396,7 +397,7 @@ def scene_fit(request: Json, workdir: Path) -> Json:
             ch = round(w * th / tw)
             crop = [0, (h - ch) // 2, w, ch]
         img = img.crop((crop[0], crop[1], crop[0] + crop[2], crop[1] + crop[3]))
-        warnings.append(f"Resposta {w}×{h} em outra proporção: recorte central {crop[2]}×{crop[3]} antes de reduzir para {tw}×{th}; revise o enquadramento")
+        warnings.append(tx(f"Resposta {w}×{h} em outra proporção: recorte central {crop[2]}×{crop[3]} antes de reduzir para {tw}×{th}; revise o enquadramento", f"Response {w}×{h} has a different aspect ratio: center crop {crop[2]}×{crop[3]} before reducing to {tw}×{th}; review the framing"))
     sw, sh = img.size
     if (sw, sh) == (tw, th):
         out, method = img, "identity"
@@ -406,10 +407,10 @@ def scene_fit(request: Json, workdir: Path) -> Json:
         method = "nearest_integer"
         if out.resize((sw, sh), Image.Resampling.NEAREST).tobytes() != img.tobytes():
             out, method = _block_mode(img, (tw, th)), "block_mode"
-            warnings.append(f"Imagem fora de uma grade exata de {k} px: cada pixel recebe a cor majoritária do bloco; revise")
+            warnings.append(tx(f"Imagem fora de uma grade exata de {k} px: cada pixel recebe a cor majoritária do bloco; revise", f"Image not on an exact {k} px grid: each pixel gets its block's majority color; review it"))
     else:
         out, method = _block_mode(img, (tw, th)), "block_mode"
-        warnings.append(f"Fator {sw / tw:.2f} não inteiro: cada pixel recebe a cor majoritária do seu bloco; contornos finos podem sumir — revise")
+        warnings.append(tx(f"Fator {sw / tw:.2f} não inteiro: cada pixel recebe a cor majoritária do seu bloco; contornos finos podem sumir — revise", f"Non-integer factor {sw / tw:.2f}: each pixel gets its block's majority color; thin outlines may disappear — review it"))
     threshold = recipe.get("alphaThreshold")
     if threshold is not None:
         out = out.copy()

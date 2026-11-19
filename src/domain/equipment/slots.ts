@@ -1,4 +1,5 @@
 import type { OverlayPayload, RigPayload } from "@/contracts";
+import { tx } from "@/i18n/locales";
 import { ACTION_LABEL, type OverlayRef, type Pendency } from "./types";
 
 /**
@@ -82,16 +83,22 @@ export function slotPendencies(occupancy: Occupancy, names: ReadonlyMap<string, 
     return {
       kind: "slot_conflict",
       blocking: true,
-      message: `Slot ${c.slotId} ocupado por ${labels.join(" e ")}: retire um deles`,
+      message: tx(`Slot ${c.slotId} ocupado por ${labels.join(" e ")}: retire um deles`, `Slot ${c.slotId} is taken by ${labels.join(" and ")}: remove one of them`),
       where: { slotId: c.slotId, overlayRevisionId: c.overlayRevisionIds.at(-1)!, overlayName: labels.at(-1)! },
-      action: { kind: "replace_item", label: `${ACTION_LABEL.replace_item} ${labels.slice(0, -1).join(", ")} por ${labels.at(-1)}` },
+      action: {
+        kind: "replace_item",
+        label: tx(`${ACTION_LABEL.replace_item["pt-BR"]} ${labels.slice(0, -1).join(", ")} por ${labels.at(-1)}`, `${ACTION_LABEL.replace_item.en} ${labels.slice(0, -1).join(", ")} with ${labels.at(-1)}`),
+      },
     };
   });
   for (const u of occupancy.unknownSlots) {
     out.push({
       kind: "unknown_slot",
       blocking: true,
-      message: `A peça ${names.get(u.overlayRevisionId) ?? u.overlayRevisionId} ocupa o slot ${u.slotId}, que este rig não tem`,
+      message: tx(
+        `A peça ${names.get(u.overlayRevisionId) ?? u.overlayRevisionId} ocupa o slot ${u.slotId}, que este rig não tem`,
+        `Piece ${names.get(u.overlayRevisionId) ?? u.overlayRevisionId} uses slot ${u.slotId}, which this rig does not have`,
+      ),
       where: { overlayRevisionId: u.overlayRevisionId, overlayName: names.get(u.overlayRevisionId) ?? u.overlayRevisionId, slotId: u.slotId },
       action: { kind: "create_coverage", label: ACTION_LABEL.create_coverage },
     });

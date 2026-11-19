@@ -68,7 +68,7 @@ def test_degrade_de_luz_e_material_transparente_nao_passam(tmp_path):
     clear = Image.new("RGBA", (SIZE, SIZE), (197, 235, 1, 0))
     res2 = p.run("texture_seams", {"axes": {"x": True, "y": True}, "threshold": 1.5, "zoom": 2}, [("source", png(clear))])
     assert not res2["report"]["x"]["passed"] and not res2["report"]["y"]["passed"]
-    assert any("transparência" in w for w in res2["warnings"]) and any("chapado" in w for w in res2["warnings"])
+    assert any("transparência" in w["pt-BR"] for w in res2["warnings"]) and any("chapado" in w["pt-BR"] for w in res2["warnings"])
 
 
 def test_um_eixo_nao_promete_o_outro(tmp_path):
@@ -162,7 +162,7 @@ def test_tabela_lateral_propria_e_lacunas_visiveis(tmp_path):
     )
     assert seams["report"]["gaps"] == ["inner_corner_right"]
     assert seams["report"]["pairs"]["x"] >= 2
-    assert any("inner_corner_right" in w for w in seams["warnings"])
+    assert any("inner_corner_right" in w["pt-BR"] and "inner_corner_right" in w["en"] for w in seams["warnings"])
 
 
 def test_mascara_de_edicao_protege_faixa_e_ar(tmp_path):

@@ -27,8 +27,9 @@ from typing import Any
 
 from PIL import Image
 
+from pixel_pipeline.i18n import tx
 from pixel_pipeline.operations import _block_mode, inputs_by_ordinal, load_rgba, recipe_of, respond, write_png
-from pixel_pipeline.protocol import PipelineError, input_by_role
+from pixel_pipeline.protocol import PipelineError, Text, input_by_role
 
 Json = dict[str, Any]
 
@@ -65,20 +66,28 @@ def _scale(image: Image.Image, factor: float) -> Image.Image:
     return image.resize(size, Image.Resampling.NEAREST)
 
 
-def grid_crossings(sheet: Image.Image, xs: list[int], ys: list[int], minimum: int = 3) -> list[str]:
+def grid_crossings(sheet: Image.Image, xs: list[int], ys: list[int], minimum: int = 3) -> list[dict[str, str]]:
     """Linhas internas da grade atravessadas por conteúdo opaco (o modelo não respeitou as células)."""
     alpha = sheet.getchannel("A").load()
     w, h = sheet.size
-    found: list[str] = []
+    found: list[dict[str, str]] = []
     for i, x in enumerate(xs[1:-1], start=1):
         hits = sum(1 for y in range(h) if alpha[x - 1, y] and alpha[x, y])
         if hits >= minimum:
-            found.append(f"coluna {i}|{i + 1} ({hits} px)")
+            found.append(tx(f"coluna {i}|{i + 1} ({hits} px)", f"column {i}|{i + 1} ({hits} px)"))
     for j, y in enumerate(ys[1:-1], start=1):
         hits = sum(1 for x in range(w) if alpha[x, y - 1] and alpha[x, y])
         if hits >= minimum:
-            found.append(f"linha {j}|{j + 1} ({hits} px)")
+            found.append(tx(f"linha {j}|{j + 1} ({hits} px)", f"row {j}|{j + 1} ({hits} px)"))
     return found
+
+
+def crossing_warning(crossings: list[dict[str, str]]) -> dict[str, str]:
+    """Aviso de conteúdo atravessando as divisões internas da grade (folha de animação ou de estado)."""
+    return tx(
+        f"Conteúdo atravessa a divisão da grade ({', '.join(c['pt-BR'] for c in crossings)}): o modelo não respeitou as células; quadros podem sair cortados — revise",
+        f"Content crosses the grid divisions ({', '.join(c['en'] for c in crossings)}): the model did not respect the cells; frames may come out clipped — review them",
+    )
 
 
 def _paste_clipped(canvas: Image.Image, content: Image.Image, dx: int, dy: int) -> None:
@@ -103,24 +112,24 @@ def animation_sheet(request: Json, workdir: Path) -> Json:
     sheet = _binary(load_rgba(sheet_path), threshold)
     base = _binary(load_rgba(base_path), threshold)
     if base.size != (cw, ch):
-        raise PipelineError("geometry_mismatch", f"A vista da base tem {base.width}×{base.height}; a célula declarada é {cw}×{ch}")
+        raise PipelineError("geometry_mismatch", tx(f"A vista da base tem {base.width}×{base.height}; a célula declarada é {cw}×{ch}", f"Base view is {base.width}×{base.height}; the declared cell is {cw}×{ch}"))
     base_box = base.getchannel("A").getbbox()
     if base_box is None:
-        raise PipelineError("unsupported_input", "A vista da base está vazia")
+        raise PipelineError("unsupported_input", tx("A vista da base está vazia", "Base view is empty"))
     base_height = base_box[3] - base_box[1]
     base_bottom = base_box[3]
     base_feet = _feet_x(base, base_box)
     if len(frame_ids) > cols * rows:
-        raise PipelineError("geometry_mismatch", f"{len(frame_ids)} quadros para {cols * rows} células")
+        raise PipelineError("geometry_mismatch", tx(f"{len(frame_ids)} quadros para {cols * rows} células", f"{len(frame_ids)} frames for {cols * rows} cells"))
 
     sw, sh = sheet.size
     xs = [round(i * sw / cols) for i in range(cols + 1)]
     ys = [round(j * sh / rows) for j in range(rows + 1)]
     regions: list[Json] = []
-    warnings: list[str] = []
+    warnings: list[Text] = []
     crossings = grid_crossings(sheet, xs, ys)
     if crossings:
-        warnings.append(f"Conteúdo atravessa a divisão da grade ({', '.join(crossings)}): o modelo não respeitou as células; quadros podem sair cortados — revise")
+        warnings.append(crossing_warning(crossings))
     for index in range(cols * rows):
         r, c = divmod(index, cols)
         rect = (xs[c], ys[r], xs[c + 1], ys[r + 1])
@@ -128,13 +137,13 @@ def animation_sheet(request: Json, workdir: Path) -> Json:
         box = region.getchannel("A").getbbox()
         if index >= len(frame_ids):
             if box is not None:
-                warnings.append(f"Célula {index + 1} da folha tem conteúdo mas não corresponde a nenhum quadro pedido (sobra na grade)")
+                warnings.append(tx(f"Célula {index + 1} da folha tem conteúdo mas não corresponde a nenhum quadro pedido (sobra na grade)", f"Sheet cell {index + 1} has content but matches no requested frame (leftover in the grid)"))
             continue
         regions.append({"index": index, "rect": rect, "image": region, "box": box})
 
     measured = [g for g in regions if g["box"] is not None]
     if not measured:
-        raise PipelineError("unsupported_input", "Nenhum quadro com conteúdo na folha")
+        raise PipelineError("unsupported_input", tx("Nenhum quadro com conteúdo na folha", "No frame with content in the sheet"))
     heights = [g["box"][3] - g["box"][1] for g in measured]
     median_height = median(heights)
     factor = base_height / median_height if median_height else 1.0
@@ -147,9 +156,9 @@ def animation_sheet(request: Json, workdir: Path) -> Json:
     if not resampled:
         factor = 1.0
     elif factor < 1:
-        warnings.append(f"Folha desenhada maior que a base: redução comum de {factor:.3f}× por maioria de bloco; revise contornos finos")
+        warnings.append(tx(f"Folha desenhada maior que a base: redução comum de {factor:.3f}× por maioria de bloco; revise contornos finos", f"Sheet drawn larger than the base: common {factor:.3f}× reduction by block majority; review thin outlines"))
     else:
-        warnings.append(f"Folha desenhada menor que a base: ampliação comum de {factor:.3f}× por vizinho mais próximo; revise a grade")
+        warnings.append(tx(f"Folha desenhada menor que a base: ampliação comum de {factor:.3f}× por vizinho mais próximo; revise a grade", f"Sheet drawn smaller than the base: common {factor:.3f}× nearest-neighbor enlargement; review the grid"))
 
     # Referências do quadro típico: folga entre o pé e o fundo da região e posição do pé no centro da região.
     for g in measured:
@@ -175,7 +184,7 @@ def animation_sheet(request: Json, workdir: Path) -> Json:
         canvas = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
         entry: Json = {"frameId": frame_id, "cell": k, "regionRect": [g["rect"][0], g["rect"][1], g["rect"][2] - g["rect"][0], g["rect"][3] - g["rect"][1]]}
         if g["box"] is None:
-            warnings.append(f"Quadro {frame_id} veio vazio na folha")
+            warnings.append(tx(f"Quadro {frame_id} veio vazio na folha", f"Frame {frame_id} came out empty in the sheet"))
             entry.update(empty=True, contentBox=None, offset=None, clippedPixels=0, lift=0, shift=0)
         else:
             content = _scale(g["image"].crop(g["box"]), factor)
@@ -193,7 +202,7 @@ def animation_sheet(request: Json, workdir: Path) -> Json:
             visible_total = sum(1 for a in content.getchannel("A").getdata() if a)
             clipped = visible_total - visible_in
             if clipped:
-                warnings.append(f"Quadro {frame_id}: {clipped} pixel(s) ficaram fora da célula {cw}×{ch}; amplie a célula ou as margens")
+                warnings.append(tx(f"Quadro {frame_id}: {clipped} pixel(s) ficaram fora da célula {cw}×{ch}; amplie a célula ou as margens", f"Frame {frame_id}: {clipped} pixel(s) fell outside the {cw}×{ch} cell; enlarge the cell or the margins"))
             entry.update(
                 empty=False,
                 contentBox=[g["box"][0], g["box"][1], g["box"][2] - g["box"][0], g["box"][3] - g["box"][1]],
@@ -224,11 +233,11 @@ def animation_contact_sheet(request: Json, workdir: Path) -> Json:
     zoom, cols, gap = recipe["zoom"], recipe["columns"], recipe["gap"]
     layers = inputs_by_ordinal(request, workdir, "layer")
     if not layers:
-        raise PipelineError("invalid_request", "Folha de contato exige ao menos um quadro (papel layer)")
+        raise PipelineError("invalid_request", tx("Folha de contato exige ao menos um quadro (papel layer)", "Contact sheet needs at least one frame (layer role)"))
     frames = [load_rgba(layers[i]) for i in sorted(layers)]
     for i, frame in enumerate(frames):
         if frame.size != (cw, ch):
-            raise PipelineError("geometry_mismatch", f"Quadro {i + 1} tem {frame.width}×{frame.height}; a célula é {cw}×{ch}")
+            raise PipelineError("geometry_mismatch", tx(f"Quadro {i + 1} tem {frame.width}×{frame.height}; a célula é {cw}×{ch}", f"Frame {i + 1} is {frame.width}×{frame.height}; the cell is {cw}×{ch}"))
     n = len(frames)
     used_cols = min(cols, n)
     rows = (n + cols - 1) // cols

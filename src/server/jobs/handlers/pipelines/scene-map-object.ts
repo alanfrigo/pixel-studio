@@ -1,4 +1,5 @@
 import { type GenerationPlan, MapObjectPayload } from "@/contracts";
+import { tx } from "@/i18n/locales";
 import { type AssetView, publishRevision } from "../../../catalog/catalog";
 import { DomainFailure } from "../../../errors";
 import { MAP_OBJECT_ROUTE_LABEL } from "../../../scenes/core";
@@ -66,7 +67,7 @@ function publishObjects(ctx: HandlerContext, plan: ObjectPlan, asset: AssetView,
           receivedSize: processed.receivedSize,
           partialAlpha: processed.partialAlpha ?? false,
           steps: processed.steps ?? [],
-          warnings: [...processed.warnings, "Colisão vazia e footprint 1×1 até revisão: o prompt não cria colisão confiável"],
+          warnings: [...processed.warnings, tx("Colisão vazia e footprint 1×1 até revisão: o prompt não cria colisão confiável", "Empty collision and 1×1 footprint until review: the prompt does not create reliable collision")],
         },
       }).id;
     });
@@ -75,7 +76,7 @@ function publishObjects(ctx: HandlerContext, plan: ObjectPlan, asset: AssetView,
 export const sceneMapObjectPipeline: OperationPipeline = {
   validateTarget({ plan, asset }) {
     if (plan.operation !== "generate_map_object") throw new Error("inalcançável");
-    if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", `Prop publica em map/object; o asset é ${asset.family}/${asset.kind}`);
+    if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", tx(`Prop publica em map/object; o asset é ${asset.family}/${asset.kind}`, `A prop publishes to map/object; the asset is ${asset.family}/${asset.kind}`));
   },
   loadInputs: async () => [],
   process: processObject,

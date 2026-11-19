@@ -5,7 +5,10 @@ import type { BasePayload, Direction, WorldToViewMap } from "@/contracts";
 import { viewSet } from "@/domain/animation/directions";
 import type { RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
-import { type AssetEntry, DIR_LABEL, DIRS, errorText, review, viewUrl } from "./shared";
+import { useMessages } from "@/i18n/client";
+import { animationMessages } from "@/i18n/messages/animation";
+import { commonMessages } from "@/i18n/messages/common";
+import { type AssetEntry, DIRS, errorText, review, viewUrl } from "./shared";
 
 /**
  * Grade de vistas 4/8 (04 §vistas): cada direção é candidata independente.
@@ -26,6 +29,9 @@ export function ViewsGrid(props: {
   onChanged: () => void;
 }) {
   const { projectId, base, approved } = props;
+  const am = useMessages(animationMessages);
+  const t = am.viewsGrid;
+  const c = useMessages(commonMessages);
   const [count, setCount] = useState<4 | 8>(4);
   const [asymmetries, setAsymmetries] = useState("");
   const [picks, setPicks] = useState<Partial<Record<Direction, string>>>({});
@@ -43,12 +49,12 @@ export function ViewsGrid(props: {
 
   const options = (d: Direction) => {
     const list: { revision: RevisionView; label: string }[] = [];
-    if (approvedViews.has(d)) list.push({ revision: approved, label: `aprovada r${approved.number}` });
+    if (approvedViews.has(d)) list.push({ revision: approved, label: t.approvedRev(approved.number) });
     for (const r of candidates) {
       const v = (r.payload as BasePayload).views.find((x) => x.direction === d);
       const file = v && r.files.find((f) => f.fileKey === v.fileId);
       const approvedFile = approvedViews.has(d) ? approved.files.find((f) => f.fileKey === (approved.payload as BasePayload).views.find((x) => x.direction === d)!.fileId) : undefined;
-      if (file && file.sha256 !== approvedFile?.sha256) list.push({ revision: r, label: `candidata r${r.number}` });
+      if (file && file.sha256 !== approvedFile?.sha256) list.push({ revision: r, label: t.candidateRev(r.number) });
     }
     return list;
   };
@@ -63,7 +69,7 @@ export function ViewsGrid(props: {
     try {
       const res = await apiFetch<{ revision: RevisionView }>(`/projects/${projectId}/animation/views`, { method: "POST", json: { baseAssetId: base.asset.id, picks: chosen } });
       setComposed(res.revision);
-      setMessage(`Base r${res.revision.number} publicada como candidata com ${chosen.length} vista(s), sem chamada paga.`);
+      setMessage(t.composed(res.revision.number, chosen.length));
       props.onChanged();
     } catch (err) {
       setMessage(errorText(err));
@@ -74,29 +80,29 @@ export function ViewsGrid(props: {
     <div>
       <div className="row">
         <label>
-          Conjunto
+          {t.set}
           <select value={count} onChange={(e) => setCount(Number(e.target.value) as 4 | 8)}>
-            <option value={4}>4 vistas</option>
-            <option value={8}>8 vistas</option>
+            <option value={4}>{t.viewsCount(4)}</option>
+            <option value={8}>{t.viewsCount(8)}</option>
           </select>
         </label>
         <span className="small muted">
-          Projeção do projeto: {props.projection}
-          {props.rotationLabel ? ` · rota: ${props.rotationLabel}` : ""}
+          {t.projection(props.projection)}
+          {props.rotationLabel ? t.route(props.rotationLabel) : ""}
         </span>
       </div>
       {isometric && (
         <table className="anim-timeline small" style={{ marginTop: 8 }}>
-          <caption className="muted">Movimento no mundo → vista desenhada na tela (orientação de referência; girar o mapa recalcula a tabela, não gira o bitmap)</caption>
+          <caption className="muted">{t.isoCaption}</caption>
           <tbody>
             <tr>
-              <th>Mundo</th>
+              <th>{t.world}</th>
               {DIRS.map((d) => (
                 <td key={d}>{d}</td>
               ))}
             </tr>
             <tr>
-              <th>Vista</th>
+              <th>{t.view}</th>
               {DIRS.map((d) => (
                 <td key={d}>{props.worldToView[d]}</td>
               ))}
@@ -111,10 +117,10 @@ export function ViewsGrid(props: {
           return (
             <figure key={d} className={`anim-view${opts.length === 0 ? " missing" : ""}`}>
               <figcaption>
-                <strong>{d}</strong> · {DIR_LABEL[d]}
+                <strong>{d}</strong> · {c.directions[d]}
               </figcaption>
               {opts.length === 0 ? (
-                <p className="small error">Falta arte desta vista (sem espelho implícito).</p>
+                <p className="small error">{t.missingArt}</p>
               ) : (
                 opts.map((o) => {
                   const src = viewUrl(projectId, o.revision, d);
@@ -122,7 +128,7 @@ export function ViewsGrid(props: {
                     <label key={o.revision.id} className="anim-view-option">
                       <input type="radio" name={`view-${d}`} checked={pick === o.revision.id} onChange={() => setPicks((p) => ({ ...p, [d]: o.revision.id }))} />
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      {src && <img className="pixel" alt={`Vista ${d} ${o.label}`} src={src} width={96} height={96} />}
+                      {src && <img className="pixel" alt={t.viewAlt(d, o.label)} src={src} width={96} height={96} />}
                       <span className="small">{o.label}</span>
                     </label>
                   );
@@ -130,12 +136,12 @@ export function ViewsGrid(props: {
               )}
               {opts.length > 0 && (
                 <label className="small" style={{ flexDirection: "row", gap: 4 }}>
-                  <input type="radio" name={`view-${d}`} checked={pick === "none"} onChange={() => setPicks((p) => ({ ...p, [d]: "none" }))} /> não usar
+                  <input type="radio" name={`view-${d}`} checked={pick === "none"} onChange={() => setPicks((p) => ({ ...p, [d]: "none" }))} /> {t.dontUse}
                 </label>
               )}
               {!approvedViews.has(d) && (
                 <button type="button" className="secondary" onClick={() => props.onGenerate([d], asym)}>
-                  {opts.length ? "Gerar de novo" : "Gerar vista"}
+                  {opts.length ? t.regenerate : t.generateView}
                 </button>
               )}
             </figure>
@@ -143,15 +149,15 @@ export function ViewsGrid(props: {
         })}
       </div>
       <label style={{ marginTop: 8 }}>
-        Assimetrias a manter no lado anatômico (uma por linha)
-        <textarea value={asymmetries} onChange={(e) => setAsymmetries(e.target.value)} placeholder={"escudo no braço esquerdo\nespada na mão direita"} />
+        {t.asymmetries}
+        <textarea value={asymmetries} onChange={(e) => setAsymmetries(e.target.value)} placeholder={t.asymmetriesPlaceholder} />
       </label>
       <div className="row" style={{ marginTop: 8 }}>
         <button type="button" disabled={missing.length === 0} onClick={() => props.onGenerate(missing, asym)}>
-          Gerar {missing.length} vista(s) que faltam
+          {t.generateMissing(missing.length)}
         </button>
         <button type="button" className="secondary" onClick={compose}>
-          Publicar vistas escolhidas
+          {t.publishChosen}
         </button>
         {composed && (
           <button
@@ -160,7 +166,7 @@ export function ViewsGrid(props: {
             onClick={async () => {
               try {
                 await review(projectId, base.asset.id, composed.id, "approve", base.asset.approvedRevisionId);
-                setMessage(`Base r${composed.number} aprovada.`);
+                setMessage(t.baseApproved(composed.number));
                 setComposed(null);
                 props.onChanged();
               } catch (err) {
@@ -168,11 +174,11 @@ export function ViewsGrid(props: {
               }
             }}
           >
-            Aprovar r{composed.number}
+            {am.shared.approveRev(composed.number)}
           </button>
         )}
       </div>
-      <p className="small muted">Cada vista é um job próprio (uma direção por plano): reprovar uma não refaz as outras nem dispara o lote inteiro.</p>
+      <p className="small muted">{t.perViewNote}</p>
       {message && <p className="small">{message}</p>}
     </div>
   );

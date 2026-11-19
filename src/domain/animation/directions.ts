@@ -1,5 +1,6 @@
 import { CARDINAL_4, DIRECTIONS_8, type Direction, type ProjectionKind, type WorldToViewMap } from "@/contracts";
 import { isoWorldToView } from "@/domain/projection";
+import { type LocalizedText, tx } from "@/i18n/locales";
 
 /**
  * Direções e vistas (04 §gerar quatro/oito vistas e orientar no isométrico).
@@ -86,7 +87,7 @@ export function viewSet(count: 4 | 8, projection: ProjectionKind): Direction[] {
 export type ViewResolution =
   | { kind: "view"; direction: Direction }
   | { kind: "mirror"; direction: Direction; from: Direction }
-  | { kind: "missing"; direction: Direction; reason: string };
+  | { kind: "missing"; direction: Direction; reason: LocalizedText };
 
 /**
  * De onde vem a arte da direção pedida. Sem a vista, a resposta é `missing`
@@ -102,7 +103,7 @@ export function resolveView(
     const pair = mirror.pairs.find((p) => p.target === direction && views.some((v) => v.direction === p.source));
     if (pair) return { kind: "mirror", direction, from: pair.source };
   }
-  return { kind: "missing", direction, reason: `Sem vista ${direction} aprovada; gere a vista (arte nova) — espelho não é implícito` };
+  return { kind: "missing", direction, reason: tx(`Sem vista ${direction} aprovada; gere a vista (arte nova) — espelho não é implícito`, `No approved ${direction} view; generate the view (new art) — mirroring is never implicit`) };
 }
 
 /** Diagonais mais próximas primeiro: a melhor vista aprovada para servir de fonte de uma nova direção. */

@@ -1,5 +1,6 @@
 import type { CornerTilesetPayload, IsoTilesetPayload, SideTilesetPayload, StylePayload, TilesetGeometry } from "@/contracts";
 import { colorName } from "@/domain/color-names";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { CORNER_SAMPLE, resolveCornerMap } from "@/domain/world/corner";
 import { resolveSideMap, SIDE_SAMPLE } from "@/domain/world/side";
 import type { Studio } from "../studio";
@@ -20,12 +21,24 @@ export const DEFAULT_PAIR_THRESHOLD = 1.6;
 type Env = Pick<Studio, "config" | "blobs">;
 
 export const ROUTE_LABELS = {
-  corner_template: "Gabarito local: composição de duas texturas aprovadas pelas 16 máscaras; não é geração nativa de tileset",
-  side_template: "Gabarito local da tabela lateral a partir de duas texturas aprovadas; não é geração nativa",
-  iso_template: "Peças isométricas locais: textura aprovada projetada no losango + prop importado; não é geração nativa (/create-tiles-pro não ensaiado)",
-  import: "Atlas importado com o layout declarado pelo artista; não demonstra geração",
-  guided: "Gabarito local + candidato editado por modelo genérico com referências; faixa travada reaplicada localmente. Não é geração nativa de tileset",
-} as const;
+  corner_template: tx(
+    "Gabarito local: composição de duas texturas aprovadas pelas 16 máscaras; não é geração nativa de tileset",
+    "Local template: two approved textures composed through the 16 masks; not native tileset generation",
+  ),
+  side_template: tx(
+    "Gabarito local da tabela lateral a partir de duas texturas aprovadas; não é geração nativa",
+    "Local side-view table template from two approved textures; not native generation",
+  ),
+  iso_template: tx(
+    "Peças isométricas locais: textura aprovada projetada no losango + prop importado; não é geração nativa (/create-tiles-pro não ensaiado)",
+    "Local isometric pieces: approved texture projected onto the diamond + imported prop; not native generation (/create-tiles-pro not tested)",
+  ),
+  import: tx("Atlas importado com o layout declarado pelo artista; não demonstra geração", "Imported atlas with the layout declared by the artist; does not demonstrate generation"),
+  guided: tx(
+    "Gabarito local + candidato editado por modelo genérico com referências; faixa travada reaplicada localmente. Não é geração nativa de tileset",
+    "Local template + candidate edited by a generic model with references; locked band reapplied locally. Not native tileset generation",
+  ),
+} as const satisfies Record<string, LocalizedText>;
 
 /** Geometria do gabarito congelada no plano: o worker confere o resultado sem ler o banco. */
 export function geometryOf(kind: TilesetKind, payload: AnyTilesetPayload): TilesetGeometry {

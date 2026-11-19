@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Manifest } from "@/contracts";
 import { buildClareira } from "@/fixtures/clareira";
+import { pick } from "@/i18n/locales";
 import { validateManifest } from "./validate";
 
 const nominal = () => structuredClone(buildClareira().manifest) as Manifest;
@@ -97,7 +98,7 @@ describe("validateManifest · dependências", () => {
     const issues = validateManifest(m).issues;
     expect(issues.find((i) => i.code === "dependency_missing")).toMatchObject({
       revisionId: "warrior-attack-osh-s-v1",
-      message: expect.stringContaining("spark-v1"),
+      message: { "pt-BR": expect.stringContaining("spark-v1"), en: expect.stringContaining("missing from the package") },
     });
   });
 
@@ -121,7 +122,7 @@ describe("validateManifest · dependências", () => {
     const m = nominal();
     m.entries.find((e) => e.revisionId === "warrior-rig-v1")!.dependencies.push({ revisionId: "chainmail-v1", role: "cosmetic" });
     const issue = validateManifest(m).issues.find((i) => i.code === "dependency_cycle");
-    expect(issue?.message).toMatch(/warrior-rig-v1.*chainmail-v1/);
+    expect(pick(issue?.message, "pt-BR")).toMatch(/warrior-rig-v1.*chainmail-v1/);
   });
 });
 

@@ -3,6 +3,8 @@ import { genericTemporalCapabilities, isTemporalOperation } from "../animation/p
 import { equipmentCanvas, genericEquipmentCapabilities, isEquipmentOperation } from "../equipment/provider-caps";
 import { genericSceneCapabilities, isSceneOperation, sceneCanvas, sceneWantsAlpha } from "../scenes/provider-caps";
 import { genericWorldCapabilities, isWorldOperation, worldCanvas } from "../world/provider-caps";
+import { genericUiCapabilities, isUiOperation, uiCanvas } from "../ui/provider-caps";
+import { dialogueCanvas, dialogueWantsAlpha, genericDialogueCapabilities, isDialogueOperation } from "../dialogue/provider-caps";
 import type { ProviderSubmitRequest } from "./types";
 
 /**
@@ -31,7 +33,9 @@ export function genericSupports(operation: PlanOperation): boolean {
     isWorldOperation(operation) ||
     isTemporalOperation(operation) ||
     isSceneOperation(operation) ||
-    isEquipmentOperation(operation)
+    isEquipmentOperation(operation) ||
+    isUiOperation(operation) ||
+    isDialogueOperation(operation)
   );
 }
 
@@ -48,6 +52,10 @@ export function genericCapabilities(operation: PlanOperation, route: GenericRout
   if (isSceneOperation(operation)) return genericSceneCapabilities(operation, route.maxReferences, route.transparent === true);
   // Equipamentos (S2): candidato vestido por imagem + referências e vista rígida por texto.
   if (isEquipmentOperation(operation)) return genericEquipmentCapabilities(route.maxReferences);
+  // Kit de UI (U3): template pela guia raster e estados por imagem + referência do componente aprovado; nunca nativos.
+  if (isUiOperation(operation)) return genericUiCapabilities(operation, route.maxReferences);
+  // Retrato, folha de bocas e páginas de glyphs (D1): imagem + referências e guias raster; nunca retrato/visemes/fonte nativos.
+  if (isDialogueOperation(operation)) return genericDialogueCapabilities(operation, route.maxReferences, route.transparent);
   if (operation !== "generate_asset") return [];
   return [
     "text_to_image",
@@ -60,7 +68,8 @@ export function genericLimits(operation: PlanOperation, route: GenericRoute): { 
   const alphaRefs = route.transparent === "single_reference" ? { alphaReferences: 1 } : {};
   if (operation === "inpaint") return { maxReferences: route.maxReferences };
   if (SHEET_OPERATIONS.includes(operation) || isTemporalOperation(operation)) return { maxReferences: route.maxReferences, ...alphaRefs };
-  if (isWorldOperation(operation) || isSceneOperation(operation) || isEquipmentOperation(operation)) return { maxReferences: route.maxReferences };
+  if (isWorldOperation(operation) || isSceneOperation(operation) || isEquipmentOperation(operation) || isUiOperation(operation)) return { maxReferences: route.maxReferences };
+  if (isDialogueOperation(operation)) return { maxReferences: route.maxReferences, ...(operation === "generate_portrait" ? alphaRefs : {}) };
   if (operation !== "generate_asset") return {};
   return { maxReferences: route.maxReferences, ...alphaRefs };
 }
@@ -73,13 +82,14 @@ export function genericWantsAlpha(req: Pick<ProviderSubmitRequest, "operation" |
   return (
     (req.operation === "generate_asset" && Boolean(params.transparent && !params.backgroundKey && route.transparent)) ||
     sheetAlpha ||
-    (sceneWantsAlpha(req) && route.transparent === true)
+    (sceneWantsAlpha(req) && route.transparent === true) ||
+    dialogueWantsAlpha(req, route.transparent)
   );
 }
 
 /** Material, atlas, sala e candidato vestido vão de borda a borda: rota com alfa às vezes devolve fundo transparente se não for pedido opaco. */
 export function genericWantsOpaque(req: Pick<ProviderSubmitRequest, "operation">, alpha: boolean, route: GenericRoute): boolean {
-  return !alpha && Boolean(route.transparent) && (isWorldOperation(req.operation) || isSceneOperation(req.operation) || isEquipmentOperation(req.operation));
+  return !alpha && Boolean(route.transparent) && (isWorldOperation(req.operation) || isSceneOperation(req.operation) || isEquipmentOperation(req.operation) || isUiOperation(req.operation) || isDialogueOperation(req.operation));
 }
 
 /**
@@ -91,7 +101,7 @@ export function genericCanvas(req: Pick<ProviderSubmitRequest, "operation" | "pa
   const params = req.params as { logicalSize?: [number, number]; sheet?: ReferenceSheet };
   if (params.sheet) return [params.sheet.columns * params.sheet.cell[0], params.sheet.rows * params.sheet.cell[1]];
   if (req.operation === "inpaint" && params.logicalSize) return params.logicalSize;
-  return worldCanvas(req) ?? sceneCanvas(req) ?? equipmentCanvas(req);
+  return worldCanvas(req) ?? sceneCanvas(req) ?? equipmentCanvas(req) ?? uiCanvas(req) ?? dialogueCanvas(req);
 }
 
 /** Proporção reduzida, ex.: [128, 96] → "4:3". */

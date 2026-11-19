@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Direction, JointPose, MotionPayload, Pose, ProjectionKind, Skeleton } from "@/contracts";
 import { skeletonProblems } from "@/contracts";
-import type { ActionPreset } from "@/domain/animation/presets";
+import { type ActionPreset, presetText } from "@/domain/animation/presets";
 import {
   addCustomJoint,
   buildMotion,
@@ -19,6 +19,8 @@ import {
 } from "@/domain/animation/skeleton";
 import type { RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
+import { useMessages, useText } from "@/i18n/client";
+import { animationMessages } from "@/i18n/messages/animation";
 import { contentBox, errorText } from "./shared";
 
 /**
@@ -46,6 +48,9 @@ interface Props {
 }
 
 export function SkeletonEditor(props: Props) {
+  const am = useMessages(animationMessages);
+  const t = am.skeleton;
+  const text = useText();
   const { cell, direction } = props;
   const [W, H] = cell;
   const zoom = Math.max(2, Math.floor(448 / Math.max(W, H)));
@@ -160,15 +165,15 @@ export function SkeletonEditor(props: Props) {
   function estimate() {
     const img = image.current;
     const box = img ? contentBox(img) : null;
-    if (skeleton.kind !== "humanoid") return setMessage("Ajuste automático só para o esqueleto humanoide; mova os joints do rig custom à mão.");
+    if (skeleton.kind !== "humanoid") return setMessage(t.onlyHumanoid);
     setReference(defaultHumanoidPose(direction, cell, box));
-    setMessage(box ? `Esqueleto padrão ajustado à caixa do desenho (${box.join(", ")}). É uma estimativa: corrija joints, lados e oclusão.` : "Desenho vazio: usando a célula inteira.");
+    setMessage(box ? t.fitted(box.join(", ")) : t.emptyDrawing);
   }
 
   function fromPreset(key: string) {
     const p = props.presets.find((x) => x.key === key);
     if (!p) return;
-    if (skeleton.kind !== "humanoid") return setMessage("Poses de preset são para o esqueleto humanoide.");
+    if (skeleton.kind !== "humanoid") return setMessage(t.presetHumanoid);
     setPresetKey(p.key);
     setAction(p.action);
     setLoop(p.playback === "loop");
@@ -182,20 +187,20 @@ export function SkeletonEditor(props: Props) {
     let next = poses;
     for (let i = 0; i + 1 < sorted.length; i++) next = fillBetween(next, sorted[i]!, sorted[i + 1]!);
     setPoses(next);
-    setMessage("Guias intermediárias reamostradas entre os keyframes (nenhum pixel gerado).");
+    setMessage(t.guidesResampled);
   }
 
   async function save() {
     setMessage(null);
     try {
       const problems = skeletonProblems(skeleton.joints);
-      if (problems.length) throw new Error(problems[0]!.message);
+      if (problems.length) throw new Error(text(problems[0]!.message));
       const motion = buildMotion({ skeleton, cell, direction, projection: props.projection, action, referencePose: reference, poses, loop });
       const res = await apiFetch<{ revision: RevisionView; asset: { id: string } }>(`/projects/${props.projectId}/animation/motion`, {
         method: "POST",
         json: { baseRevisionId: props.baseRevisionId, motion, presetKey },
       });
-      setMessage(`Movimento r${res.revision.number} publicado como candidato. Aprove-o para gerar.`);
+      setMessage(t.motionPublished(res.revision.number));
       props.onSaved(res.revision, res.asset.id);
     } catch (err) {
       setMessage(errorText(err));
@@ -216,10 +221,10 @@ export function SkeletonEditor(props: Props) {
           onPointerMove={onMove}
           onPointerUp={() => (dragging.current = false)}
         />
-        <p className="small muted">Vermelho: lado direito do personagem · azul: esquerdo · tracejado: joint oculto (continua na sequência).</p>
+        <p className="small muted">{t.legend}</p>
         <div className="anim-chips">
           <button type="button" className={index < 0 ? "" : "secondary"} onClick={() => setIndex(-1)}>
-            Referência
+            {t.reference}
           </button>
           {poses.map((p, i) => (
             <span key={p.poseId} className={`anim-chip${i === index ? " current" : ""}`}>
@@ -232,7 +237,7 @@ export function SkeletonEditor(props: Props) {
                 min={1}
                 max={60000}
                 value={p.durationMs}
-                aria-label={`Duração de ${p.poseId}`}
+                aria-label={t.durationOf(p.poseId)}
                 onChange={(e) => setPoses((all) => all.map((x, j) => (j === i ? { ...x, durationMs: Math.max(1, Math.round(Number(e.target.value) || 1)) } : x)))}
               />
             </span>
@@ -240,41 +245,41 @@ export function SkeletonEditor(props: Props) {
         </div>
         <div className="row small" style={{ marginTop: 8 }}>
           <button type="button" className="secondary" disabled={index < 0} onClick={() => setKeys((k) => new Set(k.has(index) ? [...k].filter((x) => x !== index) : [...k, index]))}>
-            Marcar/desmarcar keyframe
+            {t.toggleKeyframe}
           </button>
           <button type="button" className="secondary" onClick={interpolate} disabled={keys.size < 2}>
-            Interpolar guias entre keyframes
+            {t.interpolateGuides}
           </button>
           <button type="button" className="secondary" disabled={index < 0} onClick={() => setPoses(duplicatePose(poses, index))}>
-            Duplicar pose
+            {t.duplicatePose}
           </button>
           <button type="button" className="secondary" disabled={index < 0 || poses.length <= 1} onClick={() => (setPoses(removePose(poses, index)), setIndex(Math.max(0, index - 1)))}>
-            Remover pose
+            {t.removePose}
           </button>
           <button type="button" className="secondary" disabled={index < 0} onClick={() => setJoints(structuredClone(index > 0 ? poses[index - 1]!.joints : reference))}>
-            Copiar pose anterior
+            {t.copyPrevious}
           </button>
           <label style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <input type="checkbox" checked={onion} onChange={(e) => setOnion(e.target.checked)} /> pose anterior
+            <input type="checkbox" checked={onion} onChange={(e) => setOnion(e.target.checked)} /> {t.onionPrevious}
           </label>
         </div>
       </div>
       <div>
         <div className="row">
           <label>
-            Ação
+            {am.shared.action}
             <input value={action} onChange={(e) => setAction(e.target.value.toLowerCase().replace(/[^a-z0-9_.-]/g, "_"))} />
           </label>
           <label style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} /> ciclo
+            <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} /> {t.loop}
           </label>
           <label>
-            Começar do preset
+            {t.startFromPreset}
             <select value="" onChange={(e) => fromPreset(e.target.value)}>
               <option value="">—</option>
               {props.presets.map((p) => (
                 <option key={p.key} value={p.key}>
-                  {p.label} ({p.frameIds.length})
+                  {text(presetText(p).label)} ({p.frameIds.length})
                 </option>
               ))}
             </select>
@@ -282,18 +287,18 @@ export function SkeletonEditor(props: Props) {
         </div>
         <div className="row" style={{ marginTop: 8 }}>
           <button type="button" className="secondary" onClick={estimate}>
-            Estimar na base (local)
+            {t.estimateOnBase}
           </button>
           <button
             type="button"
             className="secondary"
             onClick={() => {
               if (skeleton.kind === "humanoid") setSkeleton({ ...skeleton, kind: "custom" });
-              setMessage("Esqueleto custom: nomes, parents e joints editáveis; vai como hierarquia (rig) para provedores com esqueleto custom.");
+              setMessage(t.customNote);
             }}
             disabled={skeleton.kind === "custom"}
           >
-            Converter em custom
+            {t.convertCustom}
           </button>
         </div>
         {sel && selJoint ? (
@@ -311,26 +316,26 @@ export function SkeletonEditor(props: Props) {
                 <input type="number" step={0.01} min={0} max={1} value={sel.y} onChange={(e) => setJoints(moveJoint(joints, selJoint.jointId, sel.x, Number(e.target.value)))} />
               </label>
               <label>
-                z (oclusão)
+                {t.zOcclusion}
                 <input type="number" step={1} value={sel.zIndex} onChange={(e) => setJoints({ ...joints, [selJoint.jointId]: { ...sel, zIndex: Math.round(Number(e.target.value)) } })} />
               </label>
               <label style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <input type="checkbox" checked={sel.visible} onChange={(e) => setJoints({ ...joints, [selJoint.jointId]: { ...sel, visible: e.target.checked } })} /> visível
+                <input type="checkbox" checked={sel.visible} onChange={(e) => setJoints({ ...joints, [selJoint.jointId]: { ...sel, visible: e.target.checked } })} /> {t.visible}
               </label>
             </div>
             {skeleton.kind === "custom" && (
               <div className="row">
                 <label>
-                  Parent
+                  {t.parent}
                   <select
                     value={selJoint.parent ?? ""}
                     onChange={(e) => {
                       const r = reparent(skeleton, selJoint.jointId, e.target.value || null);
-                      if (r.problems.length) setMessage(r.problems[0]!);
+                      if (r.problems.length) setMessage(text(r.problems[0]!));
                       else setSkeleton(r.skeleton);
                     }}
                   >
-                    <option value="">(raiz)</option>
+                    <option value="">{t.root}</option>
                     {skeleton.joints
                       .filter((j) => j.jointId !== selJoint.jointId)
                       .map((j) => (
@@ -345,26 +350,26 @@ export function SkeletonEditor(props: Props) {
                   className="secondary"
                   onClick={() => {
                     const r = removeCustomJoint({ skeleton, referencePose: reference, poses }, selJoint.jointId);
-                    if (!r) return setMessage("A raiz não pode ser removida.");
+                    if (!r) return setMessage(t.rootNotRemovable);
                     setSkeleton(r.skeleton);
                     setReference(r.referencePose);
                     setPoses(r.poses);
                     setSelected(null);
                   }}
                 >
-                  Remover joint
+                  {t.removeJoint}
                 </button>
               </div>
             )}
           </fieldset>
         ) : (
-          <p className="small muted">Clique num joint para selecionar e arraste para mover.</p>
+          <p className="small muted">{t.clickJoint}</p>
         )}
         {skeleton.kind === "custom" && (
           <div className="row small" style={{ marginTop: 8 }}>
             <label>
-              Novo joint (filho do selecionado)
-              <input value={newJoint} onChange={(e) => setNewJoint(e.target.value)} placeholder="ex.: cauda" />
+              {t.newJoint}
+              <input value={newJoint} onChange={(e) => setNewJoint(e.target.value)} placeholder={t.newJointPlaceholder} />
             </label>
             <button
               type="button"
@@ -379,15 +384,15 @@ export function SkeletonEditor(props: Props) {
                 setNewJoint("");
               }}
             >
-              Adicionar
+              {t.add}
             </button>
           </div>
         )}
         <p className="small">
-          {skeleton.joints.length} joints · {poses.length} poses-alvo · célula {W}×{H} · direção {direction}
+          {t.summary(skeleton.joints.length, poses.length, W, H, direction)}
         </p>
         <button type="button" onClick={save}>
-          Publicar movimento (candidato)
+          {t.publishMotion}
         </button>
         {message && <p className="small">{message}</p>}
       </div>

@@ -1,10 +1,12 @@
 "use client";
 
-import type { Direction, LayerRef } from "@/contracts";
+import type { LayerRef } from "@/contracts";
 import type { Pendency } from "@/domain/equipment/types";
 import type { LoadoutConfig, ResolutionView } from "@/server/equipment/resolve";
 import type { equipmentOverview } from "@/server/equipment/service";
 import { ApiError, apiFetch } from "@/app/client/api";
+import { type Locale, pick, type TextValue } from "@/i18n/locales";
+import { equipmentMessages } from "@/i18n/messages/equipment";
 
 /** Tipos e chamadas da página de equipamentos (cartão S2). */
 
@@ -21,35 +23,24 @@ export type LayerView = FrameView["layers"][number];
 export type Config = LoadoutConfig;
 export type { Pendency };
 
-export const DIR_LABEL: Record<Direction, string> = { N: "norte", NE: "nordeste", E: "leste", SE: "sudeste", S: "sul", SW: "sudoeste", W: "oeste", NW: "noroeste" };
-
-export const STATUS_LABEL: Record<string, string> = {
-  ready: "pronta",
-  blocked: "bloqueada",
-  no_clip: "sem clipe",
-  covered: "coberta",
-  empty: "vazia explícita",
-  missing: "lacuna",
-  stale: "a revisar (revisão anterior do clipe)",
-  incompatible: "peça de outra base",
-};
-
 export function mediaUrl(projectId: string, fileId: string | null): string {
   return fileId ? `/api/v1/projects/${projectId}/media/${fileId}` : "";
 }
 
-export function errorText(err: unknown): string {
+/** Mensagem de erro da API com até três problemas/pendências (podem vir bilíngues). */
+export function errorText(err: unknown, locale: Locale): string {
   if (err instanceof ApiError) {
-    const problems = (err.details?.problems ?? err.details?.pendencies) as { message: string; pointer?: string }[] | undefined;
-    const extra = problems?.length ? ` · ${problems.slice(0, 3).map((p) => (p.pointer ? `${p.message} — ${p.pointer}` : p.message)).join(" · ")}` : "";
+    const problems = (err.details?.problems ?? err.details?.pendencies) as { message: TextValue; pointer?: string }[] | undefined;
+    const extra = problems?.length ? ` · ${problems.slice(0, 3).map((p) => (p.pointer ? `${pick(p.message, locale)} — ${p.pointer}` : pick(p.message, locale))).join(" · ")}` : "";
     return `${err.message}${err.code ? ` (${err.code})` : ""}${extra}`;
   }
   return err instanceof Error ? err.message : String(err);
 }
 
-export function whereText(p: Pendency): string {
+export function whereText(p: Pendency, locale: Locale): string {
   const w = p.where;
-  return [w.overlayName && `peça ${w.overlayName}`, w.partId && `parte ${w.partId}`, w.direction && `direção ${w.direction}`, w.action && `ação ${w.action}`, w.stance && `postura ${w.stance}`, w.frameId && `frame ${w.frameId}`, w.slotId && `slot ${w.slotId}`]
+  const m = equipmentMessages[locale].shared.where;
+  return [w.overlayName && m.piece(w.overlayName), w.partId && m.part(w.partId), w.direction && m.direction(w.direction), w.action && m.action(w.action), w.stance && m.stance(w.stance), w.frameId && m.frame(w.frameId), w.slotId && m.slot(w.slotId)]
     .filter(Boolean)
     .join(" · ");
 }

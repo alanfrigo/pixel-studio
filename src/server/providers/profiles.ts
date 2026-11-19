@@ -1,3 +1,4 @@
+import { type LocalizedText, type TextValue, tx } from "@/i18n/locales";
 import { z } from "zod";
 import { type Capability, Id, PLAN_OPERATIONS, type PlanOperation } from "@/contracts";
 import type { Db } from "../db/connection";
@@ -7,7 +8,7 @@ import { OpenAIImagesAdapter, OpenRouterAdapter } from "./adapters";
 import { CodexCliAdapter } from "./codex-cli";
 import { checkBaseUrl, failOnStatus, providerFetch, resolveSecret } from "./http";
 import { DEFAULT_BASE_URLS, getProfileRow, profileView, type ProviderProfileView, type ProviderRegistry, SIMULATED_PROFILE_ID } from "./registry";
-import type { ProviderAdapter } from "./types";
+import { type ProviderAdapter, ProviderError } from "./types";
 
 /**
  * Cadastro de perfis pelo operador local (02 §configuração): URL base,
@@ -29,11 +30,17 @@ export const ProfileInput = z.discriminatedUnion("transport", [
 export type ProfileInput = z.infer<typeof ProfileInput>;
 
 /** Data/fonte dos contratos usados para declarar capacidades. */
-export const CONTRACT_SNAPSHOTS: Record<string, string> = {
-  openai_images: "OpenAI Images API (referência oficial consultada em 2026-11-18)",
-  openrouter_images: "OpenRouter Image API (guia e catálogo consultados em 2026-11-18)",
-  codex_cli: "Codex CLI 0.169 · ferramenta de imagem embutida pela skill imagegen (ensaiada em 2026-11-19)",
+export const CONTRACT_SNAPSHOTS: Record<string, LocalizedText> = {
+  openai_images: tx("OpenAI Images API (referência oficial consultada em 2026-11-18)", "OpenAI Images API (official reference checked on 2026-11-18)"),
+  openrouter_images: tx("OpenRouter Image API (guia e catálogo consultados em 2026-11-18)", "OpenRouter Image API (guide and catalog checked on 2026-11-18)"),
+  codex_cli: tx("Codex CLI 0.169 · ferramenta de imagem embutida pela skill imagegen (ensaiada em 2026-11-19)", "Codex CLI 0.169 · built-in image tool via the imagegen skill (tested on 2026-11-19)"),
 };
+
+/** A coluna guarda o texto em português (como sempre); a API devolve os dois idiomas quando reconhece o texto. */
+function snapshotText(stored: string | null): TextValue | null {
+  if (stored === null) return null;
+  return Object.values(CONTRACT_SNAPSHOTS).find((t) => t["pt-BR"] === stored) ?? stored;
+}
 
 function buildAdapter(input: ProfileInput): ProviderAdapter {
   const profile = {
@@ -53,7 +60,7 @@ function buildAdapter(input: ProfileInput): ProviderAdapter {
     }
   } catch (err) {
     if (err instanceof z.ZodError) {
-      throw new DomainFailure("validation_failed", "Configuração inválida para o transporte", {
+      throw new DomainFailure("validation_failed", tx("Configuração inválida para o transporte", "Invalid configuration for this transport"), {
         issues: err.issues.map((i) => ({ path: i.path.map(String), message: i.message })),
       });
     }
@@ -94,7 +101,7 @@ export function saveProfile(db: Db, clock: Clock, input: ProfileInput): Provider
             op: operation,
             cap: capability,
             limits: JSON.stringify(capabilityLimits(adapter, operation, capability)),
-            snapshot: CONTRACT_SNAPSHOTS[input.transport]!,
+            snapshot: CONTRACT_SNAPSHOTS[input.transport]!["pt-BR"],
             now,
           },
         );
@@ -114,18 +121,18 @@ export function capabilityMatrix(db: Db, profileId: string) {
   return db.all<{ operation: string; capability: string; status: string; limits_json: string; contract_snapshot: string | null; verified_at: string }>(
     "SELECT operation, capability, status, limits_json, contract_snapshot, verified_at FROM model_capabilities WHERE provider_profile_id = :id ORDER BY operation, capability",
     { id: profileId },
-  ).map((r) => ({ operation: r.operation, capability: r.capability, status: r.status, limits: JSON.parse(r.limits_json), contractSnapshot: r.contract_snapshot, verifiedAt: r.verified_at }));
+  ).map((r) => ({ operation: r.operation, capability: r.capability, status: r.status, limits: JSON.parse(r.limits_json), contractSnapshot: snapshotText(r.contract_snapshot), verifiedAt: r.verified_at }));
 }
 
 /** Verificação gratuita, só por ação explícita do operador. Nenhuma geração é feita. */
-export async function checkProfile(db: Db, registry: ProviderRegistry, profileId: string): Promise<{ ok: boolean; message: string; details?: unknown }> {
+export async function checkProfile(db: Db, registry: ProviderRegistry, profileId: string): Promise<{ ok: boolean; message: TextValue; details?: unknown }> {
   const row = getProfileRow(db, profileId);
   const signal = AbortSignal.timeout(30_000);
   try {
     const adapter = registry.adapterFor(profileId);
     if (adapter instanceof OpenRouterAdapter) {
       const endpoints = await adapter.discover(signal);
-      return { ok: endpoints.length > 0, message: endpoints.length ? `${endpoints.length} rota(s) disponível(is) para ${row.model}` : "Modelo sem rotas de imagem", details: endpoints };
+      return { ok: endpoints.length > 0, message: endpoints.length ? tx(`${endpoints.length} rota(s) disponível(is) para ${row.model}`, `${endpoints.length} route(s) available for ${row.model}`) : tx("Modelo sem rotas de imagem", "Model has no image routes"), details: endpoints };
     }
     if (adapter instanceof CodexCliAdapter) return await adapter.check(signal);
     if (adapter instanceof OpenAIImagesAdapter) {
@@ -135,12 +142,12 @@ export async function checkProfile(db: Db, registry: ProviderRegistry, profileId
       const ids = (res.json<{ data?: { id: string }[] }>().data ?? []).map((m) => m.id);
       return {
         ok: true,
-        message: ids.includes(row.model ?? "") ? `Modelo ${row.model} listado pelo servidor` : `Servidor respondeu; ${row.model} não aparece na listagem (pode ainda funcionar)`,
+        message: ids.includes(row.model ?? "") ? tx(`Modelo ${row.model} listado pelo servidor`, `Model ${row.model} listed by the server`) : tx(`Servidor respondeu; ${row.model} não aparece na listagem (pode ainda funcionar)`, `Server responded; ${row.model} is not in the listing (it may still work)`),
         details: { models: ids.length },
       };
     }
-    return { ok: true, message: "Provedor simulado: nada a verificar" };
+    return { ok: true, message: tx("Provedor simulado: nada a verificar", "Simulated provider: nothing to check") };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, message: err instanceof ProviderError ? err.text : err instanceof DomainFailure ? (err.messages ?? err.message) : err instanceof Error ? err.message : String(err) };
   }
 }

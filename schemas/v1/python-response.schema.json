@@ -103,8 +103,15 @@
               ]
             },
             "message": {
-              "type": "string",
-              "minLength": 1
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "$ref": "#/$defs/__schema4"
+                }
+              ]
             }
           },
           "required": [
@@ -145,6 +152,7 @@
           "type": "string",
           "enum": [
             "image/png",
+            "image/gif",
             "application/json"
           ]
         },
@@ -179,7 +187,33 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "__schema3": {
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "$ref": "#/$defs/__schema4"
+        }
+      ]
+    },
+    "__schema4": {
+      "type": "object",
+      "properties": {
+        "en": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pt-BR": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "en",
+        "pt-BR"
+      ],
+      "additionalProperties": false
     }
   }
 }

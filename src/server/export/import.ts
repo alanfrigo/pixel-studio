@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import { fileModality, type Manifest, type ManifestEntry } from "@/contracts";
 import { entryRefs } from "@/domain/manifest/refs";
 import { validateManifest } from "@/domain/manifest/validate";
@@ -43,7 +44,7 @@ function importOrder(manifest: Manifest): ManifestEntry[] {
   const out: ManifestEntry[] = [];
   const visit = (e: ManifestEntry) => {
     if (done.has(e.revisionId)) return;
-    if (visiting.has(e.revisionId)) throw new DomainFailure("validation_failed", `Ciclo de referências em ${e.revisionId}`);
+    if (visiting.has(e.revisionId)) throw new DomainFailure("validation_failed", tx(`Ciclo de referências em ${e.revisionId}`, `Reference cycle at ${e.revisionId}`));
     visiting.add(e.revisionId);
     for (const ref of entryRefs(e).revisions) {
       const target = byId.get(ref.revisionId);
@@ -74,16 +75,16 @@ export interface PreparedImport {
 
 /** Valida manifesto e bytes e grava os blobs (fora de transação). */
 export async function preparePortableImport(deps: { blobs: BlobStore }, archive: Pick<ZipArchive, "read" | "has">): Promise<PreparedImport> {
-  if (!archive.has("manifest.json")) throw new DomainFailure("validation_failed", "Pacote sem manifest.json na raiz");
+  if (!archive.has("manifest.json")) throw new DomainFailure("validation_failed", tx("Pacote sem manifest.json na raiz", "Package has no manifest.json at the root"));
   let raw: unknown;
   try {
     raw = JSON.parse(new TextDecoder().decode(archive.read("manifest.json")));
   } catch {
-    throw new DomainFailure("validation_failed", "manifest.json não é JSON válido");
+    throw new DomainFailure("validation_failed", tx("manifest.json não é JSON válido", "manifest.json is not valid JSON"));
   }
   const validation = validateManifest(raw);
   if (!validation.ok || !validation.manifest) {
-    throw new DomainFailure("validation_failed", validation.issues[0]?.message ?? "Manifesto inválido", { issues: validation.issues.slice(0, 20) });
+    throw new DomainFailure("validation_failed", validation.issues[0]?.message ?? tx("Manifesto inválido", "Invalid manifest"), { issues: validation.issues.slice(0, 20) });
   }
   const manifest = validation.manifest;
   const fileIssues = await verifyManifestFiles(manifest, async (p) => archive.read(p));

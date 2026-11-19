@@ -3,15 +3,21 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { AssetView, RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { scenesMessages } from "@/i18n/messages/scenes";
 import { JobStatus } from "../world/job-status";
 import { errorText, estimateLabel, PIXEL, type PlanPreview, reportLabel, review, runPlan } from "./scenes-client";
 
 /** Cartão de revisão candidata/aprovada com imagem, rótulo da rota e decisão pelo fluxo existente. */
 export function RevisionCard({ projectId, asset, revision, src, width, refresh, children }: { projectId: string; asset: AssetView; revision: RevisionView; src: string | null; width?: number; refresh: () => void; children?: ReactNode }) {
+  const c = useMessages(commonMessages);
+  const text = useText();
   const [message, setMessage] = useState<string | null>(null);
   async function decide(decision: "approve" | "reject") {
     try {
-      const reason = decision === "reject" ? (window.prompt("Motivo da reprovação") ?? "").trim() || null : null;
+      const reason = decision === "reject" ? (window.prompt(c.rejectReasonPrompt) ?? "").trim() || null : null;
       if (decision === "reject" && !reason) return;
       await review(projectId, asset, revision.id, decision, reason);
       refresh();
@@ -20,28 +26,28 @@ export function RevisionCard({ projectId, asset, revision, src, width, refresh, 
     }
   }
   const label = reportLabel(revision);
-  const warnings = ((revision.technicalReport as { warnings?: string[] } | null)?.warnings ?? []).slice(0, 3);
+  const warnings = ((revision.technicalReport as { warnings?: TextValue[] } | null)?.warnings ?? []).slice(0, 3);
   return (
     <div className="small" style={{ border: "1px solid var(--border, #444)", padding: 8, borderRadius: 6, maxWidth: (width ?? 256) + 24 }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       {src && <img src={src} alt={asset.name} className="pixel bg-checker" style={{ ...PIXEL, width: width ?? 256, maxWidth: "100%" }} />}
       <div>
-        <strong>{asset.name}</strong> r{revision.number} <span className={`badge state-${revision.status}`}>{revision.status}</span>
+        <strong>{asset.name}</strong> r{revision.number} <span className={`badge state-${revision.status}`}>{labelOf(c.revisionStatus, revision.status)}</span>
       </div>
-      {label && <div className="muted">{label}</div>}
-      {warnings.map((w) => (
-        <div key={w} className="muted">
-          ⚠ {w}
+      {label && <div className="muted">{text(label)}</div>}
+      {warnings.map((w, i) => (
+        <div key={i} className="muted">
+          ⚠ {text(w)}
         </div>
       ))}
       {children}
       {revision.status === "candidate" && (
         <div className="row">
           <button type="button" onClick={() => decide("approve")}>
-            Aprovar
+            {c.approve}
           </button>
           <button type="button" className="secondary" onClick={() => decide("reject")}>
-            Reprovar
+            {c.reject}
           </button>
         </div>
       )}
@@ -55,6 +61,9 @@ export function RevisionCard({ projectId, asset, revision, src, width, refresh, 
  * acompanhamento do job. O mesmo plano gera o mesmo job (sem cobrança dupla).
  */
 export function PlanRunner({ projectId, label, body, target, onDone, disabled }: { projectId: string; label: string; body: () => Record<string, unknown> | null; target: () => Promise<string>; onDone: () => void; disabled?: boolean }) {
+  const m = useMessages(scenesMessages).shared;
+  const locale = useLocale();
+  const text = useText();
   const [preview, setPreview] = useState<(PlanPreview & Record<string, unknown>) | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -84,32 +93,30 @@ export function PlanRunner({ projectId, label, body, target, onDone, disabled }:
       setBusy(false);
     }
   }
-  const restrictions = (preview?.restrictions as string[] | undefined) ?? [];
+  const restrictions = (preview?.restrictions as TextValue[] | undefined) ?? [];
   return (
     <div>
       <button type="button" onClick={plan} disabled={disabled}>
-        {label}: conferir plano
+        {m.checkPlan(label)}
       </button>
       {preview && (
         <div className="small" style={{ marginTop: 6 }}>
           <div>
-            Rota: <strong>{String(preview.routeLabel ?? preview.plan.operation)}</strong>
-            {preview.destination.simulated ? <span className="badge"> simulado</span> : null}
+            {m.route} <strong>{preview.routeLabel ? text(preview.routeLabel) : preview.plan.operation}</strong>
+            {preview.destination.simulated ? <span className="badge">{m.simulated}</span> : null}
           </div>
-          <div className="muted">
-            Destino {preview.destination.name} · capacidades {preview.plan.requiredCapabilities.join(", ")} · {preview.plan.parts.length} parte(s) · estimativa {estimateLabel(preview.plan)}
-          </div>
-          {restrictions.map((r) => (
-            <div key={r} className="muted">
-              ⚠ {r}
+          <div className="muted">{m.planDetails(preview.destination.name, preview.plan.requiredCapabilities.join(", "), preview.plan.parts.length, estimateLabel(preview.plan, locale))}</div>
+          {restrictions.map((r, i) => (
+            <div key={i} className="muted">
+              ⚠ {text(r)}
             </div>
           ))}
           <details>
-            <summary>Prompt compilado</summary>
+            <summary>{m.compiledPrompt}</summary>
             <pre style={{ whiteSpace: "pre-wrap" }}>{preview.plan.prompt.compiled}</pre>
           </details>
           <button type="button" onClick={send} disabled={busy}>
-            Enviar
+            {m.send}
           </button>
         </div>
       )}
@@ -121,6 +128,7 @@ export function PlanRunner({ projectId, label, body, target, onDone, disabled }:
 
 /** Máscara binária desenhada sobre uma imagem (pincel ou retângulo), exportada como PNG opaco preto/branco. */
 export function MaskPainter({ src, size, color = [255, 0, 200, 120], onChange }: { src: string; size: [number, number]; color?: [number, number, number, number]; onChange: (png: Blob | null, pixels: number) => void }) {
+  const m = useMessages(scenesMessages).shared;
   const [w, h] = size;
   const zoom = Math.max(1, Math.floor(512 / Math.max(w, h)));
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -183,11 +191,11 @@ export function MaskPainter({ src, size, color = [255, 0, 200, 120], onChange }:
       <div className="row small">
         {(["rect", "brush", "erase"] as const).map((t) => (
           <button key={t} type="button" className={tool === t ? "" : "secondary"} onClick={() => setTool(t)}>
-            {t === "rect" ? "Retângulo" : t === "brush" ? "Pincel" : "Borracha"}
+            {m.tools[t]}
           </button>
         ))}
         <label>
-          Pincel {brush}px <input type="range" min={1} max={12} value={brush} onChange={(e) => setBrush(Number(e.target.value))} />
+          {m.brushSize(brush)} <input type="range" min={1} max={12} value={brush} onChange={(e) => setBrush(Number(e.target.value))} />
         </label>
         <button
           type="button"
@@ -198,7 +206,7 @@ export function MaskPainter({ src, size, color = [255, 0, 200, 120], onChange }:
             void emit();
           }}
         >
-          Limpar
+          {m.clear}
         </button>
       </div>
       <canvas

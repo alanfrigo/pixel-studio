@@ -1,5 +1,7 @@
 import type { ClipPayload, Direction, FrameLayout, Offset, PixelIndex } from "@/contracts";
 import { canonicalDigest } from "@/domain/canonical-json";
+import { tx } from "@/i18n/locales";
+import { ClipEditError } from "./timeline";
 
 /**
  * Edição temporal sem refazer tudo (04 §interpolar, editar e corrigir): funções
@@ -60,9 +62,9 @@ export function cellFrame(frameId: string, durationMs: number, fileId: string, [
 /** Insere quadros logo depois de `afterFrameId`; todos os demais ficam idênticos. */
 export function insertFrames(clip: ClipPayload, afterFrameId: string, frames: Frame[]): ClipPayload {
   const index = clip.frames.findIndex((f) => f.frameId === afterFrameId);
-  if (index < 0) throw new RangeError(`Quadro ${afterFrameId} não existe no clipe`);
+  if (index < 0) throw new ClipEditError(tx(`Quadro ${afterFrameId} não existe no clipe`, `Frame ${afterFrameId} is not in the clip`));
   const ids = new Set(clip.frames.map((f) => f.frameId));
-  for (const f of frames) if (ids.has(f.frameId)) throw new RangeError(`ID de quadro repetido: ${f.frameId}`);
+  for (const f of frames) if (ids.has(f.frameId)) throw new ClipEditError(tx(`ID de quadro repetido: ${f.frameId}`, `Duplicate frame ID: ${f.frameId}`));
   return { ...clip, frames: [...clip.frames.slice(0, index + 1), ...frames, ...clip.frames.slice(index + 1)] };
 }
 
@@ -77,7 +79,7 @@ export function adjacent(clip: ClipPayload, a: string, b: string): boolean {
 /** Troca as camadas dos quadros indicados; IDs, durações, sockets e eventos ficam. */
 export function replaceFrameLayers(clip: ClipPayload, replacements: Record<string, Layer[]>): ClipPayload {
   for (const id of Object.keys(replacements)) {
-    if (!clip.frames.some((f) => f.frameId === id)) throw new RangeError(`Quadro ${id} não existe no clipe`);
+    if (!clip.frames.some((f) => f.frameId === id)) throw new ClipEditError(tx(`Quadro ${id} não existe no clipe`, `Frame ${id} is not in the clip`));
   }
   return { ...clip, frames: clip.frames.map((f) => (replacements[f.frameId] ? { ...f, layers: replacements[f.frameId]! } : f)) };
 }
@@ -85,9 +87,9 @@ export function replaceFrameLayers(clip: ClipPayload, replacements: Record<strin
 /** Troca uma camada (por `partId`) de um quadro, na mesma posição de desenho. */
 export function replaceLayer(clip: ClipPayload, frameId: string, partId: string, layer: Layer): ClipPayload {
   const frame = clip.frames.find((f) => f.frameId === frameId);
-  if (!frame) throw new RangeError(`Quadro ${frameId} não existe no clipe`);
+  if (!frame) throw new ClipEditError(tx(`Quadro ${frameId} não existe no clipe`, `Frame ${frameId} is not in the clip`));
   const index = frame.layers.findIndex((l) => l.partId === partId);
-  if (index < 0) throw new RangeError(`O quadro ${frameId} não tem a camada ${partId}`);
+  if (index < 0) throw new ClipEditError(tx(`O quadro ${frameId} não tem a camada ${partId}`, `Frame ${frameId} has no layer ${partId}`));
   return replaceFrameLayers(clip, { [frameId]: frame.layers.map((l, i) => (i === index ? layer : l)) });
 }
 
@@ -103,9 +105,9 @@ export interface RemoveFramesResult {
  */
 export function removeFrames(clip: ClipPayload, frameIds: string[], remap: Record<string, string | null> = {}): RemoveFramesResult {
   const removing = new Set(frameIds);
-  for (const id of removing) if (!clip.frames.some((f) => f.frameId === id)) throw new RangeError(`Quadro ${id} não existe no clipe`);
+  for (const id of removing) if (!clip.frames.some((f) => f.frameId === id)) throw new ClipEditError(tx(`Quadro ${id} não existe no clipe`, `Frame ${id} is not in the clip`));
   const frames = clip.frames.filter((f) => !removing.has(f.frameId));
-  if (frames.length === 0) throw new RangeError("Um clipe precisa de ao menos um quadro");
+  if (frames.length === 0) throw new ClipEditError(tx("Um clipe precisa de ao menos um quadro", "A clip needs at least one frame"));
   const remaining = new Set(frames.map((f) => f.frameId));
   const events: ClipPayload["events"] = [];
   const removedEvents: string[] = [];
@@ -115,13 +117,13 @@ export function removeFrames(clip: ClipPayload, frameIds: string[], remap: Recor
       events.push(event);
       continue;
     }
-    if (!(event.eventId in remap)) throw new RangeError(`O evento ${event.eventId} está no quadro removido ${event.frameId}: remapeie-o para outro quadro ou remova-o explicitamente`);
+    if (!(event.eventId in remap)) throw new ClipEditError(tx(`O evento ${event.eventId} está no quadro removido ${event.frameId}: remapeie-o para outro quadro ou remova-o explicitamente`, `Event ${event.eventId} is on removed frame ${event.frameId}: remap it to another frame or remove it explicitly`));
     const to = remap[event.eventId];
     if (to === null || to === undefined) {
       removedEvents.push(event.eventId);
       continue;
     }
-    if (!remaining.has(to)) throw new RangeError(`O evento ${event.eventId} foi remapeado para ${to}, que não fica no clipe`);
+    if (!remaining.has(to)) throw new ClipEditError(tx(`O evento ${event.eventId} foi remapeado para ${to}, que não fica no clipe`, `Event ${event.eventId} was remapped to ${to}, which is not kept in the clip`));
     events.push({ ...event, frameId: to });
     remappedEvents.push({ eventId: event.eventId, from: event.frameId, to });
   }
@@ -130,10 +132,10 @@ export function removeFrames(clip: ClipPayload, frameIds: string[], remap: Recor
 
 /** Retira uma parte desenhável (camada) de todos os quadros; cada quadro precisa manter ao menos uma camada. */
 export function removePart(clip: ClipPayload, partId: string): ClipPayload {
-  if (!clip.frames.some((f) => f.layers.some((l) => l.partId === partId))) throw new RangeError(`Nenhum quadro tem a parte ${partId}`);
+  if (!clip.frames.some((f) => f.layers.some((l) => l.partId === partId))) throw new ClipEditError(tx(`Nenhum quadro tem a parte ${partId}`, `No frame has part ${partId}`));
   const frames = clip.frames.map((f) => {
     const layers = f.layers.filter((l) => l.partId !== partId);
-    if (layers.length === 0) throw new RangeError(`O quadro ${f.frameId} ficaria sem camadas; remova o quadro em vez da parte`);
+    if (layers.length === 0) throw new ClipEditError(tx(`O quadro ${f.frameId} ficaria sem camadas; remova o quadro em vez da parte`, `Frame ${f.frameId} would have no layers; remove the frame instead of the part`));
     return { ...f, layers };
   });
   return { ...clip, frames };
@@ -170,9 +172,9 @@ export function frameLayouts(clip: ClipPayload, frameIds: string[], firstOrdinal
   const files: string[] = [];
   const layouts = frameIds.map((frameId) => {
     const frame = clip.frames.find((f) => f.frameId === frameId);
-    if (!frame) throw new RangeError(`Quadro ${frameId} não existe no clipe`);
+    if (!frame) throw new ClipEditError(tx(`Quadro ${frameId} não existe no clipe`, `Frame ${frameId} is not in the clip`));
     const layers = partId ? frame.layers.filter((l) => l.partId === partId) : frame.layers;
-    if (layers.length === 0) throw new RangeError(`O quadro ${frameId} não tem a camada ${partId}`);
+    if (layers.length === 0) throw new ClipEditError(tx(`O quadro ${frameId} não tem a camada ${partId}`, `Frame ${frameId} has no layer ${partId}`));
     return {
       frameId,
       layers: layers.map((l) => {

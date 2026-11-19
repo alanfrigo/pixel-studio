@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import { statfs } from "node:fs/promises";
 import { z } from "zod";
 import { AssetFamily, Capability, type GenerationPlan, Id, Insets, ITEM_KINDS, NonNegInt, parseRevisionPayload, PythonInputRole, PythonRequest, ReferenceRole, Size, TextKey, UiState } from "@/contracts";
@@ -46,13 +47,13 @@ const UPLOAD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function ingestUpload(studio: Studio, projectId: string, file: { name: string; bytes: Uint8Array }) {
   getProject(studio.db, projectId);
-  if (file.bytes.length === 0) throw new DomainFailure("validation_failed", "Arquivo vazio");
+  if (file.bytes.length === 0) throw new DomainFailure("validation_failed", tx("Arquivo vazio", "Empty file"));
   if (file.bytes.length > studio.config.maxUploadBytes) {
-    throw new DomainFailure("validation_failed", `Arquivo maior que o limite de ${studio.config.maxUploadBytes} bytes`);
+    throw new DomainFailure("validation_failed", tx(`Arquivo maior que o limite de ${studio.config.maxUploadBytes} bytes`, `File exceeds the ${studio.config.maxUploadBytes}-byte limit`));
   }
   const kind = sniff(file.bytes);
   if (!kind) {
-    throw new DomainFailure("validation_failed", "Formato não reconhecido. Aceitos: PNG, JPEG, GIF, WebP, WAV, TTF, OTF e pacote ZIP exportado");
+    throw new DomainFailure("validation_failed", tx("Formato não reconhecido. Aceitos: PNG, JPEG, GIF, WebP, WAV, TTF, OTF e pacote ZIP exportado", "Unrecognized format. Accepted: PNG, JPEG, GIF, WebP, WAV, TTF, OTF and an exported ZIP package"));
   }
   const stored = await studio.blobs.putBytes(file.bytes);
   return studio.db.transaction(() => {
@@ -186,7 +187,7 @@ const ROLE_LABEL: Record<string, string> = {
 export function buildGenerationPlan(studio: Studio, projectId: string, rawInput: PlanInput) {
   const input = PlanInput.parse(rawInput);
   const project = getProject(studio.db, projectId);
-  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", "Projeto sem estilo ativo");
+  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", tx("Projeto sem estilo ativo", "Project has no active style"));
   const style = getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload;
   studio.providers.assertReady(input.providerProfileId);
   const adapter = studio.providers.adapterFor(input.providerProfileId);
@@ -203,7 +204,7 @@ export function buildGenerationPlan(studio: Studio, projectId: string, rawInput:
   // Limite real da rota explicado antes de cobrar (08 §verificação integrada · texto e referências).
   const maxReferences = adapter.limits?.("generate_asset").maxReferences;
   if (input.references.length > 0 && maxReferences !== undefined && input.references.length > maxReferences) {
-    throw new DomainFailure("capability_missing", `O perfil ${input.providerProfileId} aceita até ${maxReferences} referência(s); o pedido tem ${input.references.length}`, {
+    throw new DomainFailure("capability_missing", tx(`O perfil ${input.providerProfileId} aceita até ${maxReferences} referência(s); o pedido tem ${input.references.length}`, `Provider profile ${input.providerProfileId} accepts up to ${maxReferences} reference(s); the request has ${input.references.length}`), {
       maxReferences,
       requested: input.references.length,
     });
@@ -211,13 +212,13 @@ export function buildGenerationPlan(studio: Studio, projectId: string, rawInput:
   const sources = input.references.map((ref, ordinal) => {
     const revision = getRevision(studio.db, projectId, ref.revisionId);
     const file = revision.files.find((f) => f.fileKey === ref.fileKey);
-    if (!file) throw new DomainFailure("not_found", `Arquivo ${ref.fileKey} não existe na revisão ${ref.revisionId}`);
-    if (revision.status !== "approved") throw new DomainFailure("source_not_approved", `Referência r${revision.number} ainda não foi aprovada`);
+    if (!file) throw new DomainFailure("not_found", tx(`Arquivo ${ref.fileKey} não existe na revisão ${ref.revisionId}`, `File ${ref.fileKey} does not exist in revision ${ref.revisionId}`));
+    if (revision.status !== "approved") throw new DomainFailure("source_not_approved", tx(`Referência r${revision.number} ainda não foi aprovada`, `Reference r${revision.number} has not been approved yet`));
     return { ordinal, revisionId: revision.id, fileId: ref.fileKey, sha256: file.sha256, role: ref.role };
   });
   const missing = required.filter((c) => !adapter.capabilities("generate_asset").includes(c));
   if (missing.length > 0) {
-    throw new DomainFailure("capability_missing", `O perfil ${input.providerProfileId} não oferece: ${missing.join(", ")}`, { missing });
+    throw new DomainFailure("capability_missing", tx(`O perfil ${input.providerProfileId} não oferece: ${missing.join(", ")}`, `Provider profile ${input.providerProfileId} does not offer: ${missing.join(", ")}`), { missing });
   }
   const [w, h] = input.params.logicalSize;
   const submissions = Math.max(1, Math.min(input.params.variants, adapter.submissionsFor?.("generate_asset", input.params.variants) ?? input.params.variants));
@@ -279,14 +280,14 @@ export function resolveLocalInput(studio: Studio, projectId: string, ref: z.infe
     case "upload": {
       const upload = getUpload(studio.db, projectId, ref.uploadId);
       if (upload.status !== "ready" || upload.modality !== "raster") {
-        throw new DomainFailure("validation_failed", `Upload ${upload.originalName} não é uma imagem pronta para processar`);
+        throw new DomainFailure("validation_failed", tx(`Upload ${upload.originalName} não é uma imagem pronta para processar`, `Upload ${upload.originalName} is not an image ready for processing`));
       }
       return upload.normalizedSha256 ?? upload.sha256;
     }
     case "revision": {
       const file = getRevision(studio.db, projectId, ref.revisionId).files.find((f) => f.fileKey === ref.fileKey);
-      if (!file) throw new DomainFailure("not_found", `Arquivo ${ref.fileKey} não existe na revisão`);
-      if (file.mime !== "image/png") throw new DomainFailure("validation_failed", `${ref.fileKey} não é PNG`);
+      if (!file) throw new DomainFailure("not_found", tx(`Arquivo ${ref.fileKey} não existe na revisão`, `File ${ref.fileKey} does not exist in the revision`));
+      if (file.mime !== "image/png") throw new DomainFailure("validation_failed", tx(`${ref.fileKey} não é PNG`, `${ref.fileKey} is not a PNG`));
       return file.sha256;
     }
     case "job_output":
@@ -297,11 +298,11 @@ export function resolveLocalInput(studio: Studio, projectId: string, ref: z.infe
 export function jobOutput(studio: Studio, projectId: string, jobId: string, index: number) {
   const job = studio.queue.getForProject(projectId, jobId);
   if (job.kind !== "local_process" || job.state !== "succeeded") {
-    throw new DomainFailure("not_found", "Saída disponível apenas para processamento local concluído");
+    throw new DomainFailure("not_found", tx("Saída disponível apenas para processamento local concluído", "Output is only available for a completed local process"));
   }
   const result = JSON.parse(job.result_json!) as LocalProcessResult;
   const output = result.outputs[index];
-  if (!output) throw new DomainFailure("not_found", `Saída ${index} não existe neste job`);
+  if (!output) throw new DomainFailure("not_found", tx(`Saída ${index} não existe neste job`, `Output ${index} does not exist in this job`));
   return { ...output, result };
 }
 
@@ -309,9 +310,9 @@ export function submitJob(studio: Studio, projectId: string, input: z.infer<type
   getProject(studio.db, projectId);
   if (input.kind === "generation") {
     const { plan, planDigest, targetAssetId } = input.request;
-    if (plan.projectId !== projectId) throw new DomainFailure("cross_project_reference", "Plano pertence a outro projeto");
+    if (plan.projectId !== projectId) throw new DomainFailure("cross_project_reference", tx("Plano pertence a outro projeto", "Plan belongs to another project"));
     if (canonicalDigest(plan) !== planDigest) {
-      throw new DomainFailure("validation_failed", "O plano mudou desde a prévia; recalcule antes de enviar");
+      throw new DomainFailure("validation_failed", tx("O plano mudou desde a prévia; recalcule antes de enviar", "The plan changed since the preview; recalculate it before submitting"));
     }
     const issues = validatePlanReferences(plan, catalogLookup(studio.db));
     if (issues.length > 0) {
@@ -323,15 +324,15 @@ export function submitJob(studio: Studio, projectId: string, input: z.infer<type
     if (pipeline) {
       pipeline.validateTarget({ db: studio.db, projectId, plan, asset });
     } else if (plan.operation !== "generate_asset") {
-      throw new DomainFailure("capability_missing", `Envio de ${plan.operation} entra com o cartão responsável`);
+      throw new DomainFailure("capability_missing", tx(`Envio de ${plan.operation} entra com o cartão responsável`, `Submitting ${plan.operation} comes with the card that owns it`));
     } else if (asset.family !== plan.params.family || asset.kind !== plan.params.kind) {
-      throw new DomainFailure("validation_failed", `O asset é ${asset.family}/${asset.kind}; o plano gera outro tipo`);
+      throw new DomainFailure("validation_failed", tx(`O asset é ${asset.family}/${asset.kind}; o plano gera outro tipo`, `The asset is ${asset.family}/${asset.kind}; the plan generates a different type`));
     }
     // Falta de capacidade ou de credencial bloqueia antes de qualquer cobrança.
     studio.providers.assertReady(plan.providerProfileId);
     const adapter = studio.providers.adapterFor(plan.providerProfileId);
     const missing = plan.requiredCapabilities.filter((c) => !adapter.capabilities(plan.operation).includes(c));
-    if (missing.length > 0) throw new DomainFailure("capability_missing", `O perfil não oferece: ${missing.join(", ")}`, { missing });
+    if (missing.length > 0) throw new DomainFailure("capability_missing", tx(`O perfil não oferece: ${missing.join(", ")}`, `The provider profile does not offer: ${missing.join(", ")}`), { missing });
   }
   let request: unknown = input.request;
   if (input.kind === "local_process") {
@@ -346,7 +347,7 @@ export function submitJob(studio: Studio, projectId: string, input: z.infer<type
       recipe: input.request.recipe,
     });
     if (!check.success) {
-      throw new DomainFailure("validation_failed", "Receita inválida para a operação", {
+      throw new DomainFailure("validation_failed", tx("Receita inválida para a operação", "Invalid recipe for this operation"), {
         issues: check.error.issues.slice(0, 10).map((i) => ({ path: i.path.map(String), message: i.message })),
       });
     }
@@ -439,7 +440,7 @@ export const PublishRevisionInput = z.discriminatedUnion("from", [
 
 function blobOrFail(studio: Studio, sha256: string): BlobRecord {
   const blob = getBlob(studio.db, sha256);
-  if (!blob) throw new DomainFailure("internal", `Blob ${sha256} sem registro`);
+  if (!blob) throw new DomainFailure("internal", tx(`Blob ${sha256} sem registro`, `Blob ${sha256} has no record`));
   return blob;
 }
 
@@ -453,7 +454,7 @@ function resolveImage(studio: Studio, projectId: string, ref: z.infer<typeof Ima
         : resolveLocalInput(studio, projectId, { kind: "job_output", jobId: ref.jobId, outputIndex: ref.outputIndex });
   const blob = blobOrFail(studio, sha);
   const { width, height } = blob.metadata as { width?: number; height?: number };
-  if (!width || !height) throw new DomainFailure("validation_failed", "Imagem sem dimensões medidas");
+  if (!width || !height) throw new DomainFailure("validation_failed", tx("Imagem sem dimensões medidas", "Image has no measured dimensions"));
   return { ...blob, width, height };
 }
 
@@ -462,7 +463,7 @@ export function publishUiComponent(studio: Studio, projectId: string, assetId: s
   const input = UiComponentInput.parse(raw); // aplica os padrões (estados exigidos, alinhamento, esticamento)
   const asset = getAsset(studio.db, projectId, assetId);
   if (asset.family !== "ui" || asset.kind !== input.kind) {
-    throw new DomainFailure("validation_failed", `O asset é ${asset.family}/${asset.kind}; o componente é ui/${input.kind}`);
+    throw new DomainFailure("validation_failed", tx(`O asset é ${asset.family}/${asset.kind}; o componente é ui/${input.kind}`, `The asset is ${asset.family}/${asset.kind}; the component is ui/${input.kind}`));
   }
   const styleRevisionId = getProject(studio.db, projectId).activeStyleRevisionId;
   if (input.kind === "panel") {
@@ -485,12 +486,12 @@ export function publishUiComponent(studio: Studio, projectId: string, assetId: s
   }
   const states = input.states.map((s) => ({ state: s.state, image: resolveImage(studio, projectId, s.image) }));
   const normal = states.find((s) => s.state === "normal");
-  if (!normal) throw new DomainFailure("validation_failed", "Botão exige a imagem do estado normal");
+  if (!normal) throw new DomainFailure("validation_failed", tx("Botão exige a imagem do estado normal", "A button requires the normal-state image"));
   const [w, h] = [normal.image.width, normal.image.height];
   const off = states.find((s) => s.image.width !== w || s.image.height !== h);
-  if (off) throw new DomainFailure("validation_failed", `Estado ${off.state} tem ${off.image.width}×${off.image.height}; todos os estados mantêm a célula ${w}×${h}`);
+  if (off) throw new DomainFailure("validation_failed", tx(`Estado ${off.state} tem ${off.image.width}×${off.image.height}; todos os estados mantêm a célula ${w}×${h}`, `State ${off.state} is ${off.image.width}×${off.image.height}; every state keeps the ${w}×${h} cell`));
   const focus = input.focus ? resolveImage(studio, projectId, input.focus.image) : null;
-  if (focus && (focus.width !== w || focus.height !== h)) throw new DomainFailure("validation_failed", `Foco tem ${focus.width}×${focus.height}; esperado ${w}×${h}`);
+  if (focus && (focus.width !== w || focus.height !== h)) throw new DomainFailure("validation_failed", tx(`Foco tem ${focus.width}×${focus.height}; esperado ${w}×${h}`, `Focus is ${focus.width}×${focus.height}; expected ${w}×${h}`));
   const present = new Set(states.map((s) => s.state));
   return publishRevision(studio.db, studio.clock, {
     projectId,
@@ -522,10 +523,10 @@ export function publishFromSource(studio: Studio, projectId: string, assetId: st
   const asset = getAsset(studio.db, projectId, assetId);
   if (input.from === "upload") {
     // Imagem importada vira candidata de ícone; outras famílias usam o editor próprio.
-    if (asset.family !== "item") throw new DomainFailure("capability_missing", "Criar a partir de upload está disponível para itens; outras famílias usam seus editores");
+    if (asset.family !== "item") throw new DomainFailure("capability_missing", tx("Criar a partir de upload está disponível para itens; outras famílias usam seus editores", "Creating from an upload is available for items; other families use their own editors"));
     const upload = getUpload(studio.db, projectId, input.uploadId);
     if (upload.status !== "ready" || upload.modality !== "raster" || !upload.normalizedSha256) {
-      throw new DomainFailure("validation_failed", "O upload precisa ser uma imagem já normalizada");
+      throw new DomainFailure("validation_failed", tx("O upload precisa ser uma imagem já normalizada", "The upload must be an already normalized image"));
     }
     const normalized = blobOrFail(studio, upload.normalizedSha256);
     const { width, height } = normalized.metadata as { width: number; height: number };
@@ -550,19 +551,19 @@ export function publishFromSource(studio: Studio, projectId: string, assetId: st
 
   // Derivado local: mesma estrutura da revisão-base, com um arquivo substituído na mesma grade.
   const base = getRevision(studio.db, projectId, input.baseRevisionId);
-  if (base.assetId !== asset.id) throw new DomainFailure("validation_failed", "A revisão-base pertence a outro asset");
+  if (base.assetId !== asset.id) throw new DomainFailure("validation_failed", tx("A revisão-base pertence a outro asset", "The base revision belongs to another asset"));
   const output = jobOutput(studio, projectId, input.jobId, input.outputIndex);
   const replaced = base.files.find((f) => f.fileKey === input.fileKey);
-  if (!replaced) throw new DomainFailure("not_found", `Arquivo ${input.fileKey} não existe na revisão-base`);
+  if (!replaced) throw new DomainFailure("not_found", tx(`Arquivo ${input.fileKey} não existe na revisão-base`, `File ${input.fileKey} does not exist in the base revision`));
   const { width, height } = replaced.metadata as { width?: number; height?: number };
   if (width !== output.width || height !== output.height) {
     throw new DomainFailure(
       "validation_failed",
-      `A saída tem ${output.width}×${output.height} e o arquivo ${input.fileKey} tem ${width}×${height}; operações que mudam a grade são publicadas pelo editor da família`,
+      tx(`A saída tem ${output.width}×${output.height} e o arquivo ${input.fileKey} tem ${width}×${height}; operações que mudam a grade são publicadas pelo editor da família`, `The output is ${output.width}×${output.height} and file ${input.fileKey} is ${width}×${height}; operations that change the grid are published by the family editor`),
     );
   }
   const parsed = parseRevisionPayload(asset.family, asset.kind, base.payload);
-  if (!parsed.success) throw new DomainFailure("internal", "Payload da revisão-base não passa no schema");
+  if (!parsed.success) throw new DomainFailure("internal", tx("Payload da revisão-base não passa no schema", "Base revision payload does not pass the schema"));
   const referenced = new Set(entryRefs(parsed.entry).files.map((f) => f.fileId));
   const files = base.files
     .filter((f) => referenced.has(f.fileKey))

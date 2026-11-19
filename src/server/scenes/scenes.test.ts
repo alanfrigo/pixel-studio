@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MapObjectPayload, SceneLayerPayload, ScenePayload, TilemapPayload } from "@/contracts";
+import type { LocalizedText } from "@/i18n/locales";
 import { validateManifest } from "@/domain/manifest/validate";
 import { createImage, encodePng, fillRect, setPixel } from "@/lib/media/png";
 import { readZip } from "@/lib/zip";
@@ -78,11 +79,11 @@ describe.skipIf(!existsSync(PYTHON))("cenas e paralaxe (cartão T2)", { timeout:
     expect(r.error).toBeNull();
     expect(r.planned.plan.prompt.compiled).not.toMatch(/#[0-9a-f]{6}/i);
     expect(r.planned.plan.prompt.compiled).toMatch(/ponte de madeira; rio/);
-    expect((r.planned as unknown as { routeLabel: string }).routeLabel).toMatch(/não contém mapa, colisões nem objetos/);
+    expect((r.planned as unknown as { routeLabel: LocalizedText }).routeLabel["pt-BR"]).toMatch(/não contém mapa, colisões nem objetos/);
     const rev = getRevision(studio.db, project.id, r.result!.revisionIds[0]!);
     const scene = ScenePayload.parse(rev.payload);
     expect(scene).toMatchObject({ outputKind: "flat_image", layers: [], cameraTest: null, editable: { map: false, collisions: false, objects: false }, logicalSize: [240, 160] });
-    expect((rev.technicalReport as { notAMap: string }).notAMap).toMatch(/não são objetos/);
+    expect((rev.technicalReport as { notAMap: LocalizedText }).notAMap).toMatchObject({ "pt-BR": expect.stringMatching(/não são objetos/), en: expect.stringMatching(/not objects/) });
     expect((rev.technicalReport as { receivedSize: number[] }).receivedSize).toEqual([480, 320]);
     approve(project.id, rev.id);
 
@@ -139,7 +140,7 @@ describe.skipIf(!existsSync(PYTHON))("cenas e paralaxe (cartão T2)", { timeout:
     expect(seam.error).toBeNull();
     approve(project.id, seam.result!.revisionIds[0]!);
     const fixed = await publishSceneLayer(studio, project.id, badAsset.id, { image: { from: "revision", revisionId: seam.result!.revisionIds[0]!, fileKey: "layer" }, depth: "far", repeatX: true, unshift: true, sourceRevisionId: bad.revision.id });
-    expect((fixed.revision.technicalReport as { routeLabel: string }).routeLabel).toMatch(/emenda corrigida por inpainting/);
+    expect((fixed.revision.technicalReport as { routeLabel: LocalizedText }).routeLabel["pt-BR"]).toMatch(/emenda corrigida por inpainting/);
     expect(SceneLayerPayload.parse(fixed.revision.payload)).toMatchObject({ requestedRepeat: { x: true }, continuity: { x: { passed: true } }, repeat: { x: true } });
 
     // Derivar um plano de uma imagem plana: recorte com máscara revisada + fundo reconstruído por inpainting (E1).
@@ -151,7 +152,7 @@ describe.skipIf(!existsSync(PYTHON))("cenas e paralaxe (cartão T2)", { timeout:
     fillRect(maskImg, 20, 10, 14, 30, [255, 255, 255, 255]);
     const cut = await cutSceneLayer(studio, project.id, { sceneRevisionId: flat.result!.revisionIds[0]!, maskUploadId: await upload(project.id, "arvore.png", encodePng(maskImg)) });
     expect(cut.report).toMatchObject({ pieceRect: [20, 10, 14, 30], needsReconstruction: true });
-    expect(cut.label).toMatch(/inpainting \(E1\)/);
+    expect(cut.label["pt-BR"]).toMatch(/inpainting \(E1\)/);
     const nearAsset = createAsset(studio.db, studio.clock, { projectId: project.id, family: "map", kind: "scene_layer", name: "árvore (derivada)" });
     const near = await publishSceneLayer(studio, project.id, nearAsset.id, { image: { from: "upload", uploadId: cut.pieceUploadId }, depth: "near", repeatX: false, derivation: { sourceRevisionId: flat.result!.revisionIds[0]!, maskUploadId: cut.areaMaskUploadId, hiddenAreas: "transparent_reviewed" } });
     expect(SceneLayerPayload.parse(near.revision.payload)).toMatchObject({ obtained: "derived_local_reviewed", derivation: { hiddenAreas: "transparent_reviewed" } });

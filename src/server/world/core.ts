@@ -1,5 +1,6 @@
 import { type StylePayload, TexturePayload } from "@/contracts";
 import { colorName } from "@/domain/color-names";
+import { type LocalizedText, tx } from "@/i18n/locales";
 
 /**
  * Núcleo do mundo (T1) sem dependência dos casos de uso HTTP: usado pelos
@@ -48,15 +49,15 @@ export function texturePayloadFrom(report: SeamReport, o: { fileId: string; mate
   });
 }
 
-export function seamVerdict(report: SeamReport, axes: { x: boolean; y: boolean }): string {
-  const parts = (["x", "y"] as const)
-    .filter((a) => axes[a])
-    .map((a) => {
-      const r = report[a]!;
-      return `${a.toUpperCase()}: ${r.passed ? "aprovado" : "reprovado"} (emenda/interior ${r.ratio} ≤ ${report.threshold}?)`;
-    });
-  const failed = (["x", "y"] as const).filter((a) => axes[a] && !report[a]?.passed);
-  return `${parts.join(" · ")}${failed.length ? ` — não repetível em ${failed.join(" e ").toUpperCase()}; candidata guardada como amostra de material` : ""}`;
+export function seamVerdict(report: SeamReport, axes: { x: boolean; y: boolean }): LocalizedText {
+  const requested = (["x", "y"] as const).filter((a) => axes[a]);
+  const failed = requested.filter((a) => !report[a]?.passed);
+  const pt = requested.map((a) => `${a.toUpperCase()}: ${report[a]!.passed ? "aprovado" : "reprovado"} (emenda/interior ${report[a]!.ratio} ≤ ${report.threshold}?)`);
+  const en = requested.map((a) => `${a.toUpperCase()}: ${report[a]!.passed ? "passed" : "failed"} (seam/interior ${report[a]!.ratio} ≤ ${report.threshold}?)`);
+  return tx(
+    `${pt.join(" · ")}${failed.length ? ` — não repetível em ${failed.join(" e ").toUpperCase()}; candidata guardada como amostra de material` : ""}`,
+    `${en.join(" · ")}${failed.length ? ` — does not tile on ${failed.join(" and ").toUpperCase()}; candidate kept as a material sample` : ""}`,
+  );
 }
 
 const LIGHT_WORDS: Record<string, { "pt-BR": string; en: string }> = {

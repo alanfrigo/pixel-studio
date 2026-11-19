@@ -2,11 +2,15 @@
 
 import { useRef } from "react";
 import type { JobView } from "@/server/jobs/queue";
-import { apiFetch } from "@/app/client/api";
+import { apiFetch, errorMessage } from "@/app/client/api";
 import { usePoll } from "@/app/client/use-poll";
+import { useLocale, useMessages } from "@/i18n/client";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
 
 /** Acompanha um job de geração até concluir e avisa o painel para recarregar o catálogo. */
 export function JobStatus({ projectId, jobId, onDone }: { projectId: string; jobId: string; onDone: () => void }) {
+  const locale = useLocale();
+  const c = useMessages(commonMessages);
   const notified = useRef(false);
   const { data } = usePoll(
     async () => {
@@ -20,11 +24,11 @@ export function JobStatus({ projectId, jobId, onDone }: { projectId: string; job
     { active: (job) => job.state === "queued" || job.state === "running", fastMs: 800, slowMs: 30_000 },
   );
   if (!data) return <p className="small muted">Job {jobId}…</p>;
-  const error = data.error as { message?: string } | null;
+  const error = errorMessage(data.error, locale);
   return (
     <p className="small">
-      Job {data.id}: <span className={`badge state-${data.state}`}>{data.state}</span> {data.stage ? `· etapa ${data.stage}` : ""}
-      {error?.message ? <span className="error"> · {error.message}</span> : null}
+      Job {data.id}: <span className={`badge state-${data.state}`}>{labelOf(c.jobState, data.state)}</span> {data.stage ? `· ${c.stage(data.stage)}` : ""}
+      {error ? <span className="error"> · {error}</span> : null}
     </p>
   );
 }

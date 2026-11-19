@@ -1,3 +1,4 @@
+import { pick, type TextValue, tx } from "@/i18n/locales";
 import path from "node:path";
 import type { ClipPayload, CoverageStrip, GenerationPlan, OverlayPayload } from "@/contracts";
 import { defaultDrawIndex } from "@/domain/equipment/template";
@@ -34,7 +35,7 @@ export type CoveragePlan = EquipmentPlan & { params: Extract<EquipmentPlan["para
 function stripOf(plan: GenerationPlan, part: PartRow | undefined): CoverageStrip {
   if (plan.operation !== "generate_overlay_coverage" || plan.params.mode !== "coverage") throw new Error("inalcançável");
   const strip = part ? plan.params.strips.find((s) => `strip:${s.stripKey}` === part.part_key) : plan.params.strips.length === 1 ? plan.params.strips[0] : undefined;
-  if (!strip) throw new DomainFailure("internal", `Parte ${part?.part_key ?? "?"} não corresponde a nenhuma tira do plano`);
+  if (!strip) throw new DomainFailure("internal", tx(`Parte ${part?.part_key ?? "?"} não corresponde a nenhuma tira do plano`, `Part ${part?.part_key ?? "?"} does not match any strip of the plan`));
   return strip;
 }
 
@@ -108,21 +109,21 @@ export async function stripGuide(env: PipelineEnv | Pick<PipelineEnv, "blobs" | 
 
 function sizeOf(bytes: Uint8Array): [number, number] {
   const info = readPngInfo(bytes);
-  if (!info) throw new DomainFailure("validation_failed", "Referência não é PNG");
+  if (!info) throw new DomainFailure("validation_failed", tx("Referência não é PNG", "Reference is not a PNG"));
   return [info.width, info.height];
 }
 
 /** Resposta do provedor → tela lógica (grade aparente, cor-chave, só fator de escala; nunca esticar). */
 async function normalizeCandidate(env: PipelineEnv, sha256: string, dir: string, target: [number, number], key: string | null, opts: { crop: boolean }) {
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
-  if (ingest.status === "error") throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+  if (ingest.status === "error") throw new DomainFailure("validation_failed", tx(`Resposta do provedor não é uma imagem utilizável: ${pick(ingest.message, "pt-BR")}`, `Provider response is not a usable image: ${pick(ingest.message, "en")}`), { code: ingest.code });
   let out = ingest.outputs.find((o) => o.role === "normalized")!;
   const steps: Record<string, unknown>[] = [];
-  const warnings = [...ingest.warnings];
+  const warnings: TextValue[] = [...ingest.warnings];
   const step = async (name: "unzoom" | "remove_background_flood" | "fit_logical", recipe: Record<string, unknown>, role: string) => {
     const current = await env.blobs.putFile(out.absolutePath);
     const result = await python(env, path.join(dir, name), name, current.sha256, recipe);
-    if (result.status === "error") throw new DomainFailure("validation_failed", `Etapa ${name} falhou: ${result.message}`, { code: result.code });
+    if (result.status === "error") throw new DomainFailure("validation_failed", tx(`Etapa ${name} falhou: ${pick(result.message, "pt-BR")}`, `Step ${name} failed: ${pick(result.message, "en")}`), { code: result.code });
     out = result.outputs.find((o) => o.role === role)!;
     warnings.push(...result.warnings);
     steps.push({ operation: name, ...result.report });
@@ -218,7 +219,7 @@ async function processRigid(env: PipelineEnv, plan: EquipmentPlan, sha256: strin
     ...(out.rgbaSha256 ? { rgbaSha256: out.rgbaSha256 } : {}),
     receivedSize: ingest.report.size as [number, number],
     steps,
-    warnings: [...warnings, "Empunhaduras vêm do gabarito declarado: confira no editor se caem sobre o cabo"],
+    warnings: [...warnings, tx("Empunhaduras vêm do gabarito declarado: confira no editor se caem sobre o cabo", "Grips come from the declared template: check in the editor that they sit on the handle")],
     details: { kind: "rigid", viewId: plan.params.viewId },
   };
   return { processed, stored };
@@ -234,12 +235,12 @@ function publishEquipment(ctx: HandlerContext, plan: EquipmentPlan, asset: Asset
     : { itemRevisionId: null, rigRevisionId: params.rigRevisionId, slots: params.slots, stances: params.stances, parts: [], rigidViews: [] };
   const files: PublishFile[] = base ? reuseFiles(ctx.db, base.revision, "equipment", "overlay", base.payload) : [];
   const report: Record<string, unknown>[] = [];
-  const warnings: string[] = [];
+  const warnings: TextValue[] = [];
   const allRows = plan.parts.flatMap((p) => partResults(ctx, p.partKey).map((row) => ({ partKey: p.partKey, row, processed: parseJson<ProcessedPart>(row.processed_json)! })));
 
   if (params.mode === "rigid_view") {
     const first = allRows[0];
-    if (!first) throw new DomainFailure("validation_failed", "Resposta sem imagem da vista");
+    if (!first) throw new DomainFailure("validation_failed", tx("Resposta sem imagem da vista", "Response has no image of the view"));
     const fileKey = `view-${params.viewId}`;
     const blob = mustBlob(ctx.db, first.processed.normalizedSha256);
     const { width = params.size[0], height = params.size[1] } = blob.metadata as { width?: number; height?: number };
@@ -274,7 +275,12 @@ function publishEquipment(ctx: HandlerContext, plan: EquipmentPlan, asset: Asset
         const wanted = strip?.frames.find((f) => f.frameId === cell.frameId)?.parts;
         if (wanted && !wanted.includes(cell.partId)) continue; // célula já coberta: o frame veio por outra parte em lacuna
         if (cell.empty || !cell.sha256 || !cell.rect || !cell.offset) {
-          warnings.push(`${d.stripKey}/${cell.frameId}/${cell.partId}: nada extraído dentro da zona; célula deixada como lacuna`);
+          warnings.push(
+            tx(
+              `${d.stripKey}/${cell.frameId}/${cell.partId}: nada extraído dentro da zona; célula deixada como lacuna`,
+              `${d.stripKey}/${cell.frameId}/${cell.partId}: nothing extracted inside the zone; cell left as a gap`,
+            ),
+          );
           continue;
         }
         // O hash no nome evita colisão com arquivos herdados da revisão de origem.
@@ -291,7 +297,14 @@ function publishEquipment(ctx: HandlerContext, plan: EquipmentPlan, asset: Asset
     }
     const extracted = allRows.flatMap(({ processed }) => (processed.details as { cells: { empty: boolean }[] }).cells).filter((c) => !c.empty).length;
     if (extracted === 0) {
-      throw new DomainFailure("validation_failed", "O candidato não trouxe nada da peça dentro da zona autorizada em nenhum frame; nada foi publicado (as respostas brutas ficam guardadas no job)", { warnings });
+      throw new DomainFailure(
+        "validation_failed",
+        tx(
+          "O candidato não trouxe nada da peça dentro da zona autorizada em nenhum frame; nada foi publicado (as respostas brutas ficam guardadas no job)",
+          "The candidate brought nothing of the piece inside the authorized zone in any frame; nothing was published (the raw responses stay stored in the job)",
+        ),
+        { warnings },
+      );
     }
     // Poses equivalentes: a mesma arte (mesmo arquivo, retângulo e offset) vinculada ao frame novo.
     for (const r of params.reused) {
@@ -330,9 +343,9 @@ function publishEquipment(ctx: HandlerContext, plan: EquipmentPlan, asset: Asset
 export const equipmentPipeline: OperationPipeline = {
   validateTarget({ db, projectId, plan, asset }) {
     if (plan.operation !== "generate_overlay_coverage") throw new Error("inalcançável");
-    if (asset.family !== "equipment" || asset.kind !== "overlay") throw new DomainFailure("validation_failed", `A peça publica num asset equipment/overlay; o alvo é ${asset.family}/${asset.kind}`);
+    if (asset.family !== "equipment" || asset.kind !== "overlay") throw new DomainFailure("validation_failed", tx(`A peça publica num asset equipment/overlay; o alvo é ${asset.family}/${asset.kind}`, `The piece publishes to an equipment/overlay asset; the target is ${asset.family}/${asset.kind}`));
     if (plan.params.overlayRevisionId && getRevision(db, projectId, plan.params.overlayRevisionId).assetId !== asset.id) {
-      throw new DomainFailure("validation_failed", "A cobertura nova publica no asset da própria peça");
+      throw new DomainFailure("validation_failed", tx("A cobertura nova publica no asset da própria peça", "New coverage publishes to the piece's own asset"));
     }
   },
   loadInputs: (ctx, plan, _adapter, part) => loadEquipmentInputs(ctx, plan as EquipmentPlan, part),

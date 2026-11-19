@@ -19,6 +19,7 @@
  */
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pick } from "@/i18n/locales";
 import type { OverlayPayload } from "@/contracts";
 import { createProject, getAsset, getProject, getRevision, reviewRevision } from "@/server/catalog/catalog";
 import { loadConfig, loadDotEnv, REPO_ROOT } from "@/server/config";
@@ -141,7 +142,7 @@ async function contactSheet(name: string, frames: Uint8Array[], cell: [number, n
     shas.map((sha256) => ({ role: "layer", sha256 })),
     { version: 1, cell, zoom: 4, background, columns: frames.length, gap: 8 },
   );
-  if (out.status === "error") throw new Error(out.message);
+  if (out.status === "error") throw new Error(pick(out.message, "pt-BR"));
   await copyFile(out.outputs[0]!.absolutePath, path.join(outDir, `${name}.png`));
   return `${name}.png`;
 }

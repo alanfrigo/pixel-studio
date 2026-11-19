@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DurationMs, Id, Playback, PosInt, Slug } from "@/contracts";
+import { type LocalizedText, tx } from "@/i18n/locales";
 
 /**
  * Presets de ação versionados (04 §um clique). Cada preset fixa ação, roteiro
@@ -146,6 +147,25 @@ const presets: ActionPreset[] = [
     poseRecipe: "hurt_recoil",
   },
 ];
+
+/**
+ * Rótulo e intenção de cada preset nos dois idiomas da interface. Ficam fora
+ * do preset de propósito: o digest da versão (fonte congelada nos planos) não
+ * muda; `label`/`intent` do preset continuam em português.
+ */
+const PRESET_TEXT: Record<string, { label: LocalizedText; intent: LocalizedText }> = {
+  idle: { label: tx("Respirar parado", "Idle breathing"), intent: tx("Oscilação leve, pés em contato.", "Slight sway, feet stay planted.") },
+  walk: { label: tx("Caminhar", "Walk"), intent: tx("Marcar os contatos alternados.", "Mark the alternating foot contacts.") },
+  run: { label: tx("Correr", "Run"), intent: tx("Alongar a passada e preservar a fase aérea.", "Lengthen the stride and keep the airborne phase.") },
+  "attack-shield": { label: tx("Ataque curto com escudo", "Short attack with shield"), intent: tx("Separar preparação, contato e recuperação.", "Separate wind-up, contact and recovery.") },
+  "attack-two-handed": { label: tx("Golpe amplo com duas mãos", "Wide two-handed swing"), intent: tx("Guardas e poses corporais próprias do golpe amplo.", "Guards and body poses specific to the wide swing.") },
+  hurt: { label: tx("Recuo ao ser atingido", "Recoil when hit"), intent: tx("Recuo legível, retorno à pose de transição.", "Readable recoil, back to the transition pose.") },
+};
+
+/** Rótulo e intenção bilíngues do preset (preset sem tradução repete o texto original nos dois idiomas). */
+export function presetText(preset: Pick<ActionPreset, "key" | "label" | "intent">): { label: LocalizedText; intent: LocalizedText } {
+  return PRESET_TEXT[preset.key] ?? { label: tx(preset.label, preset.label), intent: tx(preset.intent, preset.intent) };
+}
 
 /** Presets embutidos, validados ao carregar o módulo. */
 export const BUILTIN_PRESETS: readonly ActionPreset[] = presets.map((p) => ActionPreset.parse(p));

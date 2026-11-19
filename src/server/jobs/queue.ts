@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import type { CostAmount, JobKind, JobStage, JobState, RemoteSubmission } from "@/contracts";
 import { canonicalDigest } from "@/domain/canonical-json";
 import type { Db } from "../db/connection";
@@ -149,7 +150,7 @@ export class JobQueue {
         if (existing.request_digest !== digest) {
           throw new DomainFailure(
             "idempotency_conflict",
-            "A mesma chave de idempotência já foi usada com outro pedido",
+            tx("A mesma chave de idempotência já foi usada com outro pedido", "The same idempotency key was already used with a different request"),
             { idempotencyKey: input.idempotencyKey },
             existing.id,
           );
@@ -184,13 +185,13 @@ export class JobQueue {
 
   getForProject(projectId: string, jobId: string): JobRow {
     const job = this.db.get<JobRow>("SELECT * FROM jobs WHERE id = :id AND project_id = :p", { id: jobId, p: projectId });
-    if (!job) throw new DomainFailure("not_found", "Job não encontrado neste projeto");
+    if (!job) throw new DomainFailure("not_found", tx("Job não encontrado neste projeto", "Job not found in this project"));
     return job;
   }
 
   private mustGet(jobId: string): JobRow {
     const job = this.get(jobId);
-    if (!job) throw new DomainFailure("not_found", `Job ${jobId} não encontrado`);
+    if (!job) throw new DomainFailure("not_found", tx(`Job ${jobId} não encontrado`, `Job ${jobId} not found`));
     return job;
   }
 
@@ -253,10 +254,12 @@ export class JobQueue {
           {
             id: job.id,
             now,
-            err: JSON.stringify({
-              code: "internal",
-              message: `A execução foi interrompida ${job.attempt_count} vezes; confira o diagnóstico e tente de novo`,
-            }),
+            err: JSON.stringify(
+              new DomainFailure(
+                "internal",
+                tx(`A execução foi interrompida ${job.attempt_count} vezes; confira o diagnóstico e tente de novo`, `Execution was interrupted ${job.attempt_count} times; check the diagnostics and try again`),
+              ).toJSON(),
+            ),
           },
         );
       } else {
@@ -458,13 +461,13 @@ export class JobQueue {
     return this.db.transaction(() => {
       const job = this.getForProject(projectId, jobId);
       if (job.state !== "failed" && job.state !== "needs_attention") {
-        throw new DomainFailure("validation_failed", `Job em estado ${job.state} não pode ser retomado`, undefined, job.id);
+        throw new DomainFailure("validation_failed", tx(`Job em estado ${job.state} não pode ser retomado`, `A job in state ${job.state} cannot be resumed`), undefined, job.id);
       }
       const risky = this.parts(job.id).filter((p) => p.remote_state === "uncertain" || p.remote_state === "sending");
       if (risky.length > 0 && !opts.acknowledgePossibleCharge) {
         throw new DomainFailure(
           "submission_uncertain",
-          "Há envios cujo resultado e cobrança são desconhecidos; confirme que aceita uma possível nova cobrança",
+          tx("Há envios cujo resultado e cobrança são desconhecidos; confirme que aceita uma possível nova cobrança", "Some submissions have unknown results and charges; confirm that you accept a possible new charge"),
           { parts: risky.map((p) => p.part_key) },
           job.id,
         );

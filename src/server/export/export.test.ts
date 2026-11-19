@@ -114,7 +114,10 @@ describe("exportação portátil", () => {
       error = err;
     }
     expect(error).toMatchObject({ code: "coverage_incomplete", status: 422 });
-    expect((error as { details: { problems: { message: string }[] } }).details.problems[0]!.message).toMatch(/Poção azul r1 está aguardando revisão/);
+    expect((error as { details: { problems: { message: { "pt-BR": string; en: string } }[] } }).details.problems[0]!.message).toMatchObject({
+      "pt-BR": expect.stringMatching(/Poção azul r1 está aguardando revisão/),
+      en: expect.stringMatching(/Poção azul r1 is awaiting review/),
+    });
   });
 
   it("reabre o pacote exportado em outro projeto com os mesmos bytes", async () => {
@@ -159,6 +162,8 @@ describe("reabrir pacote pelo upload", () => {
     const rejected = getUpload(studio.db, third.id, bad.upload.id);
     expect(rejected.status).toBe("rejected");
     expect((rejected.error as { message: string }).message).toMatch(/SHA-256/);
+    // Upload recusado guarda os dois idiomas para a interface escolher.
+    expect(rejected.error).toMatchObject({ messages: { "pt-BR": expect.stringMatching(/SHA-256 diverge/), en: expect.stringMatching(/SHA-256 does not match/) } });
     expect(studio.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM assets WHERE project_id = :p", { p: third.id })?.n).toBe(0);
   });
 });

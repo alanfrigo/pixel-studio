@@ -1,5 +1,6 @@
 import { exportBlockers } from "@/domain/equipment/resolve";
 import { describeWhere, type Pendency } from "@/domain/equipment/types";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import type { Db } from "../db/connection";
 import { resolveLoadoutRevision } from "./resolve";
 
@@ -15,7 +16,7 @@ export interface LoadoutExportProblem extends Pendency {
   loadoutRevisionId: string;
   loadoutName: string;
   /** Texto do ponteiro exato, para a mensagem de erro. */
-  pointer: string;
+  pointer: LocalizedText;
 }
 
 export function equipmentExportProblems(db: Db, projectId: string, revisionIds: readonly string[]): LoadoutExportProblem[] {
@@ -34,8 +35,11 @@ export function equipmentExportProblems(db: Db, projectId: string, revisionIds: 
   return problems;
 }
 
-export function exportProblemMessage(problems: readonly LoadoutExportProblem[]): string {
+export function exportProblemMessage(problems: readonly LoadoutExportProblem[]): LocalizedText {
   const first = problems[0]!;
-  const more = problems.length > 1 ? ` (+${problems.length - 1} pendência(s))` : "";
-  return `${first.loadoutName}: ${first.message} — ${first.pointer}${more}. Exporte um subconjunto explicitamente completo ou resolva a pendência.`;
+  const extra = problems.length - 1;
+  return tx(
+    `${first.loadoutName}: ${first.message["pt-BR"]} — ${first.pointer["pt-BR"]}${extra > 0 ? ` (+${extra} pendência(s))` : ""}. Exporte um subconjunto explicitamente completo ou resolva a pendência.`,
+    `${first.loadoutName}: ${first.message.en} — ${first.pointer.en}${extra > 0 ? ` (+${extra} more issue(s))` : ""}. Export an explicitly complete subset or resolve the issue.`,
+  );
 }

@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { STATUS_LABEL, type View } from "./shared";
+import { useMessages } from "@/i18n/client";
+import { labelOf } from "@/i18n/messages/common";
+import { equipmentMessages } from "@/i18n/messages/equipment";
+import type { View } from "./shared";
 
 /**
  * Matriz de cobertura peça × clipe × frame × parte (04 §caso de ponta a
@@ -31,11 +34,14 @@ export function CoverageMatrix({
   onAction: (action: "create_coverage" | "mark_empty" | "remove_cell" | "rebind" | "place" | "create_for_base", cell: CellTarget, extra?: { viewId: string; anchorSocketId: string; drawIndex: number; mirrored: boolean }) => Promise<void>;
   rigidViews: Record<string, { viewId: string; grips: { socketId: string }[] }[]>;
 }) {
+  const em = useMessages(equipmentMessages);
+  const t = em.coverage;
+  const statusLabel = (state: string) => labelOf(em.shared.status, state);
   const m = view.matrix;
   const [selected, setSelected] = useState<{ r: number; c: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [place, setPlace] = useState({ viewId: "", drawIndex: 0, mirrored: false });
-  if (m.rows.length === 0) return <p className="small muted">Nenhuma peça no conjunto.</p>;
+  if (m.rows.length === 0) return <p className="small muted">{t.noPieces}</p>;
   const groups: { label: string; start: number; count: number }[] = [];
   m.columns.forEach((col, i) => {
     const label = `${col.action} · ${col.direction}`;
@@ -73,13 +79,13 @@ export function CoverageMatrix({
         <table className="eq-matrix">
           <thead>
             <tr>
-              <th rowSpan={2}>Peça · parte</th>
+              <th rowSpan={2}>{t.piecePart}</th>
               {groups.map((g) => (
                 <th key={g.label} colSpan={g.count}>
                   {g.label}
                 </th>
               ))}
-              <th rowSpan={2}>cobertas / total</th>
+              <th rowSpan={2}>{t.coveredTotal}</th>
             </tr>
             <tr>
               {m.columns.map((c, i) => (
@@ -93,13 +99,13 @@ export function CoverageMatrix({
             {m.rows.map((row, r) => (
               <tr key={`${row.overlayRevisionId}-${row.partId}`}>
                 <th style={{ textAlign: "left" }}>
-                  {row.overlayName} · {row.partId === "rigid" ? "vista rígida" : row.partId}
+                  {row.overlayName} · {row.partId === "rigid" ? t.rigidView : row.partId}
                 </th>
                 {m.cells[r]!.map((state, c) => (
                   <td
                     key={c}
                     className={`cell ${state}${selected?.r === r && selected.c === c ? " selected" : ""}`}
-                    title={`${row.overlayName} · ${row.partId} · ${m.columns[c]!.action}/${m.columns[c]!.direction} · ${m.columns[c]!.frameId}: ${STATUS_LABEL[state]}`}
+                    title={`${row.overlayName} · ${row.partId} · ${m.columns[c]!.action}/${m.columns[c]!.direction} · ${m.columns[c]!.frameId}: ${statusLabel(state)}`}
                     onClick={() => setSelected({ r, c })}
                   >
                     {state === "missing" ? "✕" : state === "stale" ? "↻" : state === "empty" ? "∅" : state === "incompatible" ? "–" : ""}
@@ -114,33 +120,33 @@ export function CoverageMatrix({
         </table>
       </div>
       <p className="small muted">
-        Total: {m.totals.covered} coberta(s), {m.totals.empty} vazia(s) explícita(s), {m.totals.missing} lacuna(s), {m.totals.stale} a revisar, {m.totals.incompatible} de outra base. Clique numa célula para agir.
+        {t.totals(m.totals)}
       </p>
       {cell && (
         <div className="row small" style={{ alignItems: "center" }}>
           <strong>
             {cell.overlayName} · {cell.partId} · {cell.action}/{cell.direction} · {cell.frameId}
           </strong>
-          <span className="muted">{STATUS_LABEL[cell.state]}</span>
+          <span className="muted">{statusLabel(cell.state)}</span>
           {cell.state === "incompatible" && (
             <button type="button" disabled={busy} onClick={() => run("create_for_base")}>
-              Criar cobertura para esta base
+              {t.createForBase}
             </button>
           )}
           {cell.state === "stale" && (
             <button type="button" disabled={busy} onClick={() => run("rebind")}>
-              Revincular cobertura (digest)
+              {t.rebind}
             </button>
           )}
           {cell.state === "missing" && cell.kind === "part" && (
             <button type="button" disabled={busy} onClick={() => run("create_coverage")}>
-              Criar cobertura (só lacunas)
+              {t.createCoverage}
             </button>
           )}
           {cell.state === "missing" && cell.kind === "rigid" && (
             <>
               <select value={place.viewId} onChange={(e) => setPlace((p) => ({ ...p, viewId: e.target.value }))}>
-                <option value="">vista…</option>
+                <option value="">{t.viewPlaceholder}</option>
                 {views.map((v) => (
                   <option key={v.viewId} value={v.viewId}>
                     {v.viewId}
@@ -148,11 +154,11 @@ export function CoverageMatrix({
                 ))}
               </select>
               <label>
-                ordem
+                {t.order}
                 <input type="number" value={place.drawIndex} style={{ width: 56 }} onChange={(e) => setPlace((p) => ({ ...p, drawIndex: Math.round(Number(e.target.value) || 0) }))} />
               </label>
               <label style={{ flexDirection: "row", gap: 4 }}>
-                <input type="checkbox" checked={place.mirrored} onChange={(e) => setPlace((p) => ({ ...p, mirrored: e.target.checked }))} /> espelhada
+                <input type="checkbox" checked={place.mirrored} onChange={(e) => setPlace((p) => ({ ...p, mirrored: e.target.checked }))} /> {t.mirrored}
               </label>
               <button
                 type="button"
@@ -162,18 +168,18 @@ export function CoverageMatrix({
                   return run("place", { viewId: v.viewId, anchorSocketId: v.grips[0]!.socketId, drawIndex: place.drawIndex, mirrored: place.mirrored });
                 }}
               >
-                Posicionar vista
+                {t.placeView}
               </button>
             </>
           )}
           {(cell.state === "missing" || cell.state === "covered") && (
             <button type="button" className="secondary" disabled={busy} onClick={() => run("mark_empty")}>
-              {cell.kind === "rigid" ? "Ocultar neste frame (vazia explícita)" : "Marcar célula vazia"}
+              {cell.kind === "rigid" ? t.hideInFrame : t.markEmpty}
             </button>
           )}
           {(cell.state === "covered" || cell.state === "empty") && (
             <button type="button" className="secondary" disabled={busy} onClick={() => run("remove_cell")}>
-              Remover (vira lacuna)
+              {t.remove}
             </button>
           )}
         </div>

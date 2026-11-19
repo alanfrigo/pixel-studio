@@ -133,7 +133,7 @@ def test_recorte_da_mesa_separa_sombra_e_aponta_reconstrucao(tmp_path):
     assert r["shadowRect"] == [24, 32, 17, 3] and r["shadowOffset"] == [2, 10]
     assert r["footY"] == 9 and r["suggestedSupport"] == [8, 10]
     assert r["needsReconstruction"] is True and r["contextOpaque"] == 1.0
-    assert res["status"] == "needs_review" and "inpainting" in res["warnings"][0]
+    assert res["status"] == "needs_review" and "inpainting" in res["warnings"][0]["pt-BR"] and "inpainting" in res["warnings"][0]["en"]
     piece = p.image(res, "piece")
     assert piece.size == (16, 10) and piece.getpixel((0, 0)) == (90, 50, 30, 255)
     sh = p.image(res, "shadow")

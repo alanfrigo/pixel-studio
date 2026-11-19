@@ -10,6 +10,10 @@ import { worldTilesetPipeline } from "./world-tileset";
 import { scenePipeline } from "./scene";
 import { sceneMapObjectPipeline } from "./scene-map-object";
 import { roomPipeline } from "./room";
+import { portraitPipeline, visemesPipeline } from "./dialogue";
+import { fontPipeline } from "./font";
+import { uiStatesPipeline } from "./ui-states";
+import { uiTemplatePipeline } from "./ui-template";
 
 /**
  * Pipelines por operação do plano. `generate_asset` (ícone de item) fica no
@@ -38,4 +42,11 @@ export const PIPELINES: Partial<Record<PlanOperation, OperationPipeline>> = {
   generate_map_object: sceneMapObjectPipeline,
   // Cartão S2: cobertura de roupa por frame (candidato vestido + extração local) e vista rígida.
   generate_overlay_coverage: equipmentPipeline,
+  // Cartão D1: retrato, folha de bocas por expressão e páginas de glyphs montadas em atlas bitmap.
+  generate_portrait: portraitPipeline,
+  generate_visemes: visemesPipeline,
+  generate_pixel_font: fontPipeline,
+  // Cartão U3: template pela guia raster (achatado + proposta de separação) e estados por imagem + referência.
+  generate_ui_template: uiTemplatePipeline,
+  generate_ui_states: uiStatesPipeline,
 };

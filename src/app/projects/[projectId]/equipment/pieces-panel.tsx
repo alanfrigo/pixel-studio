@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/app/client/api";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { equipmentMessages } from "@/i18n/messages/equipment";
 import { ResolvedPlayer } from "./resolved-player";
 import { errorText, mediaUrl, type Overview, type OverlayRev, resolve, review, type RigInfo, type View } from "./shared";
 
@@ -15,6 +19,8 @@ import { errorText, mediaUrl, type Overview, type OverlayRev, resolve, review, t
 const BGS = ["checker", "dark", "light", "green"] as const;
 
 export function PiecesPanel({ projectId, overview, rig, refresh }: { projectId: string; overview: Overview; rig: RigInfo; refresh: () => void }) {
+  const m = useMessages(equipmentMessages).pieces;
+  const c = useMessages(commonMessages);
   const groups = overview.overlays;
   const [selected, setSelected] = useState<string | null>(groups[0]?.activeRevisionId ?? groups[0]?.revisions[0]?.revisionId ?? null);
   const rev = groups.flatMap((g) => g.revisions).find((r) => r.revisionId === selected) ?? null;
@@ -24,7 +30,7 @@ export function PiecesPanel({ projectId, overview, rig, refresh }: { projectId: 
   return (
     <div className="eq-layout">
       <section>
-        <h2>Peças e itens</h2>
+        <h2>{m.title}</h2>
         <ul className="list small">
           {groups.map((g) => (
             <li key={g.assetId}>
@@ -32,8 +38,8 @@ export function PiecesPanel({ projectId, overview, rig, refresh }: { projectId: 
               <div className="row">
                 {g.revisions.map((r) => (
                   <button key={r.revisionId} type="button" className={selected === r.revisionId ? "" : "secondary"} onClick={() => (setSelected(r.revisionId), setMessage(null))}>
-                    r{r.number} <span className={`badge state-${r.status}`}>{r.active ? "ativa" : r.status === "approved" ? "aprovada" : r.status === "candidate" ? "candidata" : "reprovada"}</span>
-                    {r.rigRevisionId !== rig.revisionId ? " · outra base" : ""}
+                    r{r.number} <span className={`badge state-${r.status}`}>{r.active ? c.revisionStatus.active : r.status === "approved" ? c.revisionStatus.approved : r.status === "candidate" ? c.revisionStatus.candidate : c.revisionStatus.rejected}</span>
+                    {r.rigRevisionId !== rig.revisionId ? m.otherBase : ""}
                   </button>
                 ))}
               </div>
@@ -45,7 +51,7 @@ export function PiecesPanel({ projectId, overview, rig, refresh }: { projectId: 
         {rev && group ? (
           <PieceInspector key={rev.revisionId} projectId={projectId} rev={rev} activeRevisionId={group.activeRevisionId} rig={rig} items={overview.items} message={message} setMessage={setMessage} refresh={refresh} />
         ) : (
-          <p className="muted">Nenhuma peça neste projeto. Use “Criar peça” ou semeie a demonstração.</p>
+          <p className="muted">{m.empty}</p>
         )}
       </section>
     </div>
@@ -71,6 +77,9 @@ function PieceInspector({
   setMessage: (m: string | null) => void;
   refresh: () => void;
 }) {
+  const locale = useLocale();
+  const m = useMessages(equipmentMessages).pieces;
+  const c = useMessages(commonMessages);
   const [stance, setStance] = useState(rev.stances.find((s) => rig.stances.includes(s)) ?? rev.stances[0]!);
   const [view, setView] = useState<View | null>(null);
   const [comboKey, setComboKey] = useState<string | null>(null);
@@ -81,7 +90,7 @@ function PieceInspector({
     if (!compatible) return;
     resolve(projectId, request)
       .then((r) => setView(r.view))
-      .catch((err) => setMessage(errorText(err)));
+      .catch((err) => setMessage(errorText(err, locale)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, rev.revisionId, stance, compatible]);
 
@@ -90,48 +99,48 @@ function PieceInspector({
   async function decide(decision: "approve" | "reject") {
     setMessage(null);
     try {
-      await review(projectId, rev.assetId, rev.revisionId, decision, activeRevisionId, decision === "reject" ? "Reprovada na inspeção da peça" : null);
-      setMessage(decision === "approve" ? `r${rev.number} aprovada.` : `r${rev.number} reprovada.`);
+      await review(projectId, rev.assetId, rev.revisionId, decision, activeRevisionId, decision === "reject" ? m.rejectReason : null);
+      setMessage(decision === "approve" ? m.approved(rev.number) : m.rejected(rev.number));
       refresh();
     } catch (err) {
-      setMessage(errorText(err));
+      setMessage(errorText(err, locale));
     }
   }
 
   return (
     <>
       <h2>
-        {rev.name} r{rev.number} <span className={`badge state-${rev.status}`}>{rev.status}</span>
+        {rev.name} r{rev.number} <span className={`badge state-${rev.status}`}>{labelOf(c.revisionStatus, rev.status)}</span>
       </h2>
       <p className="small muted">
-        slots {rev.slots.join(", ")} · posturas {rev.stances.join(", ")}
-        {rev.parts.length > 0 && ` · partes ${rev.parts.map((p) => `${p.partId} (${p.cells} células, ${p.empty} vazias)`).join(", ")}`}
-        {rev.rigidViews.length > 0 && ` · ${rev.rigidViews.length} vista(s) rígida(s), ${rev.placements} uso(s) em frames`}
+        {m.info(rev.slots.join(", "), rev.stances.join(", "))}
+        {rev.parts.length > 0 && m.parts(rev.parts.map((p) => m.partCells(p.partId, p.cells, p.empty)).join(", "))}
+        {rev.rigidViews.length > 0 && m.rigidInfo(rev.rigidViews.length, rev.placements)}
       </p>
       <div className="row">
         {rev.status === "candidate" && (
           <>
             <button type="button" onClick={() => decide("approve")}>
-              Aprovar
+              {c.approve}
             </button>
             <button type="button" className="secondary" onClick={() => decide("reject")}>
-              Reprovar
+              {c.reject}
             </button>
           </>
         )}
       </div>
       {message && <p className="small">{message}</p>}
       <ItemLink projectId={projectId} rev={rev} items={items} onSaved={(m) => (setMessage(m), refresh())} onError={setMessage} />
-      {!compatible && <p className="small error">Feita para outra base (rig {rev.rigRevisionId}). Crie a cobertura para esta base na aba “Criar peça” (a arte desta pode ir como referência).</p>}
+      {!compatible && <p className="small error">{m.foreign(rev.rigRevisionId)}</p>}
 
       {rev.rigidViews.length > 0 && <RigidViews projectId={projectId} rev={rev} rig={rig} onSaved={(m) => (setMessage(m), refresh())} onError={(m) => setMessage(m)} />}
 
       {compatible && view && (
         <>
-          <h3 className="small">Sobreposta à base (arraste “Base” para 0% para ver a peça isolada)</h3>
+          <h3 className="small">{m.overlaidTitle}</h3>
           <div className="row small">
             <label>
-              Postura
+              {m.stance}
               <select value={stance} onChange={(e) => setStance(e.target.value)}>
                 {rev.stances.map((s) => (
                   <option key={s}>{s}</option>
@@ -154,12 +163,15 @@ function PieceInspector({
 }
 
 function RigidViews({ projectId, rev, rig, onSaved, onError }: { projectId: string; rev: OverlayRev; rig: RigInfo; onSaved: (m: string) => void; onError: (m: string) => void }) {
+  const locale = useLocale();
+  const m = useMessages(equipmentMessages).pieces;
+  const text = useText();
   const [editing, setEditing] = useState<{ viewId: string; grips: { socketId: string; at: [number, number] }[] } | null>(null);
   const [socket, setSocket] = useState(rig.sockets.find((s) => s.purpose === "grip")?.socketId ?? "");
   const zoom = 6;
   return (
     <>
-      <h3 className="small">Vistas rígidas (isoladas em fundos diferentes; clique na imagem para marcar a empunhadura)</h3>
+      <h3 className="small">{m.rigidTitle}</h3>
       <div className="eq-views">
         {rev.rigidViews.map((v) => {
           const grips = editing?.viewId === v.viewId ? editing.grips : v.grips;
@@ -186,8 +198,8 @@ function RigidViews({ projectId, rev, rig, onSaved, onError }: { projectId: stri
                 ))}
               </div>
               <figcaption>
-                <strong>{v.viewId}</strong> · {v.rect[2]}×{v.rect[3]} · empunhaduras {grips.map((g) => `${g.socketId} (${g.at.join(", ")})`).join(", ")}
-                {v.mirrorAllowed ? " · espelho autorizado (W − 1 − x)" : ""}
+                <strong>{v.viewId}</strong> · {v.rect[2]}×{v.rect[3]} · {m.grips(grips.map((g) => `${g.socketId} (${g.at.join(", ")})`).join(", "))}
+                {v.mirrorAllowed ? m.mirrorAllowed : ""}
               </figcaption>
             </figure>
           );
@@ -195,7 +207,7 @@ function RigidViews({ projectId, rev, rig, onSaved, onError }: { projectId: stri
       </div>
       <div className="row small">
         <label>
-          Marcar empunhadura de
+          {m.markGripFor}
           <select value={socket} onChange={(e) => setSocket(e.target.value)}>
             {rig.sockets.filter((s) => s.purpose === "grip").map((s) => (
               <option key={s.socketId}>{s.socketId}</option>
@@ -208,18 +220,18 @@ function RigidViews({ projectId, rev, rig, onSaved, onError }: { projectId: stri
               type="button"
               onClick={async () => {
                 try {
-                  const res = await apiFetch<{ revision: { number: number }; summary: string }>(`/projects/${projectId}/equipment/overlays`, { method: "POST", json: { op: "set_grips", overlayRevisionId: rev.revisionId, viewId: editing.viewId, grips: editing.grips } });
+                  const res = await apiFetch<{ revision: { number: number }; summary: TextValue }>(`/projects/${projectId}/equipment/overlays`, { method: "POST", json: { op: "set_grips", overlayRevisionId: rev.revisionId, viewId: editing.viewId, grips: editing.grips } });
                   setEditing(null);
-                  onSaved(`${res.summary} — nova revisão r${res.revision.number} (candidata).`);
+                  onSaved(m.newRevision(text(res.summary), res.revision.number));
                 } catch (err) {
-                  onError(errorText(err));
+                  onError(errorText(err, locale));
                 }
               }}
             >
-              Salvar empunhaduras (nova revisão)
+              {m.saveGrips}
             </button>
             <button type="button" className="secondary" onClick={() => setEditing(null)}>
-              Desfazer
+              {m.undo}
             </button>
           </>
         )}
@@ -269,10 +281,13 @@ function ViewCanvas({ src, rect, zoom, bg, grips, onPick }: { src: string; rect:
 
 /** Item de inventário ligado à peça: o ícone e a arte equipada são variantes do mesmo item. */
 function ItemLink({ projectId, rev, items, onSaved, onError }: { projectId: string; rev: OverlayRev; items: Overview["items"]; onSaved: (m: string) => void; onError: (m: string) => void }) {
+  const locale = useLocale();
+  const m = useMessages(equipmentMessages).pieces;
+  const text = useText();
   const current = items.find((i) => i.revisionId === rev.itemRevisionId);
   return (
     <div className="row small">
-      <span>Item de inventário:</span>
+      <span>{m.inventoryItem}</span>
       {current?.icon?.mediaId && (
         <ViewCanvas src={mediaUrl(projectId, current.icon.mediaId)} rect={current.icon.rect} zoom={2} bg="checker" grips={[]} />
       )}
@@ -280,21 +295,21 @@ function ItemLink({ projectId, rev, items, onSaved, onError }: { projectId: stri
         value={rev.itemRevisionId ?? ""}
         onChange={async (e) => {
           try {
-            const res = await apiFetch<{ revision: { number: number }; summary: string }>(`/projects/${projectId}/equipment/overlays`, { method: "POST", json: { op: "set_item", overlayRevisionId: rev.revisionId, itemRevisionId: e.target.value || null } });
-            onSaved(`${res.summary} — nova revisão r${res.revision.number} (candidata).`);
+            const res = await apiFetch<{ revision: { number: number }; summary: TextValue }>(`/projects/${projectId}/equipment/overlays`, { method: "POST", json: { op: "set_item", overlayRevisionId: rev.revisionId, itemRevisionId: e.target.value || null } });
+            onSaved(m.newRevision(text(res.summary), res.revision.number));
           } catch (err) {
-            onError(errorText(err));
+            onError(errorText(err, locale));
           }
         }}
       >
-        <option value="">nenhum</option>
+        <option value="">{m.noItem}</option>
         {items.map((i) => (
           <option key={i.revisionId} value={i.revisionId}>
             {i.name}
           </option>
         ))}
       </select>
-      {rev.itemRevisionId && !current && <span className="muted">revisão {rev.itemRevisionId} (não é a ativa)</span>}
+      {rev.itemRevisionId && !current && <span className="muted">{m.notActive(rev.itemRevisionId)}</span>}
     </div>
   );
 }

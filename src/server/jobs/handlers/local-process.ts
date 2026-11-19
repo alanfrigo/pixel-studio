@@ -1,3 +1,4 @@
+import { pick, type TextValue, tx } from "@/i18n/locales";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalDigest } from "@/domain/canonical-json";
@@ -31,7 +32,7 @@ export interface LocalProcessResult {
   status: "ok" | "needs_review";
   outputs: LocalOutput[];
   report: Record<string, unknown>;
-  warnings: string[];
+  warnings: TextValue[];
 }
 
 const processorCache = new Map<string, Promise<{ pipeline: string; pillow: string }>>();
@@ -42,7 +43,7 @@ function processorVersion(python: string) {
     cached = pythonInfo(python).then((info) => {
       if (!info.ok || !info.pipeline || !info.pillow) {
         processorCache.delete(python);
-        throw new DomainFailure("internal", `Processador Python indisponível: ${info.error ?? "versão desconhecida"}`);
+        throw new DomainFailure("internal", tx(`Processador Python indisponível: ${info.error ? pick(info.error, "pt-BR") : "versão desconhecida"}`, `Python processor unavailable: ${info.error ? pick(info.error, "en") : "unknown version"}`));
       }
       return { pipeline: info.pipeline, pillow: info.pillow };
     });

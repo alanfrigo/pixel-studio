@@ -5,6 +5,10 @@ import { useState } from "react";
 import type { TexturePayload } from "@/contracts";
 import type { AssetView, RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { worldMessages } from "@/i18n/messages/world";
 import { JobStatus } from "./job-status";
 import { errorText, estimateLabel, fileOf, mediaUrl, PIXEL, type PlanPreview, type Profile, review, runPlan, uploadImage, type WorldCatalog } from "./world-client";
 
@@ -27,24 +31,28 @@ interface SeamReport {
   y: SeamAxis | null;
 }
 
-function axisBadge(payload: TexturePayload, axis: "x" | "y") {
+function axisBadge(payload: TexturePayload, axis: "x" | "y", m: (typeof worldMessages)["en"]["textures"]) {
   const requested = payload.requestedAxes?.[axis] ?? payload.repeatAxes[axis];
-  if (!requested) return <span className="badge">{axis.toUpperCase()}: não pedido</span>;
+  if (!requested) return <span className="badge">{m.axisNotRequested(axis.toUpperCase())}</span>;
   return payload.repeatAxes[axis] ? (
-    <span className="badge state-approved">{axis.toUpperCase()}: repetível</span>
+    <span className="badge state-approved">{m.axisSeamless(axis.toUpperCase())}</span>
   ) : (
-    <span className="badge state-rejected">{axis.toUpperCase()}: emenda reprovada</span>
+    <span className="badge state-rejected">{m.axisSeamFailed(axis.toUpperCase())}</span>
   );
 }
 
 export function TexturesPanel({ projectId, catalog, profiles, refresh }: { projectId: string; catalog: WorldCatalog; profiles: Profile[]; refresh: () => void }) {
+  const m = useMessages(worldMessages).textures;
+  const w = useMessages(worldMessages).shared;
+  const c = useMessages(commonMessages);
+  const text = useText();
   const [bench, setBench] = useState<{ asset: AssetView; revision: RevisionView } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const textures = catalog.textures;
 
   async function decide(asset: AssetView, revision: RevisionView, decision: "approve" | "reject") {
     try {
-      const reason = decision === "reject" ? (window.prompt("Motivo da reprovação") ?? "").trim() || null : null;
+      const reason = decision === "reject" ? (window.prompt(c.rejectReasonPrompt) ?? "").trim() || null : null;
       if (decision === "reject" && !reason) return;
       await review(projectId, asset, revision.id, decision, reason);
       refresh();
@@ -61,19 +69,19 @@ export function TexturesPanel({ projectId, catalog, profiles, refresh }: { proje
         <ImportTexture projectId={projectId} refresh={refresh} />
       </div>
       <section>
-        <h2>Texturas do projeto</h2>
-        {textures.length === 0 && <p className="muted small">Nenhuma textura ainda. Gere um material ou importe uma imagem.</p>}
+        <h2>{m.projectTextures}</h2>
+        {textures.length === 0 && <p className="muted small">{m.empty}</p>}
         {textures.map(({ asset, revisions }) => (
           <div key={asset.id} style={{ marginBottom: 12 }}>
             <strong>{asset.name}</strong>{" "}
             <span className="muted small">
-              {asset.approvedRevisionId ? `ativa r${revisions.find((r) => r.id === asset.approvedRevisionId)?.number}` : "sem revisão aprovada"}
+              {asset.approvedRevisionId ? w.activeRevision(revisions.find((r) => r.id === asset.approvedRevisionId)?.number) : m.noApproved}
             </span>
             <div className="row" style={{ alignItems: "flex-start", marginTop: 6 }}>
               {revisions.slice(0, 6).map((rev) => {
                 const payload = rev.payload as TexturePayload;
                 const tex = fileOf(rev, "texture");
-                const report = rev.technicalReport as { verdict?: string; routeLabel?: string; label?: string } | null;
+                const report = rev.technicalReport as { verdict?: TextValue; routeLabel?: TextValue; label?: TextValue } | null;
                 return (
                   <div key={rev.id} className="small" style={{ border: "1px solid var(--border)", borderRadius: 6, padding: 8, width: 230 }}>
                     <div className="row">
@@ -82,27 +90,27 @@ export function TexturesPanel({ projectId, catalog, profiles, refresh }: { proje
                         <img src={mediaUrl(projectId, tex.id)} alt={`${asset.name} r${rev.number}`} width={payload.logicalSize[0] * 2} height={payload.logicalSize[1] * 2} className="pixel bg-checker" style={PIXEL} />
                       )}
                       <div>
-                        r{rev.number} <span className={`badge state-${rev.status}`}>{rev.status}</span>
+                        r{rev.number} <span className={`badge state-${rev.status}`}>{labelOf(c.revisionStatus, rev.status)}</span>
                         <br />
                         {payload.logicalSize.join("×")} · {rev.origin}
                       </div>
                     </div>
                     <div className="row" style={{ marginTop: 4 }}>
-                      {axisBadge(payload, "x")}
-                      {axisBadge(payload, "y")}
+                      {axisBadge(payload, "x", m)}
+                      {axisBadge(payload, "y", m)}
                     </div>
-                    {report?.verdict && <p className="muted">{report.verdict}</p>}
+                    {report?.verdict && <p className="muted">{text(report.verdict)}</p>}
                     <div className="row">
                       <button type="button" className="secondary" onClick={() => setBench({ asset, revision: rev })}>
-                        Bancada
+                        {m.bench}
                       </button>
                       {rev.status === "candidate" && (
                         <>
                           <button type="button" onClick={() => decide(asset, rev, "approve")}>
-                            Aprovar
+                            {c.approve}
                           </button>
                           <button type="button" className="secondary" onClick={() => decide(asset, rev, "reject")}>
-                            Reprovar
+                            {c.reject}
                           </button>
                         </>
                       )}
@@ -120,6 +128,9 @@ export function TexturesPanel({ projectId, catalog, profiles, refresh }: { proje
 }
 
 function TextureBench({ projectId, asset, revision, refresh, onClose }: { projectId: string; asset: AssetView; revision: RevisionView; refresh: () => void; onClose: () => void }) {
+  const m = useMessages(worldMessages).textures;
+  const c = useMessages(commonMessages);
+  const text = useText();
   const [lines, setLines] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -139,11 +150,11 @@ function TextureBench({ projectId, asset, revision, refresh, onClose }: { projec
     setBusy(true);
     setMessage(null);
     try {
-      const res = await apiFetch<{ revision: RevisionView; verdict: string }>(`/projects/${projectId}/world/textures`, {
+      const res = await apiFetch<{ revision: RevisionView; verdict: TextValue }>(`/projects/${projectId}/world/textures`, {
         method: "POST",
         json: { target: { assetId: asset.id }, texture: { image, material: payload.material, axes, threshold: payload.seamReport.threshold, sourceRevisionId: revision.id, unshift } },
       });
-      setMessage(`r${res.revision.number} publicada como candidata · ${res.verdict}`);
+      setMessage(m.publishedCandidate(res.revision.number, text(res.verdict)));
       refresh();
     } catch (err) {
       setMessage(errorText(err));
@@ -156,25 +167,23 @@ function TextureBench({ projectId, asset, revision, refresh, onClose }: { projec
     <section>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2>
-          Bancada de repetição · {asset.name} r{revision.number}
+          {m.benchTitle} · {asset.name} r{revision.number}
         </h2>
         <button type="button" className="secondary" onClick={onClose}>
-          Fechar
+          {c.close}
         </button>
       </div>
-      <p className="small">
-        Material: {payload.material} · limiar declarado {payload.seamReport.threshold} (emenda/interior) · método {payload.seamReport.method}
-      </p>
+      <p className="small">{m.materialLine(payload.material, payload.seamReport.threshold, payload.seamReport.method)}</p>
       {report && (
         <table className="small" style={{ marginBottom: 8 }}>
           <thead>
             <tr>
-              <th>Eixo</th>
-              <th>Emenda</th>
-              <th>Interior</th>
-              <th>Razão</th>
-              <th>Resultado</th>
-              <th>Costuras destacadas</th>
+              <th>{m.axis}</th>
+              <th>{m.seam}</th>
+              <th>{m.interior}</th>
+              <th>{m.ratio}</th>
+              <th>{m.result}</th>
+              <th>{m.flaggedSeams}</th>
             </tr>
           </thead>
           <tbody>
@@ -185,14 +194,14 @@ function TextureBench({ projectId, asset, revision, refresh, onClose }: { projec
                   <td>{report[a]!.seamDelta}</td>
                   <td>{report[a]!.interiorDelta}</td>
                   <td>{report[a]!.ratio}</td>
-                  <td className={report[a]!.passed ? "" : "error"}>{report[a]!.passed ? "aprovada" : "reprovada"}</td>
-                  <td>{report[a]!.flagged.map((f) => `${a === "x" ? "linhas" : "colunas"} ${f.start}–${f.end} (Δ ${f.maxDelta})`).join("; ") || "—"}</td>
+                  <td className={report[a]!.passed ? "" : "error"}>{report[a]!.passed ? m.passed : m.failed}</td>
+                  <td>{report[a]!.flagged.map((f) => m.flaggedRange(a, f.start, f.end, f.maxDelta)).join("; ") || "—"}</td>
                 </tr>
               ) : (
                 <tr key={a}>
                   <td>{a.toUpperCase()}</td>
                   <td colSpan={5} className="muted">
-                    Não pedido: a repetição num eixo não promete o outro.
+                    {m.axisNotRequestedRow}
                   </td>
                 </tr>
               ),
@@ -203,52 +212,50 @@ function TextureBench({ projectId, asset, revision, refresh, onClose }: { projec
       <div className="row" style={{ alignItems: "flex-start" }}>
         <figure style={{ margin: 0 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {url("mosaic") && <img src={url("mosaic")!} alt="Mosaico 1×" className="pixel bg-checker" style={PIXEL} />}
-          <figcaption className="small">
-            Mosaico {cols}×{rows} em 1×
-          </figcaption>
+          {url("mosaic") && <img src={url("mosaic")!} alt={m.mosaicAlt} className="pixel bg-checker" style={PIXEL} />}
+          <figcaption className="small">{m.mosaicCaption(cols, rows)}</figcaption>
         </figure>
         <figure style={{ margin: 0 }}>
           {lines && url("mosaic-lines") ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={url("mosaic-lines")!} alt="Mosaico ampliado com emendas" style={{ ...PIXEL, width: w * cols * zoom }} />
+            <img src={url("mosaic-lines")!} alt={m.mosaicLinesAlt} style={{ ...PIXEL, width: w * cols * zoom }} />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            url("mosaic") && <img src={url("mosaic")!} alt="Mosaico ampliado" className="pixel" style={{ ...PIXEL, width: w * cols * zoom }} />
+            url("mosaic") && <img src={url("mosaic")!} alt={m.mosaicZoomAlt} className="pixel" style={{ ...PIXEL, width: w * cols * zoom }} />
           )}
           <figcaption className="small">
             <label style={{ flexDirection: "row", gap: 4, color: "inherit" }}>
-              <input type="checkbox" checked={lines} onChange={(e) => setLines(e.target.checked)} /> linhas de emenda (magenta = costura discrepante)
+              <input type="checkbox" checked={lines} onChange={(e) => setLines(e.target.checked)} /> {m.seamLines}
             </label>
           </figcaption>
         </figure>
         <figure style={{ margin: 0 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {url("shifted") && <img src={url("shifted")!} alt="Deslocada" className="pixel" style={{ ...PIXEL, width: w * 4 }} />}
-          <figcaption className="small">Deslocamento cíclico de meio período: as emendas no centro</figcaption>
+          {url("shifted") && <img src={url("shifted")!} alt={m.shiftedAlt} className="pixel" style={{ ...PIXEL, width: w * 4 }} />}
+          <figcaption className="small">{m.shiftedCaption}</figcaption>
         </figure>
       </div>
       <ScrollPreview src={url("texture")} size={[w, h]} axes={axes} />
-      <h3 className="small">Corrigir emendas</h3>
+      <h3 className="small">{m.fixSeams}</h3>
       <ol className="small">
         <li>
           <button type="button" className="secondary" disabled={busy || !url("shifted")} onClick={() => publish({ from: "revision", revisionId: revision.id, fileKey: "shifted" }, false)}>
-            Publicar a versão deslocada
+            {m.publishShifted}
           </button>{" "}
-          (as emendas vão para o centro; aprove-a como amostra).
+          {m.publishShiftedNote}
         </li>
         <li>
-          Pintar as emendas e reconstruí-las por{" "}
+          {m.paintSeams}{" "}
           {revision.status === "approved" ? (
-            <Link href={`/projects/${projectId}/inpaint?asset=${asset.id}&revision=${revision.id}&file=texture`}>inpainting desta revisão</Link>
+            <Link href={`/projects/${projectId}/inpaint?asset=${asset.id}&revision=${revision.id}&file=texture`}>{m.inpaintThis}</Link>
           ) : (
-            "inpainting (abra a revisão deslocada aprovada)"
+            m.inpaintOpenShifted
           )}
           .
         </li>
         <li>
           <button type="button" className="secondary" disabled={busy} onClick={() => publish({ from: "revision", revisionId: revision.id, fileKey: "texture" }, true)}>
-            Desfazer o deslocamento desta revisão e revalidar
+            {m.unshift}
           </button>
         </li>
       </ol>
@@ -259,6 +266,7 @@ function TextureBench({ projectId, asset, revision, refresh, onClose }: { projec
 
 /** Rolagem nos eixos declarados: a mesma textura repetida num fundo que se desloca. */
 function ScrollPreview({ src, size, axes }: { src: string | null; size: [number, number]; axes: { x: boolean; y: boolean } }) {
+  const m = useMessages(worldMessages).textures;
   const [offset, setOffset] = useState(0);
   if (!src) return null;
   const scale = 3;
@@ -278,7 +286,7 @@ function ScrollPreview({ src, size, axes }: { src: string | null; size: [number,
         }}
       />
       <label style={{ flexDirection: "row", gap: 6, color: "inherit" }}>
-        Rolagem
+        {m.scroll}
         <input type="range" min={0} max={size[0] * scale * 4} value={offset} onChange={(e) => setOffset(Number(e.target.value))} />
       </label>
     </div>
@@ -286,9 +294,14 @@ function ScrollPreview({ src, size, axes }: { src: string | null; size: [number,
 }
 
 function GenerateTexture({ projectId, profiles, textures, refresh }: { projectId: string; profiles: Profile[]; textures: WorldCatalog["textures"]; refresh: () => void }) {
+  const m = useMessages(worldMessages).textures;
+  const w = useMessages(worldMessages).shared;
+  const c = useMessages(commonMessages);
+  const locale = useLocale();
+  const text = useText();
   const usable = profiles.filter((p) => (p.capabilities.generate_texture?.length ?? 0) > 0);
-  const [name, setName] = useState("Pedra úmida");
-  const [brief, setBrief] = useState("pedra úmida com musgo entre as juntas");
+  const [name, setName] = useState(m.defaultName);
+  const [brief, setBrief] = useState(m.defaultBrief);
   const [size, setSize] = useState(32);
   const [axes, setAxes] = useState({ x: true, y: true });
   const [threshold, setThreshold] = useState(1.5);
@@ -303,7 +316,7 @@ function GenerateTexture({ projectId, profiles, textures, refresh }: { projectId
   async function plan() {
     setMessage(null);
     try {
-      if (!profile) throw new Error("Nenhum perfil gera material");
+      if (!profile) throw new Error(m.noProfile);
       const p = await apiFetch<PlanPreview>(`/projects/${projectId}/generation-plans`, {
         method: "POST",
         json: { operation: "generate_texture", providerProfileId: profile.id, materialBrief: brief, logicalSize: [size, size], repeatAxes: axes, seamThreshold: threshold, referenceRevisionIds: refs },
@@ -330,14 +343,14 @@ function GenerateTexture({ projectId, profiles, textures, refresh }: { projectId
 
   return (
     <section>
-      <h2>Gerar material</h2>
+      <h2>{m.generateTitle}</h2>
       <div className="row">
         <label>
-          Nome
+          {w.name}
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label>
-          Tamanho
+          {w.size}
           <select value={size} onChange={(e) => (setSize(Number(e.target.value)), setPreview(null))}>
             {[16, 32, 48, 64].map((s) => (
               <option key={s} value={s}>
@@ -347,22 +360,22 @@ function GenerateTexture({ projectId, profiles, textures, refresh }: { projectId
           </select>
         </label>
         <label>
-          Limiar
+          {w.threshold}
           <input type="number" step={0.1} min={1} max={5} value={threshold} onChange={(e) => (setThreshold(Number(e.target.value)), setPreview(null))} style={{ width: 70 }} />
         </label>
         {(["x", "y"] as const).map((a) => (
           <label key={a} style={{ flexDirection: "row", gap: 4, color: "inherit" }}>
-            <input type="checkbox" checked={axes[a]} onChange={(e) => (setAxes({ ...axes, [a]: e.target.checked }), setPreview(null))} /> repete em {a.toUpperCase()}
+            <input type="checkbox" checked={axes[a]} onChange={(e) => (setAxes({ ...axes, [a]: e.target.checked }), setPreview(null))} /> {m.repeatsOn(a.toUpperCase())}
           </label>
         ))}
       </div>
       <label>
-        Material
+        {m.material}
         <textarea value={brief} maxLength={500} onChange={(e) => (setBrief(e.target.value), setPreview(null))} />
       </label>
       {approved.length > 0 && (
         <label>
-          Referências de material (aprovadas)
+          {m.materialRefs}
           <select multiple value={refs} onChange={(e) => (setRefs([...e.target.selectedOptions].map((o) => o.value)), setPreview(null))}>
             {approved.map(({ asset, r }) => (
               <option key={r.id} value={r.id}>
@@ -374,29 +387,29 @@ function GenerateTexture({ projectId, profiles, textures, refresh }: { projectId
       )}
       <div className="row" style={{ marginTop: 8 }}>
         <label>
-          Perfil
+          {w.profile}
           <select value={profile?.id ?? ""} onChange={(e) => (setProfileId(e.target.value), setPreview(null))}>
-            {usable.length === 0 && <option value="">Nenhum perfil gera material</option>}
+            {usable.length === 0 && <option value="">{m.noProfile}</option>}
             {usable.map((p) => (
               <option key={p.id} value={p.id} disabled={Boolean(p.unavailable)}>
                 {p.name}
-                {p.unavailable ? " (indisponível)" : ""}
+                {p.unavailable ? ` (${c.unavailable})` : ""}
               </option>
             ))}
           </select>
         </label>
         <button type="button" className="secondary" disabled={!axes.x && !axes.y} onClick={plan}>
-          Prévia do plano
+          {w.planPreview}
         </button>
         <button type="button" disabled={!axes.x && !axes.y} onClick={run}>
-          Gerar
+          {w.generate}
         </button>
       </div>
       {preview && (
         <div className="small">
           <p>
-            {preview.routeLabel} · destino {preview.destination.name}
-            {preview.destination.simulated ? " (simulado)" : ""} · estimativa {estimateLabel(preview.plan)}
+            {text(preview.routeLabel)} · {w.destination(preview.destination.name)}
+            {preview.destination.simulated ? w.simulated : ""} · {w.estimate(estimateLabel(preview.plan, locale))}
           </p>
           <pre style={{ whiteSpace: "pre-wrap" }}>{preview.plan.prompt.compiled}</pre>
         </div>
@@ -408,6 +421,10 @@ function GenerateTexture({ projectId, profiles, textures, refresh }: { projectId
 }
 
 function ImportTexture({ projectId, refresh }: { projectId: string; refresh: () => void }) {
+  const m = useMessages(worldMessages).textures;
+  const w = useMessages(worldMessages).shared;
+  const locale = useLocale();
+  const text = useText();
   const [file, setFile] = useState<File | null>(null);
   const [name, setName] = useState("");
   const [axes, setAxes] = useState({ x: true, y: true });
@@ -420,13 +437,13 @@ function ImportTexture({ projectId, refresh }: { projectId: string; refresh: () 
     setBusy(true);
     setMessage(null);
     try {
-      const uploadId = await uploadImage(projectId, file, file.name);
+      const uploadId = await uploadImage(projectId, file, file.name, locale);
       const material = name.trim() || file.name.replace(/\.[^.]+$/, "");
-      const res = await apiFetch<{ revision: RevisionView; verdict: string }>(`/projects/${projectId}/world/textures`, {
+      const res = await apiFetch<{ revision: RevisionView; verdict: TextValue }>(`/projects/${projectId}/world/textures`, {
         method: "POST",
         json: { target: { name: material }, texture: { image: { from: "upload", uploadId }, material, axes, threshold } },
       });
-      setMessage(`r${res.revision.number}: ${res.verdict}`);
+      setMessage(`r${res.revision.number}: ${text(res.verdict)}`);
       refresh();
     } catch (err) {
       setMessage(errorText(err));
@@ -437,16 +454,16 @@ function ImportTexture({ projectId, refresh }: { projectId: string; refresh: () 
 
   return (
     <section>
-      <h2>Importar textura</h2>
-      <p className="small muted">Importação é alternativa rotulada: não demonstra geração. A emenda é validada do mesmo jeito.</p>
+      <h2>{m.importTitle}</h2>
+      <p className="small muted">{m.importNote}</p>
       <div className="row">
         <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         <label>
-          Material
-          <input value={name} placeholder="nome do arquivo" onChange={(e) => setName(e.target.value)} />
+          {m.material}
+          <input value={name} placeholder={m.fileNamePlaceholder} onChange={(e) => setName(e.target.value)} />
         </label>
         <label>
-          Limiar
+          {w.threshold}
           <input type="number" step={0.1} min={1} max={5} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} style={{ width: 70 }} />
         </label>
         {(["x", "y"] as const).map((a) => (
@@ -455,7 +472,7 @@ function ImportTexture({ projectId, refresh }: { projectId: string; refresh: () 
           </label>
         ))}
         <button type="button" disabled={busy || !file || (!axes.x && !axes.y)} onClick={submit}>
-          Importar e validar
+          {m.importAndValidate}
         </button>
       </div>
       {message && <p className="small">{message}</p>}

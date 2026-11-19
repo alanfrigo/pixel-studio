@@ -5,6 +5,8 @@ import type { ClipPayload } from "@/contracts";
 import { averageFps, frameAt, totalMs } from "@/domain/animation/timeline";
 import type { RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
+import { useLocale, useMessages } from "@/i18n/client";
+import { animationMessages } from "@/i18n/messages/animation";
 import { clipFrameLayers, errorText } from "./shared";
 
 /**
@@ -19,6 +21,9 @@ import { clipFrameLayers, errorText } from "./shared";
 type Bg = "checker" | "dark" | "light";
 
 export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string; revision: RevisionView; onSaved: (revisionId: string) => void }) {
+  const am = useMessages(animationMessages);
+  const t = am.clipPlayer;
+  const locale = useLocale();
   const clip = revision.payload as ClipPayload;
   const frames = clipFrameLayers(projectId, revision);
   const [w, h] = clip.logicalSize;
@@ -105,7 +110,7 @@ export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string
         method: "POST",
         json: { clipRevisionId: revision.id, durationsMs: durations, playback },
       });
-      setMessage(res.unchanged ? "Nada mudou." : `Revisão r${res.revision.number} publicada com os mesmos quadros (nenhuma geração).`);
+      setMessage(res.unchanged ? t.nothingChanged : t.retimed(res.revision.number));
       if (!res.unchanged) onSaved(res.revision.id);
     } catch (err) {
       setMessage(errorText(err));
@@ -117,18 +122,18 @@ export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string
       <canvas ref={canvas} className={`pixel bg-${bg}`} />
       <div className="row small">
         <button type="button" className="secondary" onClick={() => setPlaying((p) => !p)}>
-          {playing ? "Pausar" : "Tocar"}
+          {playing ? t.pause : t.play}
         </button>
         <label>
-          Repetição
+          {am.shared.playbackLabel}
           <select value={playback} onChange={(e) => setPlayback(e.target.value as ClipPayload["playback"])}>
-            <option value="loop">ciclo</option>
-            <option value="once">uma vez</option>
-            <option value="ping_pong">vai e volta</option>
+            <option value="loop">{am.shared.playback.loop}</option>
+            <option value="once">{am.shared.playback.once}</option>
+            <option value="ping_pong">{am.shared.playback.ping_pong}</option>
           </select>
         </label>
         <label>
-          Zoom
+          {t.zoom}
           <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
             {[1, 2, 3, 4, 6, 8].map((z) => (
               <option key={z} value={z}>
@@ -138,21 +143,21 @@ export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string
           </select>
         </label>
         <label>
-          Fundo
+          {t.background}
           <select value={bg} onChange={(e) => setBg(e.target.value as Bg)}>
-            <option value="checker">quadriculado</option>
-            <option value="dark">escuro</option>
-            <option value="light">claro</option>
+            <option value="checker">{t.backgrounds.checker}</option>
+            <option value="dark">{t.backgrounds.dark}</option>
+            <option value="light">{t.backgrounds.light}</option>
           </select>
         </label>
         <label style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <input type="checkbox" checked={onion} onChange={(e) => setOnion(e.target.checked)} /> onion skin
+          <input type="checkbox" checked={onion} onChange={(e) => setOnion(e.target.checked)} /> {t.onionSkin}
         </label>
       </div>
       <table className="anim-timeline small">
         <thead>
           <tr>
-            <th>Quadro</th>
+            <th>{t.frame}</th>
             {clip.frames.map((f, i) => (
               <th key={f.frameId} className={i === current ? "current" : ""} onClick={() => (setPlaying(false), setCurrent(i))}>
                 {f.frameId}
@@ -171,7 +176,7 @@ export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string
                   max={60000}
                   step={10}
                   value={d}
-                  aria-label={`Duração do quadro ${clip.frames[i]!.frameId}`}
+                  aria-label={t.frameDuration(clip.frames[i]!.frameId)}
                   onChange={(e) => {
                     const v = Math.max(1, Math.round(Number(e.target.value) || 1));
                     setDurations((all) => all.map((x, j) => (j === i ? v : x)));
@@ -182,15 +187,13 @@ export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string
           </tr>
         </tbody>
       </table>
-      <p className="small muted">
-        Total {totalMs(durations)} ms · média {averageFps(durations)} FPS (só exibição; a duração de cada quadro é a autoridade).
-      </p>
+      <p className="small muted">{t.totals(totalMs(durations).toLocaleString(locale), averageFps(durations).toLocaleString(locale))}</p>
       <div className="row">
         <button type="button" disabled={!changed} onClick={save}>
-          Salvar tempos (sem gerar)
+          {t.saveTimings}
         </button>
         <button type="button" className="secondary" disabled={!changed} onClick={() => (setDurations(clip.frames.map((f) => f.durationMs)), setPlayback(clip.playback))}>
-          Desfazer
+          {t.undo}
         </button>
       </div>
       {message && <p className="small">{message}</p>}

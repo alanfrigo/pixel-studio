@@ -14,6 +14,7 @@ import { resolveSideMap } from "@/domain/world/side";
 import { checkPassages, emptyCornerMap, isCornerMap, type PassageContext, reresolveCorner, reresolveSide } from "@/domain/world/map";
 import { resolveCornerMap } from "@/domain/world/corner";
 import { cornerSetKey } from "@/domain/world/map";
+import { type Locale, pick, tx } from "@/i18n/locales";
 import { createAsset, getAsset, getDraft, getProject, getRevision, listAssets, listRevisions, publishRevision, type RevisionView, saveDraft } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import { ImageRef } from "../services";
@@ -42,7 +43,7 @@ export const MapObjectInput = z.strictObject({
 export function publishMapObject(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof MapObjectInput>) {
   const input = MapObjectInput.parse(raw);
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", `O asset é ${asset.family}/${asset.kind}; esperado map/object`);
+  if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", tx(`O asset é ${asset.family}/${asset.kind}; esperado map/object`, `The asset is ${asset.family}/${asset.kind}; expected map/object`));
   const image = resolveImageRef(studio, projectId, input.image);
   const payload = MapObjectPayload.parse({
     projection: input.projection,
@@ -64,7 +65,7 @@ export function publishMapObject(studio: Studio, projectId: string, assetId: str
     ...(input.image.from === "revision" ? { edges: [{ toRevisionId: input.image.revisionId, role: "source", ordinal: 0, runtime: false }] } : {}),
     technicalReport: {
       operation: "map_object",
-      label: "Colisão, apoio e oclusão revisados pelo artista (o prompt não cria colisão confiável)",
+      label: tx("Colisão, apoio e oclusão revisados pelo artista (o prompt não cria colisão confiável)", "Collision, support and occlusion reviewed by the artist (the prompt does not create reliable collision)"),
     },
   });
 }
@@ -100,17 +101,17 @@ interface ObjectContext {
 export function tilesetContext(studio: Studio, projectId: string, revisionId: string): TilesetContext {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (asset.family !== "tileset") throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} não é um tileset`);
+  if (asset.family !== "tileset") throw new DomainFailure("validation_failed", tx(`${asset.name} r${revision.number} não é um tileset`, `${asset.name} r${revision.number} is not a tileset`));
   const payload = revision.payload as TilesetContext["payload"];
   const atlas = revision.files.find((f) => f.fileKey === payload.atlas.fileId);
-  if (!atlas) throw new DomainFailure("not_found", "Atlas ausente na revisão do tileset");
+  if (!atlas) throw new DomainFailure("not_found", tx("Atlas ausente na revisão do tileset", "Atlas is missing from the tileset revision"));
   return { revisionId, assetId: asset.id, name: asset.name, number: revision.number, status: revision.status, kind: asset.kind as TilesetContext["kind"], payload, atlasMediaId: atlas.id };
 }
 
 export function objectContext(studio: Studio, projectId: string, revisionId: string): ObjectContext {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} não é um objeto de mapa`);
+  if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", tx(`${asset.name} r${revision.number} não é um objeto de mapa`, `${asset.name} r${revision.number} is not a map object`));
   const payload = MapObjectPayload.parse(revision.payload);
   const file = revision.files.find((f) => f.fileKey === payload.fileId)!;
   const shadow = payload.shadow ? revision.files.find((f) => f.fileKey === payload.shadow!.fileId) : undefined;
@@ -120,13 +121,13 @@ export function objectContext(studio: Studio, projectId: string, revisionId: str
 export function mapContext(studio: Studio, projectId: string, map: TilemapPayload) {
   const tileset = tilesetContext(studio, projectId, map.terrain.tilesetRevisionId);
   const expected = map.terrain.mode === "corner" ? "corner" : map.terrain.mode === "side" ? "sidescroller" : "isometric";
-  if (tileset.kind !== expected) throw new DomainFailure("validation_failed", `Terreno ${map.terrain.mode} exige tileset ${expected}; ${tileset.name} é ${tileset.kind}`);
+  if (tileset.kind !== expected) throw new DomainFailure("validation_failed", tx(`Terreno ${map.terrain.mode} exige tileset ${expected}; ${tileset.name} é ${tileset.kind}`, `Terrain ${map.terrain.mode} needs a ${expected} tileset; ${tileset.name} is ${tileset.kind}`));
   const objects: Record<string, ObjectContext> = {};
   for (const o of map.objects) {
     if (o.objectRevisionId && !objects[o.objectRevisionId]) objects[o.objectRevisionId] = objectContext(studio, projectId, o.objectRevisionId);
     if (o.pieceKey) {
       const piece = tileset.kind === "isometric" ? (tileset.payload as IsoTilesetPayload).pieces.find((p) => p.pieceKey === o.pieceKey) : undefined;
-      if (!piece || piece.kind !== "prop") throw new DomainFailure("validation_failed", `Peça ${o.pieceKey} não é um prop do tileset isométrico do mapa`);
+      if (!piece || piece.kind !== "prop") throw new DomainFailure("validation_failed", tx(`Peça ${o.pieceKey} não é um prop do tileset isométrico do mapa`, `Piece ${o.pieceKey} is not a prop of the map's isometric tileset`));
     }
   }
   return { tileset, objects };
@@ -205,14 +206,14 @@ export function createTilemap(studio: Studio, projectId: string, raw: z.input<ty
 /** Abre o rascunho (padrão) ou uma revisão publicada, com o contexto para desenhar: tileset, objetos e catálogo disponível. */
 export function openTilemap(studio: Studio, projectId: string, assetId: string, opts: { revisionId?: string } = {}) {
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "map" || asset.kind !== "tilemap") throw new DomainFailure("validation_failed", "O asset não é um mapa");
+  if (asset.family !== "map" || asset.kind !== "tilemap") throw new DomainFailure("validation_failed", tx("O asset não é um mapa", "The asset is not a map"));
   const revisions = listRevisions(studio.db, projectId, assetId);
   const draft = getDraft(studio.db, projectId, assetId);
   let payload: unknown;
   let source: { kind: "draft"; version: number } | { kind: "revision"; revisionId: string; number: number };
   if (opts.revisionId) {
     const rev = revisions.find((r) => r.id === opts.revisionId);
-    if (!rev) throw new DomainFailure("not_found", "Revisão não pertence a este mapa");
+    if (!rev) throw new DomainFailure("not_found", tx("Revisão não pertence a este mapa", "The revision does not belong to this map"));
     payload = rev.payload;
     source = { kind: "revision", revisionId: rev.id, number: rev.number };
   } else if (draft) {
@@ -222,7 +223,7 @@ export function openTilemap(studio: Studio, projectId: string, assetId: string, 
     payload = revisions[0].payload;
     source = { kind: "revision", revisionId: revisions[0].id, number: revisions[0].number };
   } else {
-    throw new DomainFailure("not_found", "Mapa sem rascunho nem revisão");
+    throw new DomainFailure("not_found", tx("Mapa sem rascunho nem revisão", "The map has no draft or revision"));
   }
   const map = TilemapPayload.parse(payload);
   const ctx = mapContext(studio, projectId, map);
@@ -256,17 +257,18 @@ export const PublishMapInput = z.strictObject({
 export function publishTilemap(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof PublishMapInput>) {
   const input = PublishMapInput.parse(raw);
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "map" || asset.kind !== "tilemap") throw new DomainFailure("validation_failed", "O asset não é um mapa");
+  if (asset.family !== "map" || asset.kind !== "tilemap") throw new DomainFailure("validation_failed", tx("O asset não é um mapa", "The asset is not a map"));
   const parsed = TilemapPayload.safeParse(input.payload);
   if (!parsed.success) {
-    throw new DomainFailure("validation_failed", "Mapa inválido", { issues: parsed.error.issues.slice(0, 20).map((i) => ({ path: i.path.map(String), message: i.message })) });
+    throw new DomainFailure("validation_failed", tx("Mapa inválido", "Invalid map"), { issues: parsed.error.issues.slice(0, 20).map((i) => ({ path: i.path.map(String), message: i.message })) });
   }
   const ctx = mapContext(studio, projectId, parsed.data);
   const { map, missing } = resolveTerrain(parsed.data, ctx.tileset);
   const passages = checkPassages(map, passageContext(ctx));
   const broken = passages.results.filter((p) => !p.connected);
   if (passages.supported && broken.length > 0 && !input.allowBrokenPassages) {
-    throw new DomainFailure("validation_failed", `Passagem interrompida: ${broken.map((b) => `${b.from} → ${b.to} (${b.reason})`).join("; ")}`, {
+    const list = (locale: Locale) => broken.map((b) => `${b.from} → ${b.to} (${pick(b.reason, locale)})`).join("; ");
+    throw new DomainFailure("validation_failed", tx(`Passagem interrompida: ${list("pt-BR")}`, `Passage blocked: ${list("en")}`), {
       passages: passages.results.map((p) => ({ from: p.from, to: p.to, connected: p.connected, reason: p.reason ?? null })),
     });
   }
@@ -285,9 +287,16 @@ export function publishTilemap(studio: Studio, projectId: string, assetId: strin
       passages: passages.results.map(({ path, ...rest }) => ({ ...rest, pathLength: path.length })),
       blockedCells: passages.blocked?.filter(Boolean).length ?? null,
       warnings: [
-        ...(missing.length ? [`Terreno usa casos ausentes no tileset: ${missing.join(", ")}`] : []),
-        ...(ctx.tileset.status !== "approved" ? [`Tileset ${ctx.tileset.name} r${ctx.tileset.number} ainda não aprovado: o pacote só exporta revisões aprovadas`] : []),
-        ...broken.map((b) => `Passagem ${b.from} → ${b.to} interrompida: ${b.reason}`),
+        ...(missing.length ? [tx(`Terreno usa casos ausentes no tileset: ${missing.join(", ")}`, `Terrain uses cases missing from the tileset: ${missing.join(", ")}`)] : []),
+        ...(ctx.tileset.status !== "approved"
+          ? [
+              tx(
+                `Tileset ${ctx.tileset.name} r${ctx.tileset.number} ainda não aprovado: o pacote só exporta revisões aprovadas`,
+                `Tileset ${ctx.tileset.name} r${ctx.tileset.number} is not approved yet: the package only exports approved revisions`,
+              ),
+            ]
+          : []),
+        ...broken.map((b) => tx(`Passagem ${b.from} → ${b.to} interrompida: ${pick(b.reason, "pt-BR")}`, `Passage ${b.from} → ${b.to} blocked: ${pick(b.reason, "en")}`)),
       ],
     },
   });
@@ -304,7 +313,7 @@ export const CopyMapInput = z.strictObject({
 export function copyTilemap(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof CopyMapInput>) {
   const input = CopyMapInput.parse(raw);
   const source = getRevision(studio.db, projectId, input.revisionId);
-  if (source.assetId !== assetId) throw new DomainFailure("validation_failed", "A revisão pertence a outro mapa");
+  if (source.assetId !== assetId) throw new DomainFailure("validation_failed", tx("A revisão pertence a outro mapa", "The revision belongs to another map"));
   let map = TilemapPayload.parse(source.payload);
   if (input.tilesetRevisionId) {
     map = { ...map, terrain: { ...map.terrain, tilesetRevisionId: input.tilesetRevisionId } } as TilemapPayload;

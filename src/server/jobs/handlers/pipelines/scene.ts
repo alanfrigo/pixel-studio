@@ -1,4 +1,5 @@
 import type { GenerationPlan, SceneLayerPayload, ScenePayload } from "@/contracts";
+import { tx } from "@/i18n/locales";
 import { type AssetView, publishRevision } from "../../../catalog/catalog";
 import { DomainFailure } from "../../../errors";
 import { SCENE_ROUTE_LABELS } from "../../../scenes/core";
@@ -19,6 +20,7 @@ import { scaledReferences } from "./world-texture";
  */
 
 type ScenePlan = Extract<GenerationPlan, { operation: "generate_scene" }>;
+const NOT_A_MAP = tx("Imagem plana: árvores, ponte e chão não são objetos, colisões nem terreno editável", "Flat image: trees, bridge and ground are not objects, collisions or editable terrain");
 
 async function processScene(env: PipelineEnv, plan: GenerationPlan, sha256: string, dir: string): Promise<ProcessResult> {
   if (plan.operation !== "generate_scene") throw new Error("inalcançável");
@@ -84,7 +86,7 @@ function publishScene(ctx: HandlerContext, plan: ScenePlan, asset: AssetView, pa
             { fileKey: "image", role: "normalized", idx: 0, blob: mustBlob(ctx.db, processed.normalizedSha256) },
             { fileKey: "raw", role: "raw", idx: 0, blob: mustBlob(ctx.db, row.blob_sha256) },
           ],
-          technicalReport: { ...report, routeLabel: SCENE_ROUTE_LABELS.flat, outputKind: "flat_image", notAMap: "Imagem plana: árvores, ponte e chão não são objetos, colisões nem terreno editável" },
+          technicalReport: { ...report, routeLabel: SCENE_ROUTE_LABELS.flat, outputKind: "flat_image", notAMap: NOT_A_MAP },
         }).id;
       }
       const details = processed.details as { check: Parameters<typeof layerCheckPayload>[0]; previews: { role: string; sha256: string }[] };
@@ -114,7 +116,13 @@ export const scenePipeline: OperationPipeline = {
     if (plan.operation !== "generate_scene") throw new Error("inalcançável");
     const kind = plan.params.layer ? "scene_layer" : "scene";
     if (asset.family !== "map" || asset.kind !== kind) {
-      throw new DomainFailure("validation_failed", `${plan.params.layer ? "Plano de paralaxe" : "Cena plana"} publica em map/${kind}; o asset é ${asset.family}/${asset.kind}`);
+      throw new DomainFailure(
+        "validation_failed",
+        tx(
+          `${plan.params.layer ? "Plano de paralaxe" : "Cena plana"} publica em map/${kind}; o asset é ${asset.family}/${asset.kind}`,
+          `${plan.params.layer ? "A parallax plane" : "A flat scene"} publishes to map/${kind}; the asset is ${asset.family}/${asset.kind}`,
+        ),
+      );
     }
   },
   loadInputs: (ctx, plan) => scaledReferences(ctx, plan),

@@ -1,4 +1,6 @@
 import { PLAN_OPERATIONS } from "@/contracts";
+import type { TextValue } from "@/i18n/locales";
+import { DomainFailure } from "@/server/errors";
 import { api, json, readJson } from "@/server/http";
 import { capabilityMatrix, ProfileInput, saveProfile } from "@/server/providers/profiles";
 import { listProfiles } from "@/server/providers/registry";
@@ -6,13 +8,13 @@ import { listProfiles } from "@/server/providers/registry";
 export const GET = api(async (_req, { studio }) => {
   const profiles = listProfiles(studio.db).map((p) => {
     let capabilities: Record<string, string[]> = {};
-    let unavailable: string | null = null;
+    let unavailable: TextValue | null = null;
     try {
       const adapter = studio.providers.adapterFor(p.id);
       capabilities = Object.fromEntries(PLAN_OPERATIONS.map((op) => [op, adapter.capabilities(op)]).filter(([, caps]) => (caps?.length ?? 0) > 0));
       studio.providers.assertReady(p.id);
     } catch (err) {
-      unavailable = err instanceof Error ? err.message : String(err);
+      unavailable = err instanceof DomainFailure ? (err.messages ?? err.message) : err instanceof Error ? err.message : String(err);
     }
     return { ...p, capabilities, matrix: capabilityMatrix(studio.db, p.id), unavailable };
   });

@@ -2,6 +2,7 @@ import type { BasePayload, ClipPayload, LoadoutPayload, OverlayPayload, RigPaylo
 import type { ClipRef, OverlayRef, RevisionStatus, RigRef } from "@/domain/equipment/types";
 import { type AssetView, getAsset, getRevision, type RevisionView } from "../catalog/catalog";
 import type { Db } from "../db/connection";
+import { tx } from "@/i18n/locales";
 import { DomainFailure } from "../errors";
 
 /**
@@ -62,7 +63,7 @@ export function listRigs(db: Db, projectId: string): RigEntry[] {
 export function loadRig(db: Db, projectId: string, rigRevisionId: string): RigEntry {
   const rev = getRevision(db, projectId, rigRevisionId);
   const asset = getAsset(db, projectId, rev.assetId);
-  if (asset.family !== "character" || asset.kind !== "rig") throw new DomainFailure("validation_failed", `${asset.name} não é um rig de equipamento`);
+  if (asset.family !== "character" || asset.kind !== "rig") throw new DomainFailure("validation_failed", tx(`${asset.name} não é um rig de equipamento`, `${asset.name} is not an equipment rig`));
   const payload = rev.payload as RigPayload;
   let base: RigEntry["base"] = null;
   try {
@@ -105,7 +106,7 @@ export function listOverlays(db: Db, projectId: string): (OverlayRef & { active:
 export function loadOverlay(db: Db, projectId: string, overlayRevisionId: string): OverlayRef & { revision: RevisionView; asset: AssetView } {
   const revision = getRevision(db, projectId, overlayRevisionId);
   const asset = getAsset(db, projectId, revision.assetId);
-  if (asset.family !== "equipment" || asset.kind !== "overlay") throw new DomainFailure("validation_failed", `${asset.name} não é uma peça (equipment/overlay)`);
+  if (asset.family !== "equipment" || asset.kind !== "overlay") throw new DomainFailure("validation_failed", tx(`${asset.name} não é uma peça (equipment/overlay)`, `${asset.name} is not a piece (equipment/overlay)`));
   return {
     revisionId: revision.id,
     assetId: asset.id,
@@ -144,7 +145,7 @@ export function listLoadouts(db: Db, projectId: string): LoadoutEntry[] {
 export function loadLoadout(db: Db, projectId: string, loadoutRevisionId: string): LoadoutEntry & { revision: RevisionView; asset: AssetView } {
   const revision = getRevision(db, projectId, loadoutRevisionId);
   const asset = getAsset(db, projectId, revision.assetId);
-  if (asset.family !== "equipment" || asset.kind !== "loadout") throw new DomainFailure("validation_failed", `${asset.name} não é um conjunto (equipment/loadout)`);
+  if (asset.family !== "equipment" || asset.kind !== "loadout") throw new DomainFailure("validation_failed", tx(`${asset.name} não é um conjunto (equipment/loadout)`, `${asset.name} is not a loadout (equipment/loadout)`));
   return {
     revisionId: revision.id,
     assetId: asset.id,
@@ -166,6 +167,6 @@ export function mediaIdOf(db: Db, revisionId: string, fileKey: string): string |
 /** Blob (sha256) do arquivo `fileKey` de uma revisão. */
 export function blobOf(db: Db, revisionId: string, fileKey: string): string {
   const row = db.get<{ sha: string }>("SELECT blob_sha256 AS sha FROM revision_files WHERE revision_id = :r AND file_key = :k", { r: revisionId, k: fileKey });
-  if (!row) throw new DomainFailure("internal", `Revisão ${revisionId} sem o arquivo ${fileKey}`);
+  if (!row) throw new DomainFailure("internal", tx(`Revisão ${revisionId} sem o arquivo ${fileKey}`, `Revision ${revisionId} has no file ${fileKey}`));
   return row.sha;
 }

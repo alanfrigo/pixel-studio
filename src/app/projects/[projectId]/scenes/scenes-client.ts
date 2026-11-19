@@ -2,6 +2,7 @@
 
 import type { AssetView, RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
+import type { TextValue } from "@/i18n/locales";
 
 export { errorText, estimateLabel, fileOf, mediaUrl, PIXEL, type PlanPreview, type Profile, review, runPlan, uploadImage } from "../world/world-client";
 
@@ -37,8 +38,9 @@ export function flatRevisions(entries: Entry[], filter: (r: RevisionView) => boo
     .sort((a, b) => b.revision.createdAt.localeCompare(a.revision.createdAt));
 }
 
-export function reportLabel(revision: RevisionView): string | null {
-  const tr = revision.technicalReport as { routeLabel?: string; label?: string } | null;
+/** Rótulo do relatório técnico: bilíngue (servidor atual) ou texto gravado num idioma só. */
+export function reportLabel(revision: RevisionView): TextValue | null {
+  const tr = revision.technicalReport as { routeLabel?: TextValue; label?: TextValue } | null;
   return tr?.label ?? tr?.routeLabel ?? null;
 }
 

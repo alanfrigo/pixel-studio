@@ -1,3 +1,4 @@
+import { type LocalizedText, tx } from "@/i18n/locales";
 import {
   type AssetFamily,
   type FileModality,
@@ -115,7 +116,7 @@ export function listProjects(db: Db): ProjectView[] {
 
 export function getProject(db: Db, projectId: string): ProjectView {
   const row = db.get<ProjectRow>("SELECT * FROM projects WHERE id = :id", { id: projectId });
-  if (!row) throw new DomainFailure("not_found", "Projeto não encontrado");
+  if (!row) throw new DomainFailure("not_found", tx("Projeto não encontrado", "Project not found"));
   return projectView(row);
 }
 
@@ -134,7 +135,7 @@ export function getStyleRevision(db: Db, projectId: string, styleRevisionId: str
     "SELECT * FROM style_revisions WHERE id = :id AND project_id = :p",
     { id: styleRevisionId, p: projectId },
   );
-  if (!row) throw new DomainFailure("not_found", "Revisão de estilo não encontrada neste projeto");
+  if (!row) throw new DomainFailure("not_found", tx("Revisão de estilo não encontrada neste projeto", "Style revision not found in this project"));
   return {
     id: row.id,
     projectId: row.project_id,
@@ -155,7 +156,7 @@ export function publishStyleRevision(db: Db, clock: Clock, projectId: string, in
   return db.transaction(() => {
     const project = getProject(db, projectId);
     if (project.activeStyleRevisionId !== input.expectedActiveStyleRevisionId) {
-      throw new DomainFailure("revision_conflict", "O guia de estilo mudou em outra aba; recarregue antes de salvar");
+      throw new DomainFailure("revision_conflict", tx("O guia de estilo mudou em outra aba; recarregue antes de salvar", "The style guide changed in another tab; reload before saving"));
     }
     const digest = canonicalDigest(style);
     if (project.activeStyleRevisionId && getStyleRevision(db, projectId, project.activeStyleRevisionId).payloadDigest === digest) {
@@ -216,7 +217,7 @@ const assetView = (r: AssetRow): AssetView => ({
 
 export function createAsset(db: Db, clock: Clock, input: { projectId: string; family: AssetFamily; kind: string; name: string }): AssetView {
   if (!isKnownKind(input.family, input.kind)) {
-    throw new DomainFailure("validation_failed", `Tipo ${input.kind} não existe na família ${input.family}`);
+    throw new DomainFailure("validation_failed", tx(`Tipo ${input.kind} não existe na família ${input.family}`, `Kind ${input.kind} does not exist in family ${input.family}`));
   }
   return db.transaction(() => {
     getProject(db, input.projectId);
@@ -233,7 +234,7 @@ export function createAsset(db: Db, clock: Clock, input: { projectId: string; fa
 
 export function getAsset(db: Db, projectId: string, assetId: string): AssetView {
   const row = db.get<AssetRow>("SELECT * FROM assets WHERE id = :id AND project_id = :p", { id: assetId, p: projectId });
-  if (!row) throw new DomainFailure("not_found", "Asset não encontrado neste projeto");
+  if (!row) throw new DomainFailure("not_found", tx("Asset não encontrado neste projeto", "Asset not found in this project"));
   return assetView(row);
 }
 
@@ -334,7 +335,7 @@ export function listRevisions(db: Db, projectId: string, assetId: string): Revis
 
 export function getRevision(db: Db, projectId: string, revisionId: string): RevisionView {
   const row = db.get<RevisionRow>("SELECT * FROM asset_revisions WHERE id = :id AND project_id = :p", { id: revisionId, p: projectId });
-  if (!row) throw new DomainFailure("not_found", "Revisão não encontrada neste projeto");
+  if (!row) throw new DomainFailure("not_found", tx("Revisão não encontrada neste projeto", "Revision not found in this project"));
   return revisionView(db, row);
 }
 
@@ -366,23 +367,23 @@ export interface PublishRevisionInput {
 export function publishRevision(db: Db, clock: Clock, input: PublishRevisionInput): RevisionView {
   return db.transaction(() => {
     const asset = getAsset(db, input.projectId, input.assetId);
-    if (asset.archivedAt) throw new DomainFailure("validation_failed", "Asset arquivado não recebe revisões");
+    if (asset.archivedAt) throw new DomainFailure("validation_failed", tx("Asset arquivado não recebe revisões", "An archived asset does not accept revisions"));
     const parsed = parseRevisionPayload(asset.family, asset.kind, input.payload);
     if (!parsed.success) {
-      throw new DomainFailure("validation_failed", "Payload incompatível com o tipo do asset", { issues: parsed.issues.slice(0, 20) });
+      throw new DomainFailure("validation_failed", tx("Payload incompatível com o tipo do asset", "Payload does not match the asset kind"), { issues: parsed.issues.slice(0, 20) });
     }
 
     // Todo arquivo citado no payload precisa de vínculo; retângulos cabem na imagem.
     const byKey = new Map(input.files.map((f) => [f.fileKey, f]));
     for (const ref of entryRefs(parsed.entry).files) {
       const file = byKey.get(ref.fileId);
-      if (!file) throw new DomainFailure("validation_failed", `Payload cita arquivo sem vínculo: ${ref.fileId}`);
+      if (!file) throw new DomainFailure("validation_failed", tx(`Payload cita arquivo sem vínculo: ${ref.fileId}`, `Payload cites an unlinked file: ${ref.fileId}`));
       if (file.blob.modality !== ref.modality) {
-        throw new DomainFailure("validation_failed", `${ref.fileId} é ${file.blob.modality}; esperado ${ref.modality}`);
+        throw new DomainFailure("validation_failed", tx(`${ref.fileId} é ${file.blob.modality}; esperado ${ref.modality}`, `${ref.fileId} is ${file.blob.modality}; expected ${ref.modality}`));
       }
       const { width, height } = file.blob.metadata as { width?: number; height?: number };
       if (ref.rect && width && height && (ref.rect[0] + ref.rect[2] > width || ref.rect[1] + ref.rect[3] > height)) {
-        throw new DomainFailure("validation_failed", `Retângulo [${ref.rect.join(", ")}] excede ${width}×${height} de ${ref.fileId}`);
+        throw new DomainFailure("validation_failed", tx(`Retângulo [${ref.rect.join(", ")}] excede ${width}×${height} de ${ref.fileId}`, `Rectangle [${ref.rect.join(", ")}] exceeds ${width}×${height} of ${ref.fileId}`));
       }
     }
 
@@ -421,7 +422,7 @@ export function publishRevision(db: Db, clock: Clock, input: PublishRevisionInpu
       if (!target) {
         // Vínculo editorial do payload pode apontar para fora (ex.: pacote reaberto sem a origem): fica só como proveniência.
         if (e.derived && !e.runtime) continue;
-        throw new DomainFailure("validation_failed", `Payload cita revisão inexistente neste projeto: ${e.toRevisionId}`, { role: e.role });
+        throw new DomainFailure("validation_failed", tx(`Payload cita revisão inexistente neste projeto: ${e.toRevisionId}`, `Payload cites a revision that does not exist in this project: ${e.toRevisionId}`), { role: e.role });
       }
       db.run(
         `INSERT INTO revision_edges (from_revision_id, to_revision_id, project_id, role, ordinal, runtime)
@@ -482,9 +483,9 @@ export function reviewRevision(db: Db, clock: Clock, input: ReviewInput): Review
   return db.transaction(() => {
     const asset = getAsset(db, input.projectId, input.assetId);
     const revision = db.get<RevisionRow>("SELECT * FROM asset_revisions WHERE id = :id AND asset_id = :a", { id: input.revisionId, a: asset.id });
-    if (!revision) throw new DomainFailure("not_found", "Revisão não pertence a este asset");
+    if (!revision) throw new DomainFailure("not_found", tx("Revisão não pertence a este asset", "Revision does not belong to this asset"));
     if (asset.approvedRevisionId !== input.expectedActiveRevisionId) {
-      throw new DomainFailure("revision_conflict", "A revisão ativa mudou desde que esta tela foi aberta", {
+      throw new DomainFailure("revision_conflict", tx("A revisão ativa mudou desde que esta tela foi aberta", "The active revision changed since this screen was opened"), {
         currentActiveRevisionId: asset.approvedRevisionId,
         expectedActiveRevisionId: input.expectedActiveRevisionId,
       });
@@ -493,12 +494,12 @@ export function reviewRevision(db: Db, clock: Clock, input: ReviewInput): Review
     const previous = asset.approvedRevisionId;
 
     if (input.decision === "reject") {
-      if (revision.id === previous) throw new DomainFailure("validation_failed", "A revisão ativa não pode ser reprovada; promova outra antes");
-      if (!input.reason) throw new DomainFailure("validation_failed", "Reprovação exige motivo");
+      if (revision.id === previous) throw new DomainFailure("validation_failed", tx("A revisão ativa não pode ser reprovada; promova outra antes", "The active revision cannot be rejected; promote another one first"));
+      if (!input.reason) throw new DomainFailure("validation_failed", tx("Reprovação exige motivo", "Rejecting requires a reason"));
       db.run("UPDATE asset_revisions SET status = 'rejected' WHERE id = :id", { id: revision.id });
     } else {
       if (input.decision === "promote" && revision.status !== "approved") {
-        throw new DomainFailure("validation_failed", "Só uma revisão já aprovada pode ser promovida a ativa");
+        throw new DomainFailure("validation_failed", tx("Só uma revisão já aprovada pode ser promovida a ativa", "Only an approved revision can be promoted to active"));
       }
       db.run("UPDATE asset_revisions SET status = 'approved' WHERE id = :id", { id: revision.id });
       db.run("UPDATE assets SET approved_revision_id = :rev, updated_at = :now WHERE id = :id", { rev: revision.id, now, id: asset.id });
@@ -562,7 +563,7 @@ export function saveDraft(db: Db, clock: Clock, input: { projectId: string; asse
     const current = getDraft(db, input.projectId, input.assetId);
     const currentVersion = current?.version ?? 0;
     if (currentVersion !== input.expectedVersion) {
-      throw new DomainFailure("revision_conflict", "O rascunho foi alterado em outra aba", { currentVersion, expectedVersion: input.expectedVersion });
+      throw new DomainFailure("revision_conflict", tx("O rascunho foi alterado em outra aba", "The draft was changed in another tab"), { currentVersion, expectedVersion: input.expectedVersion });
     }
     const version = currentVersion + 1;
     db.run(
@@ -652,7 +653,7 @@ export function insertUpload(
 
 export function getUpload(db: Db, projectId: string, uploadId: string): UploadView {
   const row = db.get<UploadRow>("SELECT * FROM uploads WHERE id = :id AND project_id = :p", { id: uploadId, p: projectId });
-  if (!row) throw new DomainFailure("not_found", "Upload não encontrado neste projeto");
+  if (!row) throw new DomainFailure("not_found", tx("Upload não encontrado neste projeto", "Upload not found in this project"));
   return uploadView(row);
 }
 
@@ -673,7 +674,7 @@ export function markUploadReady(db: Db, clock: Clock, uploadId: string, normaliz
   });
 }
 
-export function markUploadRejected(db: Db, uploadId: string, error: { code: string; message: string }): void {
+export function markUploadRejected(db: Db, uploadId: string, error: { code: string; message: string; messages?: LocalizedText }): void {
   db.run("UPDATE uploads SET status = 'rejected', error_json = :e WHERE id = :id", { e: JSON.stringify(error), id: uploadId });
 }
 
@@ -694,6 +695,6 @@ export function resolveMedia(db: Db, projectId: string, fileId: string, variant:
     const blob = getBlob(db, sha);
     if (blob) return { sha256: sha, mime: blob.mime };
   }
-  throw new DomainFailure("not_found", "Arquivo não encontrado neste projeto");
+  throw new DomainFailure("not_found", tx("Arquivo não encontrado neste projeto", "File not found in this project"));
 }
 

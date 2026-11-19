@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import { DomainFailure } from "../errors";
 import { sniff } from "../media/inspect";
 import { ProviderError, type ProviderImage } from "./types";
@@ -38,11 +39,11 @@ export function checkBaseUrl(baseUrl: string): URL {
   try {
     url = new URL(baseUrl);
   } catch {
-    throw new DomainFailure("validation_failed", `URL base inválida: ${baseUrl}`);
+    throw new DomainFailure("validation_failed", tx(`URL base inválida: ${baseUrl}`, `Invalid base URL: ${baseUrl}`));
   }
   if (url.protocol === "https:") return url;
   if (url.protocol === "http:" && LOOPBACK.has(url.hostname)) return url;
-  throw new DomainFailure("validation_failed", "A URL base precisa usar https (http só para um servidor no próprio computador)");
+  throw new DomainFailure("validation_failed", tx("A URL base precisa usar https (http só para um servidor no próprio computador)", "The base URL must use https (http only for a server on this computer)"));
 }
 
 function errorCode(err: unknown): string | undefined {
@@ -53,7 +54,7 @@ function errorCode(err: unknown): string | undefined {
 export async function providerFetch(url: string, opts: HttpOptions): Promise<HttpResponse> {
   const target = new URL(url);
   if (target.host !== opts.allowedHost) {
-    throw new DomainFailure("validation_failed", `Destino ${target.host} não é o host autorizado do perfil (${opts.allowedHost})`);
+    throw new DomainFailure("validation_failed", tx(`Destino ${target.host} não é o host autorizado do perfil (${opts.allowedHost})`, `Destination ${target.host} is not the profile's allowed host (${opts.allowedHost})`));
   }
   const timeout = AbortSignal.timeout(opts.timeoutMs ?? 120_000);
   const signal = AbortSignal.any([opts.signal, timeout]);
@@ -62,29 +63,29 @@ export async function providerFetch(url: string, opts: HttpOptions): Promise<Htt
     res = await fetch(target, { method: opts.method ?? "GET", headers: opts.headers, body: opts.body, signal, redirect: "manual" });
   } catch (err) {
     if (opts.signal.aborted) throw opts.signal.reason;
-    if (timeout.aborted) throw new ProviderError("ambiguous", "Sem resposta do provedor dentro do prazo");
+    if (timeout.aborted) throw new ProviderError("ambiguous", tx("Sem resposta do provedor dentro do prazo", "No response from the provider within the time limit"));
     const code = errorCode(err);
-    if (code && NOT_SENT_CODES.has(code)) throw new ProviderError("not_accepted", `Não foi possível conectar ao provedor (${code})`);
-    throw new ProviderError("ambiguous", `Conexão interrompida com o provedor${code ? ` (${code})` : ""}`);
+    if (code && NOT_SENT_CODES.has(code)) throw new ProviderError("not_accepted", tx(`Não foi possível conectar ao provedor (${code})`, `Could not connect to the provider (${code})`));
+    throw new ProviderError("ambiguous", tx(`Conexão interrompida com o provedor${code ? ` (${code})` : ""}`, `Connection to the provider was interrupted${code ? ` (${code})` : ""}`));
   }
   if (res.status >= 300 && res.status < 400) {
-    throw new ProviderError("rejected", `Redirecionamento recusado (${res.status} → ${res.headers.get("location") ?? "?"})`);
+    throw new ProviderError("rejected", tx(`Redirecionamento recusado (${res.status} → ${res.headers.get("location") ?? "?"})`, `Redirect refused (${res.status} → ${res.headers.get("location") ?? "?"})`));
   }
   const max = opts.maxBytes ?? 64 * 1024 * 1024;
   const declared = Number(res.headers.get("content-length") ?? 0);
-  if (declared > max) throw new ProviderError("rejected", `Resposta de ${declared} bytes excede o limite`);
+  if (declared > max) throw new ProviderError("rejected", tx(`Resposta de ${declared} bytes excede o limite`, `Response of ${declared} bytes exceeds the limit`));
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
     for await (const chunk of res.body ?? []) {
       total += chunk.length;
-      if (total > max) throw new ProviderError("rejected", "Resposta excede o limite de bytes");
+      if (total > max) throw new ProviderError("rejected", tx("Resposta excede o limite de bytes", "Response exceeds the byte limit"));
       chunks.push(chunk);
     }
   } catch (err) {
     if (err instanceof ProviderError) throw err;
     if (opts.signal.aborted) throw opts.signal.reason;
-    throw new ProviderError("ambiguous", "Resposta interrompida durante o download");
+    throw new ProviderError("ambiguous", tx("Resposta interrompida durante o download", "Response interrupted during download"));
   }
   const bytes = new Uint8Array(total);
   let o = 0;
@@ -100,7 +101,7 @@ export async function providerFetch(url: string, opts: HttpOptions): Promise<Htt
       try {
         return JSON.parse(new TextDecoder().decode(bytes)) as T;
       } catch {
-        throw new ProviderError("rejected", `Resposta ${res.status} não é JSON`);
+        throw new ProviderError("rejected", tx(`Resposta ${res.status} não é JSON`, `Response ${res.status} is not JSON`));
       }
     },
   };
@@ -164,7 +165,7 @@ export function decodeImage(value: string): ProviderImage {
   const raw = value.replace(/^data:[^;,]+;base64,/, "");
   const bytes = new Uint8Array(Buffer.from(raw, "base64"));
   const kind = sniff(bytes);
-  if (!kind || kind.modality !== "raster") throw new ProviderError("rejected", "Resposta contém dados que não são imagem");
+  if (!kind || kind.modality !== "raster") throw new ProviderError("rejected", tx("Resposta contém dados que não são imagem", "Response contains data that is not an image"));
   return { bytes, mime: kind.mime };
 }
 
@@ -174,8 +175,8 @@ export function toDataUrl(bytes: Uint8Array, mime: string): string {
 
 /** Resolve o segredo pelo nome da variável de ambiente, só no processo que chama o provedor. */
 export function resolveSecret(secretRef: string | null): string {
-  if (!secretRef) throw new DomainFailure("capability_missing", "Perfil sem referência de credencial");
+  if (!secretRef) throw new DomainFailure("capability_missing", tx("Perfil sem referência de credencial", "Provider profile has no credential reference"));
   const value = process.env[secretRef];
-  if (!value) throw new DomainFailure("capability_missing", `Credencial ausente: defina a variável de ambiente ${secretRef} no servidor`);
+  if (!value) throw new DomainFailure("capability_missing", tx(`Credencial ausente: defina a variável de ambiente ${secretRef} no servidor`, `Missing credential: set the ${secretRef} environment variable on the server`));
   return value;
 }

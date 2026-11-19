@@ -206,14 +206,14 @@ def test_stray_pixel_in_spacing_is_diagnosed_with_coordinates(pipe):
     r = pipe.run("slice_grid", slice_recipe(), [("source", png(strip(stray=True)))])
     assert r["status"] == "needs_review"
     assert r["report"]["strayPixels"][0] == [16, 3]
-    assert "(16, 3)" in r["warnings"][0]
+    assert "(16, 3)" in r["warnings"][0]["pt-BR"] and "(16, 3)" in r["warnings"][0]["en"]
 
 
 def test_wrong_grid_dimensions_are_explained(pipe):
     recipe = slice_recipe(grid={"rows": 1, "columns": 4, "cell": [16, 16], "margin": [0, 0], "spacing": [0, 0], "traversal": "row_major"})
     r = pipe.run("slice_grid", recipe, [("source", png(strip()))])
     assert r["error"]["code"] == "geometry_mismatch"
-    assert "64×16" in r["error"]["message"]
+    assert "64×16" in r["error"]["message"]["pt-BR"] and "declared grid requires 64×16" in r["error"]["message"]["en"]
 
 
 # ---------------------------------------------------------------------------
@@ -324,7 +324,7 @@ def test_fit_logical_flags_off_grid_and_aspect(pipe):
     assert r["status"] == "needs_review" and r["report"]["lossless"] is False
     wide = pipe.run("fit_logical", {"targetSize": [16, 16]}, [("source", png(Image.new("RGBA", (100, 50), (9, 9, 9, 255))))])
     assert wide["report"]["method"] == "block_mode" and wide["report"]["fittedSize"] == [16, 8] and wide["report"]["offset"] == [0, 4]
-    assert any("Proporção" in w for w in wide["warnings"])
+    assert any("Proporção" in w["pt-BR"] for w in wide["warnings"])
 
 
 def test_encode_mask_four_quadrants(pipe):
@@ -448,7 +448,7 @@ def test_off_color_background_is_reported(pipe):
     im.paste((60, 200, 90, 255), (4, 4, 8, 8))
     recipe = {"color": "#ff00ff", "tolerance": 0, "seeds": {"borders": True, "points": []}, "connectivity": 4, "match": {"mode": "hue", "hueTolerance": 25, "minSaturation": 96, "keyFrom": "border"}}
     r = pipe.run("remove_background_flood", recipe, [("source", png(im))])
-    assert r["status"] == "needs_review" and "outra cor" in r["warnings"][0]
+    assert r["status"] == "needs_review" and "outra cor" in r["warnings"][0]["pt-BR"] and "another color" in r["warnings"][0]["en"]
     assert Pipeline.image(r, "cutout").getpixel((0, 0))[3] == 0
 
 
@@ -481,7 +481,7 @@ def test_fit_logical_small_content_only_scales_by_integer(pipe):
     r = pipe.run("fit_logical", {"targetSize": [32, 32], "cropToContent": {"padding": 0}}, [("source", png(im))])
     # 32/20 = 1,6: sem ampliação fracionária; o objeto fica 1× centralizado e o aviso explica.
     assert r["report"]["method"] == "center" and r["report"]["fittedSize"] == [16, 20] and r["report"]["lossless"] is True
-    assert any("ocupa 16×20" in w for w in r["warnings"])
+    assert any("ocupa 16×20" in w["pt-BR"] for w in r["warnings"])
     small = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
     small.paste(Image.new("RGBA", (10, 12), (9, 99, 9, 255)), (3, 3))
     r2 = pipe.run("fit_logical", {"targetSize": [32, 32], "cropToContent": {"padding": 0}}, [("source", png(small))])
@@ -536,7 +536,7 @@ def test_inspect_mask_counts_region_and_rejects_bad_masks(pipe):
     wrong = pipe.run("inspect_mask", MASK_RECIPE, [("source", source), ("editMask", png(Image.new("L", (15, 16), 255)))])
     assert wrong["status"] == "error" and wrong["error"]["code"] == "geometry_mismatch"
     gray = pipe.run("inspect_mask", MASK_RECIPE, [("source", source), ("editMask", png(Image.new("L", (16, 16), 128)))])
-    assert gray["status"] == "error" and "cinza" in gray["error"]["message"]
+    assert gray["status"] == "error" and "cinza" in gray["error"]["message"]["pt-BR"] and "gray" in gray["error"]["message"]["en"]
 
 
 def test_inpaint_guide_scales_by_integer_and_marks_region(pipe):
@@ -569,12 +569,12 @@ def test_inpaint_acceptance_demo_protects_every_rgba_byte(pipe):
             expected = normalized.getpixel((x, y)) if mask.getpixel((x, y)) == 255 else source.getpixel((x, y))
             assert out.getpixel((x, y)) == expected, (x, y)
     assert r["report"]["protectedDiffPixels"] == 0 and r["report"]["candidateAgreement"] == 0
-    assert any("emenda" in w for w in r["warnings"])  # candidato não respeitou o contexto
+    assert any("emenda" in w["pt-BR"] for w in r["warnings"])  # candidato não respeitou o contexto
 
 
 def test_candidate_with_wrong_aspect_fails_instead_of_stretching(pipe):
     r = pipe.run("fit_logical", {"targetSize": [16, 16], "exactAspect": True}, [("source", png(Image.new("RGBA", (64, 48), (1, 1, 1, 255))))])
-    assert r["status"] == "error" and r["error"]["code"] == "geometry_mismatch" and "fora da grade" in r["error"]["message"]
+    assert r["status"] == "error" and r["error"]["code"] == "geometry_mismatch" and "fora da grade" in r["error"]["message"]["pt-BR"]
 
 
 def test_off_grid_candidate_uses_block_majority(pipe):
@@ -587,4 +587,4 @@ def test_off_grid_candidate_uses_block_majority(pipe):
     r = pipe.run("fit_logical", {"targetSize": [8, 8], "exactAspect": True}, [("source", png(big))])
     assert r["report"]["method"] == "block_mode"
     assert Pipeline.image(r, "fitted").tobytes() == art.tobytes()
-    assert any("cor majoritária" in w for w in r["warnings"])
+    assert any("cor majoritária" in w["pt-BR"] for w in r["warnings"])

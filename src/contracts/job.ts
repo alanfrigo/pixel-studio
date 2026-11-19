@@ -1,3 +1,4 @@
+import { LocalizedText } from "@/i18n/locales";
 import { z } from "zod";
 import { Id } from "./common";
 
@@ -81,6 +82,8 @@ export const HTTP_STATUS_BY_ERROR: Record<ErrorCode, number> = {
 export const DomainError = z.strictObject({
   code: ErrorCode,
   message: z.string().min(1),
+  /** Mensagem nos dois idiomas da interface, quando o servidor a fornece. */
+  messages: LocalizedText.optional(),
   details: z.record(z.string(), z.unknown()).optional(),
   jobId: Id.optional(),
 });

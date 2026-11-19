@@ -1,3 +1,4 @@
+import { LocalizedText } from "@/i18n/locales";
 import { z } from "zod";
 import { checkOrdinals, GridPoint, HexColor, Id, NonNegInt, Offset, PosInt, RelativePath, Sha256Hex, Size } from "./common";
 import { DurationMs } from "./common";
@@ -5,6 +6,8 @@ import { WORLD_PYTHON_RECIPES } from "./world";
 import { SCENE_PYTHON_RECIPES } from "./scenes";
 import { EQUIPMENT_PYTHON_RECIPES } from "./equipment";
 import { TEMPORAL_PYTHON_RECIPES } from "./temporal";
+import { UI_PYTHON_RECIPES } from "./ui";
+import { DIALOGUE_PYTHON_RECIPES } from "./dialogue-audio";
 
 /**
  * Fronteira Node ↔ Python (05 §entrada e saída). Um subprocesso por tarefa,
@@ -239,6 +242,10 @@ const recipes = {
   ...EQUIPMENT_PYTHON_RECIPES,
   /** Estados e edição temporal (S3): composição de quadros, casamento de folha, espelho e canvas (`temporal.py`). */
   ...TEMPORAL_PYTHON_RECIPES,
+  /** Kit de UI (U3): guia e separação do template, recorte, folha de estados, transformações locais e foco (`ui.py`). */
+  ...UI_PYTHON_RECIPES,
+  /** Retratos, visemes, prévia de fala e fonte bitmap (D1): `dialogue.py` e `font.py`. */
+  ...DIALOGUE_PYTHON_RECIPES,
 } as const;
 
 export type PythonOperation = keyof typeof recipes;
@@ -293,6 +300,21 @@ export const PythonRequest = z
     request("sheet_match"),
     request("mirror_frames"),
     request("canvas_fit"),
+    request("ui_template_guide"),
+    request("ui_template_split"),
+    request("ui_crop"),
+    request("ui_state_guide"),
+    request("ui_state_sheet"),
+    request("ui_state_transform"),
+    request("ui_focus_overlay"),
+    request("portrait_check"),
+    request("viseme_guide"),
+    request("expression_sheet"),
+    request("expression_compare"),
+    request("speech_preview"),
+    request("font_guide"),
+    request("font_measure"),
+    request("font_render"),
   ])
   .superRefine((r, ctx) => checkOrdinals(ctx, r.inputs, ["inputs"]));
 export type PythonRequest = z.infer<typeof PythonRequest>;
@@ -302,7 +324,8 @@ export const PythonOutput = z.strictObject({
   /** Identifica a saída quando a operação produz várias (ex.: frame fatiado). */
   key: z.string().min(1).max(128).optional(),
   relPath: RelativePath,
-  mime: z.enum(["image/png", "application/json"]),
+  /** `image/gif`: prévia animada derivada (D1, fala); nunca é arquivo de payload. */
+  mime: z.enum(["image/png", "image/gif", "application/json"]),
   width: PosInt.optional(),
   height: PosInt.optional(),
   sha256: Sha256Hex,
@@ -322,14 +345,16 @@ export const PythonResponse = z.discriminatedUnion("status", [
     status: z.literal("needs_review"),
     outputs: z.array(PythonOutput),
     report: z.record(z.string(), z.unknown()),
-    warnings: z.array(z.string()).min(1),
+    /** Avisos em texto simples (legado) ou bilíngues (`tx()` em pixel_pipeline/i18n.py). */
+    warnings: z.array(z.union([z.string().min(1), LocalizedText])).min(1),
   }),
   z.strictObject({
     protocolVersion: z.literal(PYTHON_PROTOCOL_VERSION),
     status: z.literal("error"),
     error: z.strictObject({
       code: z.enum(["unsupported_protocol", "invalid_request", "unsupported_input", "decode_failed", "limit_exceeded", "geometry_mismatch", "internal"]),
-      message: z.string().min(1),
+      /** Texto simples (legado, erro interno) ou bilíngue (`PipelineError` com `tx()`). */
+      message: z.union([z.string().min(1), LocalizedText]),
     }),
   }),
 ]);

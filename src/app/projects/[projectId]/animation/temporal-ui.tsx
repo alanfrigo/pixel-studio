@@ -4,7 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import type { BasePayload, ClipPayload, Direction } from "@/contracts";
 import type { RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
-import { clipFrameLayers, DIR_LABEL, DIRS, errorText, estimateText, type PlanPreview, review, type RunResult, viewUrl } from "./shared";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import { type Locale, type TextValue } from "@/i18n/locales";
+import { animationMessages } from "@/i18n/messages/animation";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { clipFrameLayers, DIRS, errorText, estimateText, type PlanPreview, review, type RunResult, viewUrl } from "./shared";
 
 /**
  * Peças de interface do cartão S3: quadro composto por camadas, escolha de
@@ -50,18 +54,21 @@ export function FrameThumb({ projectId, revision, index, zoom = 2, selected, onC
 }
 
 export function PlanPreviewBox({ preview }: { preview: PlanPreview & { summary: Record<string, unknown> } }) {
+  const sh = useMessages(animationMessages).shared;
+  const locale = useLocale();
+  const text = useText();
   const sheet = (preview.plan.params as { sheet?: { columns: number; rows: number; backgroundKey: string | null } }).sheet;
-  const note = (preview.summary as { note?: string; keepFirstFrameNote?: string; costNote?: string }) ?? {};
+  const note = (preview.summary as { note?: TextValue; keepFirstFrameNote?: TextValue; costNote?: TextValue }) ?? {};
   return (
     <div className="small anim-plan">
       <p>
-        <strong className={preview.route.strategy === "native" ? "" : "anim-sheet"}>{preview.route.label}</strong> · destino {preview.destination.name}
-        {preview.destination.simulated ? " (simulado)" : ""} · estimativa {estimateText(preview.plan)} · capacidades {preview.plan.requiredCapabilities.join(", ")}
-        {sheet ? ` · folha ${sheet.columns}×${sheet.rows}${sheet.backgroundKey ? " com fundo de cor-chave removido localmente" : " com alfa"}` : ""}
+        <strong className={preview.route.strategy === "native" ? "" : "anim-sheet"}>{text(preview.route.label)}</strong> · {sh.plan.destination(preview.destination.name)}
+        {preview.destination.simulated ? sh.simulated : ""} · {sh.plan.estimate(estimateText(preview.plan, locale))} · {sh.plan.capabilities(preview.plan.requiredCapabilities.join(", "))}
+        {sheet ? sh.plan.sheet(sheet.columns, sheet.rows, Boolean(sheet.backgroundKey)) : ""}
       </p>
-      {[note.note, note.keepFirstFrameNote, note.costNote].filter(Boolean).map((n) => (
-        <p key={n} className="muted">
-          {n}
+      {[note.note, note.keepFirstFrameNote, note.costNote].filter(Boolean).map((n, i) => (
+        <p key={i} className="muted">
+          {text(n)}
         </p>
       ))}
       {preview.plan.prompt.compiled && <pre>{preview.plan.prompt.compiled}</pre>}
@@ -70,7 +77,8 @@ export function PlanPreviewBox({ preview }: { preview: PlanPreview & { summary: 
 }
 
 /** Prévia + gerar com o mesmo plano; mensagens de erro estruturadas visíveis. */
-export function PlanActions({ projectId, plan, run, disabled, label = "Gerar" }: { projectId: string; plan: Record<string, unknown> | null; run: RunFn; disabled?: boolean; label?: string }) {
+export function PlanActions({ projectId, plan, run, disabled, label }: { projectId: string; plan: Record<string, unknown> | null; run: RunFn; disabled?: boolean; label?: string }) {
+  const sh = useMessages(animationMessages).shared;
   const [preview, setPreview] = useState<(PlanPreview & { summary: Record<string, unknown> }) | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,7 +104,7 @@ export function PlanActions({ projectId, plan, run, disabled, label = "Gerar" }:
             }
           }}
         >
-          Prévia do plano
+          {sh.planPreview}
         </button>
         <button
           type="button"
@@ -112,7 +120,7 @@ export function PlanActions({ projectId, plan, run, disabled, label = "Gerar" }:
             }
           }}
         >
-          {busy ? "Enviando…" : label}
+          {busy ? sh.sending : (label ?? sh.generate)}
         </button>
       </div>
       {message && <p className="small error">{message}</p>}
@@ -123,8 +131,10 @@ export function PlanActions({ projectId, plan, run, disabled, label = "Gerar" }:
 
 /** Aprovar/reprovar uma revisão candidata pelo fluxo de revisão. */
 export function ReviewButtons({ projectId, assetId, revision, activeRevisionId, onChanged }: { projectId: string; assetId: string; revision: RevisionView; activeRevisionId: string | null; onChanged: () => void }) {
+  const sh = useMessages(animationMessages).shared;
+  const c = useMessages(commonMessages);
   const [message, setMessage] = useState<string | null>(null);
-  if (revision.status !== "candidate") return <span className={`badge state-${revision.status}`}>{revision.status}</span>;
+  if (revision.status !== "candidate") return <span className={`badge state-${revision.status}`}>{labelOf(c.revisionStatus, revision.status)}</span>;
   return (
     <span className="row">
       <button
@@ -138,13 +148,13 @@ export function ReviewButtons({ projectId, assetId, revision, activeRevisionId, 
           }
         }}
       >
-        Aprovar r{revision.number}
+        {sh.approveRev(revision.number)}
       </button>
       <button
         type="button"
         className="secondary"
         onClick={async () => {
-          const reason = window.prompt("Motivo da reprovação");
+          const reason = window.prompt(c.rejectReasonPrompt);
           if (!reason) return;
           try {
             await review(projectId, assetId, revision.id, "reject", activeRevisionId, reason);
@@ -154,7 +164,7 @@ export function ReviewButtons({ projectId, assetId, revision, activeRevisionId, 
           }
         }}
       >
-        Reprovar
+        {c.reject}
       </button>
       {message && <span className="small error">{message}</span>}
     </span>
@@ -166,22 +176,26 @@ export function ReviewButtons({ projectId, assetId, revision, activeRevisionId, 
  * desmarcadas viram lacunas explícitas com motivo (não disparam lote novo).
  */
 export function ViewPicker({ projectId, revision, onPublished }: { projectId: string; revision: RevisionView; onPublished: (revisionId: string) => void }) {
+  const am = useMessages(animationMessages);
+  const t = am.temporalUi;
+  const c = useMessages(commonMessages);
+  const text = useText();
   const views = (revision.payload as BasePayload).views;
   const [keep, setKeep] = useState<Record<string, boolean>>(() => Object.fromEntries(views.map((v) => [v.direction, true])));
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const kept = views.filter((v) => keep[v.direction]).map((v) => v.direction);
-  const rejected = views.filter((v) => !keep[v.direction]).map((v) => ({ direction: v.direction, reason: reasons[v.direction]?.trim() || "reprovada na revisão" }));
+  const rejected = views.filter((v) => !keep[v.direction]).map((v) => ({ direction: v.direction, reason: reasons[v.direction]?.trim() || t.defaultGapReason }));
   return (
     <div className="anim-views">
       {views.map((v) => (
         <div key={v.direction} className={`anim-view${keep[v.direction] ? "" : " missing"}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="pixel bg-checker" alt={`Vista ${v.direction}`} src={viewUrl(projectId, revision, v.direction)!} width={64} height={64} />
+          <img className="pixel bg-checker" alt={am.shared.viewAlt(v.direction)} src={viewUrl(projectId, revision, v.direction)!} width={64} height={64} />
           <label className="small">
-            <input type="checkbox" checked={keep[v.direction]} onChange={(e) => setKeep((k) => ({ ...k, [v.direction]: e.target.checked }))} /> {v.direction} · {DIR_LABEL[v.direction]}
+            <input type="checkbox" checked={keep[v.direction]} onChange={(e) => setKeep((k) => ({ ...k, [v.direction]: e.target.checked }))} /> {v.direction} · {c.directions[v.direction]}
           </label>
-          {!keep[v.direction] && <input className="small" placeholder="motivo da lacuna" value={reasons[v.direction] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [v.direction]: e.target.value }))} />}
+          {!keep[v.direction] && <input className="small" placeholder={t.gapReasonPlaceholder} value={reasons[v.direction] ?? ""} onChange={(e) => setReasons((r) => ({ ...r, [v.direction]: e.target.value }))} />}
         </div>
       ))}
       <div>
@@ -191,15 +205,15 @@ export function ViewPicker({ projectId, revision, onPublished }: { projectId: st
           onClick={async () => {
             setMessage(null);
             try {
-              const res = await apiFetch<{ revision: RevisionView; gaps: { direction: string; reason: string }[] }>(`/projects/${projectId}/animation/states`, { method: "POST", json: { revisionId: revision.id, keep: kept, reject: rejected } });
-              setMessage(`Revisão r${res.revision.number} publicada só com ${kept.join(", ")}; lacunas: ${res.gaps.map((g) => `${g.direction} (${g.reason})`).join(", ") || "nenhuma"}. Aprove-a para usar.`);
+              const res = await apiFetch<{ revision: RevisionView; gaps: { direction: string; reason: TextValue }[] }>(`/projects/${projectId}/animation/states`, { method: "POST", json: { revisionId: revision.id, keep: kept, reject: rejected } });
+              setMessage(t.published(res.revision.number, kept.join(", "), res.gaps.map((g) => `${g.direction} (${text(g.reason)})`).join(", ") || c.none));
               onPublished(res.revision.id);
             } catch (err) {
               setMessage(errorText(err));
             }
           }}
         >
-          Publicar só as vistas marcadas
+          {t.publishChecked}
         </button>
         {message && <p className="small">{message}</p>}
       </div>
@@ -208,10 +222,12 @@ export function ViewPicker({ projectId, revision, onPublished }: { projectId: st
 }
 
 export function DirectionChecks({ available, value, onChange, disabledHint }: { available: Direction[]; value: Direction[]; onChange: (d: Direction[]) => void; disabledHint?: string }) {
+  const t = useMessages(animationMessages).temporalUi;
+  const c = useMessages(commonMessages);
   return (
     <div className="row small">
       {DIRS.map((d) => (
-        <label key={d} style={{ flexDirection: "row", alignItems: "center", gap: 2 }} title={available.includes(d) ? DIR_LABEL[d] : (disabledHint ?? "sem vista na fonte")}>
+        <label key={d} style={{ flexDirection: "row", alignItems: "center", gap: 2 }} title={available.includes(d) ? c.directions[d] : (disabledHint ?? t.noViewInSource)}>
           <input type="checkbox" disabled={!available.includes(d)} checked={value.includes(d)} onChange={(e) => onChange(e.target.checked ? [...value, d] : value.filter((x) => x !== d))} /> {d}
         </label>
       ))}
@@ -221,6 +237,7 @@ export function DirectionChecks({ available, value, onChange, disabledHint }: { 
 
 /** Pincel de máscara sobre o quadro: branco = editar, preto = proteger (convenção interna 255/0). */
 export function MaskPainter({ width, height, background, zoom, onChange }: { width: number; height: number; background: React.ReactNode; zoom: number; onChange: (mask: Uint8Array | null) => void }) {
+  const t = useMessages(animationMessages).temporalUi;
   const ref = useRef<HTMLCanvasElement>(null);
   const mask = useRef(new Uint8Array(width * height));
   const [brush, setBrush] = useState(3);
@@ -260,7 +277,7 @@ export function MaskPainter({ width, height, background, zoom, onChange }: { wid
       </div>
       <div className="row small">
         <label>
-          Pincel
+          {t.brush}
           <select value={brush} onChange={(e) => setBrush(Number(e.target.value))}>
             {[1, 2, 3, 5, 8].map((b) => (
               <option key={b} value={b}>
@@ -270,10 +287,10 @@ export function MaskPainter({ width, height, background, zoom, onChange }: { wid
           </select>
         </label>
         <label style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <input type="checkbox" checked={erase} onChange={(e) => setErase(e.target.checked)} /> borracha (proteger)
+          <input type="checkbox" checked={erase} onChange={(e) => setErase(e.target.checked)} /> {t.eraser}
         </label>
         <button type="button" className="secondary" onClick={() => ((mask.current = new Uint8Array(width * height)), redraw())}>
-          Limpar máscara
+          {t.clearMask}
         </button>
       </div>
     </div>
@@ -281,12 +298,12 @@ export function MaskPainter({ width, height, background, zoom, onChange }: { wid
 }
 
 /** PNG preto/branco opaco da máscara (255 edita, 0 protege). */
-export async function maskToPng(mask: Uint8Array, w: number, h: number): Promise<Blob> {
+export async function maskToPng(mask: Uint8Array, w: number, h: number, locale: Locale): Promise<Blob> {
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const data = new ImageData(w, h);
   for (let i = 0; i < mask.length; i++) data.data.set([mask[i]!, mask[i]!, mask[i]!, 255], i * 4);
   canvas.getContext("2d")!.putImageData(data, 0, 0);
-  return new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Falha ao gerar PNG"))), "image/png"));
+  return new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(animationMessages[locale].shared.pngFailed))), "image/png"));
 }

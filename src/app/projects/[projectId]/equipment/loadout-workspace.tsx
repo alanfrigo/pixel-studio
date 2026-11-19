@@ -4,9 +4,13 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Insets, LayerRef } from "@/contracts";
 import { apiFetch } from "@/app/client/api";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { equipmentMessages } from "@/i18n/messages/equipment";
 import { type CellTarget, CoverageMatrix } from "./coverage-matrix";
 import { ResolvedPlayer } from "./resolved-player";
-import { type Config, configOf, DIR_LABEL, errorText, type Overview, type Pendency, resolve, review, type RigInfo, STATUS_LABEL, type View, whereText } from "./shared";
+import { type Config, configOf, errorText, type Overview, type Pendency, resolve, review, type RigInfo, type View, whereText } from "./shared";
 
 /**
  * Editor de conjuntos (04 §caso de ponta a ponta): catálogo de peças, slots,
@@ -25,6 +29,12 @@ export interface CoveragePrefill {
 type Mode = { kind: "published"; revisionId: string } | { kind: "draft"; config: Config; assetId: string | null; name: string };
 
 export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCoverage }: { projectId: string; overview: Overview; rig: RigInfo; refresh: () => void; onCreateCoverage: (p: CoveragePrefill) => void }) {
+  const locale = useLocale();
+  const c = useMessages(commonMessages);
+  const em = useMessages(equipmentMessages);
+  const m = em.loadout;
+  const text = useText();
+  const statusLabel = (status: string) => labelOf(em.shared.status, status);
   const loadouts = overview.loadouts.filter((g) => g.revisions.some((r) => r.rigRevisionId === rig.revisionId));
   const initial = loadouts[0]?.activeRevisionId ?? loadouts[0]?.revisions[0]?.revisionId ?? null;
   const [mode, setMode] = useState<Mode>(initial ? { kind: "published", revisionId: initial } : { kind: "draft", config: { rigRevisionId: rig.revisionId, overlayRevisionIds: [] }, assetId: null, name: "" });
@@ -45,11 +55,11 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
     let alive = true;
     resolve(projectId, request)
       .then((res) => alive && setView(res.view))
-      .catch((err) => alive && setMessage(errorText(err)));
+      .catch((err) => alive && setMessage(errorText(err, locale)));
     return () => {
       alive = false;
     };
-  }, [projectId, request, reloads]);
+  }, [projectId, request, reloads, locale]);
 
   const combo = view?.combos.find((c) => c.key === comboKey) ?? view?.combos.find((c) => c.clip) ?? null;
   const published = mode.kind === "published" ? loadouts.flatMap((g) => g.revisions).find((r) => r.revisionId === mode.revisionId) : null;
@@ -67,7 +77,7 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
       const out = await fn();
       return out;
     } catch (err) {
-      setMessage(`${label}: ${errorText(err)}`);
+      setMessage(`${label}: ${errorText(err, locale)}`);
       return undefined;
     } finally {
       setBusy(false);
@@ -90,9 +100,9 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
   async function replace(overlayRevisionId: string) {
     if (!currentConfig) return;
     const base = { ...currentConfig, overlayRevisionIds: currentConfig.overlayRevisionIds.filter((id) => id !== overlayRevisionId) };
-    const res = await act("Substituir", () => resolve(projectId, { config: base }, overlayRevisionId));
+    const res = await act(m.act.replace, () => resolve(projectId, { config: base }, overlayRevisionId));
     if (res?.config) {
-      toDraft(res.config, res.replacement?.removed.length ? `Substituído: ${res.replacement.removed.map(nameOf).join(", ")} saiu para liberar os slots de ${nameOf(overlayRevisionId)}. Publique para registrar.` : undefined);
+      toDraft(res.config, res.replacement?.removed.length ? m.replaced(res.replacement.removed.map(nameOf).join(", "), nameOf(overlayRevisionId)) : undefined);
       setView(res.view);
     }
   }
@@ -100,7 +110,7 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
   /** Conjunto publicado: troca e publica a revisão nova numa só ação (sem passar pelo rascunho). */
   async function swapAndPublish(overlayRevisionId: string) {
     if (mode.kind !== "published") return;
-    const res = await act("Troca", () =>
+    const res = await act(m.act.swap, () =>
       apiFetch<{ revision: { id: string; number: number }; replacement: { removed: string[] }; droppedOrderOverrides: number }>(`/projects/${projectId}/equipment/loadouts/swap`, {
         method: "POST",
         json: { loadoutRevisionId: mode.revisionId, incomingOverlayRevisionId: overlayRevisionId, flatten },
@@ -108,7 +118,7 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
     );
     if (res) {
       setMode({ kind: "published", revisionId: res.revision.id });
-      setMessage(`Troca publicada como r${res.revision.number} (candidata). Retirado: ${res.replacement.removed.length ? res.replacement.removed.map(nameOf).join(", ") : "nada"}. Nenhuma chamada a provedor.`);
+      setMessage(m.swapPublished(res.revision.number, res.replacement.removed.length ? res.replacement.removed.map(nameOf).join(", ") : m.nothing));
       refresh();
     }
   }
@@ -134,28 +144,28 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
       return;
     }
     if (action === "rebind") {
-      const res = await act("Revincular", () =>
+      const res = await act(m.act.rebind, () =>
         apiFetch<{ revision: { id: string; number: number } | null; rebound: unknown[]; review: { partId: string; frameId: string }[] }>(`/projects/${projectId}/equipment/overlays/rebind`, {
           method: "POST",
           json: { overlayRevisionId: cell.overlayRevisionId, toClipRevisionId: cell.clipRevisionId },
         }),
       );
-      if (res?.revision) replaceOverlay(cell.overlayRevisionId, res.revision.id, `${res.rebound.length} célula(s) revinculada(s) com os mesmos blobs; ${res.review.length} a revisar (${res.review.map((r) => `${r.partId}/${r.frameId}`).join(", ") || "nenhuma"}). Aprove a revisão da peça antes de exportar.`);
-      else if (res) setMessage(`Nada a revincular: geometria mudou em todos os frames (${res.review.length} a revisar).`);
+      if (res?.revision) replaceOverlay(cell.overlayRevisionId, res.revision.id, m.rebound(res.rebound.length, res.review.length, res.review.map((r) => `${r.partId}/${r.frameId}`).join(", ") || c.none));
+      else if (res) setMessage(m.nothingToRebind(res.review.length));
       return;
     }
     const body =
       action === "place"
         ? { op: "set_placement", overlayRevisionId: cell.overlayRevisionId, clipRevisionId: cell.clipRevisionId, frameId: cell.frameId, ...extra }
         : { op: action, overlayRevisionId: cell.overlayRevisionId, clipRevisionId: cell.clipRevisionId, frameId: cell.frameId, partId: cell.partId };
-    const res = await act("Editar peça", () => apiFetch<{ revision: { id: string; number: number }; summary: string }>(`/projects/${projectId}/equipment/overlays`, { method: "POST", json: body }));
-    if (res) replaceOverlay(cell.overlayRevisionId, res.revision.id, `${res.summary} — ${cell.overlayName} r${res.revision.number} (candidata; aprove na aba Peças). Rascunho atualizado.`);
+    const res = await act(m.act.editPiece, () => apiFetch<{ revision: { id: string; number: number }; summary: TextValue }>(`/projects/${projectId}/equipment/overlays`, { method: "POST", json: body }));
+    if (res) replaceOverlay(cell.overlayRevisionId, res.revision.id, m.pieceEdited(text(res.summary), cell.overlayName, res.revision.number));
   }
 
   async function publish(subset: boolean) {
     if (!currentConfig || !view) return;
     const ready = view.combos.filter((c) => c.status === "ready").map((c) => ({ action: c.action, direction: c.direction }));
-    const res = await act("Publicar", () =>
+    const res = await act(m.act.publish, () =>
       apiFetch<{ revision: { id: string; number: number } }>(`/projects/${projectId}/equipment/loadouts`, {
         method: "POST",
         json: {
@@ -163,13 +173,13 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
           ...(mode.kind === "draft" && mode.name ? { name: mode.name } : {}),
           config: currentConfig,
           flatten,
-          ...(subset ? { subset: { combos: ready, reason: subsetReason || "Subconjunto completo; as demais combinações têm pendências" } } : {}),
+          ...(subset ? { subset: { combos: ready, reason: subsetReason || m.subsetReasonDefault } } : {}),
         },
       }),
     );
     if (res) {
       setMode({ kind: "published", revisionId: res.revision.id });
-      setMessage(`Conjunto publicado como r${res.revision.number} (candidata). Aprove abaixo; nenhuma chamada a provedor.`);
+      setMessage(m.published(res.revision.number));
       refresh();
     }
   }
@@ -180,19 +190,19 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
     const config = { ...currentConfig, drawOrder };
     if (mode.kind === "draft") {
       setMode({ ...mode, config });
-      setMessage("Ordem do frame salva no rascunho; publique para registrar a revisão.");
+      setMessage(m.orderSavedDraft);
       return;
     }
-    const res = await act("Salvar ordem", () => apiFetch<{ revision: { id: string; number: number } }>(`/projects/${projectId}/equipment/loadouts`, { method: "POST", json: { assetId: published!.assetId, config, flatten } }));
+    const res = await act(m.act.saveOrder, () => apiFetch<{ revision: { id: string; number: number } }>(`/projects/${projectId}/equipment/loadouts`, { method: "POST", json: { assetId: published!.assetId, config, flatten } }));
     if (res) {
       setMode({ kind: "published", revisionId: res.revision.id });
-      setMessage(`Override de ordem registrado na revisão r${res.revision.number} (candidata).`);
+      setMessage(m.orderOverride(res.revision.number));
       refresh();
     }
   }
 
   async function expand(clipRevisionId: string, margins: Insets) {
-    const res = await act("Ampliar célula", () =>
+    const res = await act(m.act.expandCell, () =>
       apiFetch<{ clips: { revision: { id: string; number: number; assetId: string } }[]; overlays: { overlayRevisionId: string; name: string; revision: { id: string; number: number; assetId: string } }[] }>(`/projects/${projectId}/equipment/cell`, {
         method: "POST",
         json: { clips: [{ clipRevisionId, margins }], overlayRevisionIds: currentConfig?.overlayRevisionIds ?? [] },
@@ -202,24 +212,24 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
     // Aprova as candidatas da ampliação (clipe e peças) para o resolvedor usar: é a ação explícita do artista neste botão.
     for (const r of [...res.clips.map((c) => c.revision), ...res.overlays.map((o) => o.revision)]) {
       const asset = await apiFetch<{ asset: { approvedRevisionId: string | null } }>(`/projects/${projectId}/assets/${r.assetId}`);
-      await review(projectId, r.assetId, r.id, "approve", asset.asset.approvedRevisionId, "Célula ampliada para caber o contorno");
+      await review(projectId, r.assetId, r.id, "approve", asset.asset.approvedRevisionId, m.expandApproveReason);
     }
     let config = { ...currentConfig };
     for (const o of res.overlays) config = { ...config, overlayRevisionIds: config.overlayRevisionIds.map((id) => (id === o.overlayRevisionId ? o.revision.id : id)) };
     config = { ...config, pins: (config.pins ?? []).filter((p) => p.clipRevisionId !== clipRevisionId) };
-    toDraft(config, `Célula ampliada: clipe r${res.clips[0]!.revision.number} e ${res.overlays.length} peça(s) com coberturas deslocadas (mesmos blobs), aprovados. Publique o conjunto para registrar.`);
+    toDraft(config, m.expanded(res.clips[0]!.revision.number, res.overlays.length));
     refresh();
   }
 
   async function exportLoadout() {
     if (mode.kind !== "published") return;
-    const res = await act("Exportar", () => apiFetch<{ export: { id: string; state: string } }>(`/projects/${projectId}/exports`, { method: "POST", json: { revisionIds: [mode.revisionId], profile: "portable-v1" } }));
+    const res = await act(m.act.export, () => apiFetch<{ export: { id: string; state: string } }>(`/projects/${projectId}/exports`, { method: "POST", json: { revisionIds: [mode.revisionId], profile: "portable-v1" } }));
     if (res) setExportInfo(res.export);
   }
 
   async function checkExport() {
     if (!exportInfo) return;
-    const res = await act("Exportação", () => apiFetch<{ export: { id: string; state: string } }>(`/projects/${projectId}/exports/${exportInfo.id}`));
+    const res = await act(m.act.exportStatus, () => apiFetch<{ export: { id: string; state: string } }>(`/projects/${projectId}/exports/${exportInfo.id}`));
     if (res) setExportInfo(res.export);
   }
 
@@ -230,7 +240,7 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
     <>
       <section>
         <div className="row">
-          <h2 style={{ margin: 0 }}>Conjuntos</h2>
+          <h2 style={{ margin: 0 }}>{m.title}</h2>
           {loadouts.map((g) =>
             g.revisions.map((r) => (
               <button
@@ -240,12 +250,12 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
                 onClick={() => (setMode({ kind: "published", revisionId: r.revisionId }), setExportInfo(null), setMessage(null))}
                 title={`${g.name} r${r.number}`}
               >
-                {g.name} r{r.number} <span className={`badge state-${r.status}`}>{r.status === "approved" ? (r.active ? "ativa" : "aprovada") : r.status === "candidate" ? "candidata" : "reprovada"}</span>
+                {g.name} r{r.number} <span className={`badge state-${r.status}`}>{r.status === "approved" ? (r.active ? c.revisionStatus.active : c.revisionStatus.approved) : r.status === "candidate" ? c.revisionStatus.candidate : c.revisionStatus.rejected}</span>
               </button>
             )),
           )}
           <button type="button" className="secondary" onClick={() => setMode({ kind: "draft", config: { rigRevisionId: rig.revisionId, overlayRevisionIds: [] }, assetId: null, name: "" })}>
-            + Novo conjunto
+            {m.newLoadout}
           </button>
         </div>
         {message && <p className="small">{message}</p>}
@@ -260,35 +270,36 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
                   {publishedGroup?.name} r{published.number}
                 </h2>
                 <p className="small">
-                  <span className={`badge state-${published.status}`}>{published.status === "approved" ? "aprovada" : published.status === "candidate" ? "candidata" : "reprovada"}</span> · postura {published.stance} ({published.stancePolicy === "pinned" ? "escolhida" : "automática"}) ·{" "}
-                  {published.clips.length} combinação(ões){published.omitted.length ? ` · omitidas: ${published.omitted.map((o) => `${o.action}/${o.direction}`).join(", ")}` : ""} · {published.sheets.length} folha(s) achatada(s)
+                  <span className={`badge state-${published.status}`}>{published.status === "approved" ? c.revisionStatus.approved : published.status === "candidate" ? c.revisionStatus.candidate : c.revisionStatus.rejected}</span> ·{" "}
+                  {m.stance(published.stance, published.stancePolicy === "pinned" ? m.stanceChosen : m.stanceAuto)} · {m.combos(published.clips.length)}
+                  {published.omitted.length ? m.omitted(published.omitted.map((o) => `${o.action}/${o.direction}`).join(", ")) : ""} · {m.sheets(published.sheets.length)}
                 </p>
                 <div className="row">
                   {published.status === "candidate" && (
                     <>
-                      <button type="button" disabled={busy} onClick={() => act("Aprovar", () => review(projectId, published.assetId, published.revisionId, "approve", publishedGroup?.activeRevisionId ?? null)).then(refresh)}>
-                        Aprovar
+                      <button type="button" disabled={busy} onClick={() => act(c.approve, () => review(projectId, published.assetId, published.revisionId, "approve", publishedGroup?.activeRevisionId ?? null)).then(refresh)}>
+                        {c.approve}
                       </button>
-                      <button type="button" className="secondary" disabled={busy} onClick={() => act("Reprovar", () => review(projectId, published.assetId, published.revisionId, "reject", publishedGroup?.activeRevisionId ?? null, "Reprovado no editor de conjuntos")).then(refresh)}>
-                        Reprovar
+                      <button type="button" className="secondary" disabled={busy} onClick={() => act(c.reject, () => review(projectId, published.assetId, published.revisionId, "reject", publishedGroup?.activeRevisionId ?? null, m.rejectReason)).then(refresh)}>
+                        {c.reject}
                       </button>
                     </>
                   )}
                   <button type="button" className="secondary" onClick={() => toDraft(configOf(published))}>
-                    Editar como rascunho
+                    {m.editAsDraft}
                   </button>
                   <button type="button" className="secondary" disabled={busy} onClick={exportLoadout}>
-                    Exportar (portable-v1)
+                    {m.exportButton}
                   </button>
                 </div>
                 {exportInfo && (
                   <p className="small">
-                    Exportação {exportInfo.id}: {exportInfo.state}{" "}
+                    {m.exportInfo(exportInfo.id)} {labelOf(c.exportState, exportInfo.state)}{" "}
                     {exportInfo.state === "ready" ? (
-                      <a href={`/api/v1/projects/${projectId}/exports/${exportInfo.id}/download`}>baixar ZIP</a>
+                      <a href={`/api/v1/projects/${projectId}/exports/${exportInfo.id}/download`}>{m.downloadZip}</a>
                     ) : (
                       <button type="button" className="secondary" onClick={checkExport}>
-                        Verificar
+                        {m.check}
                       </button>
                     )}
                   </p>
@@ -296,24 +307,24 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
               </>
             ) : mode.kind === "draft" ? (
               <>
-                <h2>Rascunho de conjunto</h2>
+                <h2>{m.draftTitle}</h2>
                 <label>
-                  Nome
-                  <input value={mode.name} placeholder="Conjunto: espada + cota" onChange={(e) => setMode({ ...mode, name: e.target.value })} />
+                  {m.name}
+                  <input value={mode.name} placeholder={m.namePlaceholder} onChange={(e) => setMode({ ...mode, name: e.target.value })} />
                 </label>
                 <div className="row small">
                   <label style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-                    <input type="checkbox" checked={flatten} onChange={(e) => setFlatten(e.target.checked)} /> incluir folha achatada
+                    <input type="checkbox" checked={flatten} onChange={(e) => setFlatten(e.target.checked)} /> {m.includeSheet}
                   </label>
                   <button type="button" disabled={busy || !view?.snapshot} onClick={() => publish(false)}>
-                    Publicar como candidata
+                    {m.publishCandidate}
                   </button>
                 </div>
                 {view && !view.ready && view.combos.some((c) => c.status === "ready") && (
                   <div className="row small">
-                    <input value={subsetReason} placeholder="Motivo das combinações omitidas" onChange={(e) => setSubsetReason(e.target.value)} />
+                    <input value={subsetReason} placeholder={m.subsetReasonPlaceholder} onChange={(e) => setSubsetReason(e.target.value)} />
                     <button type="button" className="secondary" disabled={busy} onClick={() => publish(true)}>
-                      Publicar subconjunto completo ({view.combos.filter((c) => c.status === "ready").length} de {view.combos.length})
+                      {m.publishSubset(view.combos.filter((x) => x.status === "ready").length, view.combos.length)}
                     </button>
                   </div>
                 )}
@@ -323,23 +334,23 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
 
           {view && (
             <section>
-              <h2>Slots e postura</h2>
+              <h2>{m.slotsTitle}</h2>
               <div className="eq-slots">
                 {rig.slots.map((s) => {
                   const holders = view.occupancy.bySlot[s.slotId] ?? [];
                   return (
                     <div key={s.slotId} className={`eq-slot small${holders.length > 1 ? " conflict" : ""}`}>
                       <strong>{s.label}</strong>
-                      <div>{holders.length ? holders.map(nameOf).join(" + ") : <span className="muted">livre</span>}</div>
+                      <div>{holders.length ? holders.map(nameOf).join(" + ") : <span className="muted">{m.free}</span>}</div>
                     </div>
                   );
                 })}
               </div>
               <p className="small">
-                Postura:{" "}
+                {m.stanceLabel}{" "}
                 {view.stance.status === "resolved" ? (
                   <strong>
-                    {view.stance.stance} ({view.stance.policy === "pinned" ? "escolhida" : "pela combinação das peças"})
+                    {view.stance.stance} ({view.stance.policy === "pinned" ? m.stanceChosen : m.stanceByPieces})
                   </strong>
                 ) : view.stance.status === "ambiguous" ? (
                   <select
@@ -347,26 +358,26 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
                     disabled={mode.kind !== "draft"}
                     onChange={(e) => mode.kind === "draft" && setMode({ ...mode, config: { ...mode.config, stance: e.target.value } })}
                   >
-                    <option value="">escolha entre {view.stance.candidates.join(", ")}</option>
-                    {view.stance.candidates.map((c) => (
-                      <option key={c}>{c}</option>
+                    <option value="">{m.chooseAmong(view.stance.candidates.join(", "))}</option>
+                    {view.stance.candidates.map((x) => (
+                      <option key={x}>{x}</option>
                     ))}
                   </select>
                 ) : (
-                  <span className="error">nenhuma postura serve a todas as peças</span>
+                  <span className="error">{m.noStance}</span>
                 )}
               </p>
               {view.combos
-                .filter((c) => c.lookup?.status === "ambiguous" || (c.lookup?.status === "resolved" && c.lookup.candidates.length > 1))
-                .map((c) => (
-                  <label key={c.key} className="small">
-                    Variante de {c.action}/{c.direction}
+                .filter((x) => x.lookup?.status === "ambiguous" || (x.lookup?.status === "resolved" && x.lookup.candidates.length > 1))
+                .map((x) => (
+                  <label key={x.key} className="small">
+                    {m.variantOf(x.action, x.direction)}
                     <select
-                      value={c.clip?.revisionId ?? ""}
-                      onChange={(e) => currentConfig && toDraft({ ...currentConfig, pins: [...(currentConfig.pins ?? []).filter((p) => !(p.action === c.action && p.direction === c.direction)), { action: c.action, direction: c.direction, clipRevisionId: e.target.value }] })}
+                      value={x.clip?.revisionId ?? ""}
+                      onChange={(e) => currentConfig && toDraft({ ...currentConfig, pins: [...(currentConfig.pins ?? []).filter((p) => !(p.action === x.action && p.direction === x.direction)), { action: x.action, direction: x.direction, clipRevisionId: e.target.value }] })}
                     >
-                      <option value="">escolha a variante</option>
-                      {c.candidates.map((cand) => (
+                      <option value="">{m.chooseVariant}</option>
+                      {x.candidates.map((cand) => (
                         <option key={cand.revisionId} value={cand.revisionId}>
                           {cand.name} r{cand.number}
                         </option>
@@ -376,12 +387,12 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
                 ))}
               {allPend.length > 0 && (
                 <>
-                  <h3 className="small">Pendências</h3>
+                  <h3 className="small">{m.pendencies}</h3>
                   <ul className="eq-pend small">
                     {allPend.slice(0, 40).map((p, i) => (
                       <li key={i} className={p.blocking ? "blocking" : ""}>
-                        {p.message}
-                        <div className="muted">{whereText(p)}</div>
+                        {text(p.message)}
+                        <div className="muted">{whereText(p, locale)}</div>
                         <PendencyAction
                           projectId={projectId}
                           p={p}
@@ -394,39 +405,37 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
                       </li>
                     ))}
                   </ul>
-                  {allPend.length > 40 && <p className="small muted">+{allPend.length - 40} pendência(s) (veja a matriz)</p>}
+                  {allPend.length > 40 && <p className="small muted">{m.morePendencies(allPend.length - 40)}</p>}
                 </>
               )}
             </section>
           )}
 
           <section>
-            <h2>Catálogo de peças</h2>
+            <h2>{m.catalogTitle}</h2>
             <ul className="list small">
               {pieces.map(({ group, rev }) => {
                 const inSet = currentConfig?.overlayRevisionIds.includes(rev.revisionId);
                 const otherBase = rev.rigRevisionId !== rig.revisionId;
                 return (
                   <li key={group.assetId}>
-                    <strong>{group.name}</strong> r{rev.number} <span className={`badge state-${rev.status}`}>{rev.status}</span>
-                    {otherBase && <span className="badge state-failed"> outra base</span>}
-                    <div className="muted">
-                      slots {rev.slots.join(", ")} · posturas {rev.stances.join(", ")} · {rev.parts.length ? `partes ${rev.parts.map((p) => p.partId).join(", ")}` : `${rev.rigidViews.length} vista(s) rígida(s)`}
-                    </div>
+                    <strong>{group.name}</strong> r{rev.number} <span className={`badge state-${rev.status}`}>{labelOf(c.revisionStatus, rev.status)}</span>
+                    {otherBase && <span className="badge state-failed">{m.otherBase}</span>}
+                    <div className="muted">{m.pieceInfo(rev.slots.join(", "), rev.stances.join(", "), rev.parts.length ? m.partsList(rev.parts.map((p) => p.partId).join(", ")) : m.rigidViews(rev.rigidViews.length))}</div>
                     <div className="row">
                       {!inSet && (
                         <button type="button" disabled={busy} onClick={() => equip(rev.revisionId)}>
-                          Equipar
+                          {m.equip}
                         </button>
                       )}
                       {!inSet && mode.kind === "published" && (
-                        <button type="button" className="secondary" disabled={busy} title="Retira quem disputa os slots e publica a revisão nova do conjunto" onClick={() => swapAndPublish(rev.revisionId)}>
-                          Trocar e publicar
+                        <button type="button" className="secondary" disabled={busy} title={m.swapTitle} onClick={() => swapAndPublish(rev.revisionId)}>
+                          {m.swapPublish}
                         </button>
                       )}
                       {inSet && mode.kind === "draft" && (
                         <button type="button" className="secondary" onClick={() => setMode({ ...mode, config: { ...mode.config, overlayRevisionIds: mode.config.overlayRevisionIds.filter((id) => id !== rev.revisionId) } })}>
-                          Retirar
+                          {m.unequip}
                         </button>
                       )}
                     </div>
@@ -441,9 +450,9 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
           {view && (
             <section>
               <div className="row small">
-                {view.combos.map((c) => (
-                  <button key={c.key} type="button" className={combo?.key === c.key ? "" : "secondary"} onClick={() => setComboKey(c.key)} title={STATUS_LABEL[c.status]}>
-                    {c.action} · {c.direction} ({DIR_LABEL[c.direction]}) <span className={`badge state-${c.status === "ready" ? "ready" : "failed"}`}>{STATUS_LABEL[c.status]}</span>
+                {view.combos.map((x) => (
+                  <button key={x.key} type="button" className={combo?.key === x.key ? "" : "secondary"} onClick={() => setComboKey(x.key)} title={statusLabel(x.status)}>
+                    {x.action} · {x.direction} ({labelOf(c.directions, x.direction)}) <span className={`badge state-${x.status === "ready" ? "ready" : "failed"}`}>{statusLabel(x.status)}</span>
                   </button>
                 ))}
               </div>
@@ -451,17 +460,17 @@ export function LoadoutWorkspace({ projectId, overview, rig, refresh, onCreateCo
                 <ResolvedPlayer key={`${combo.key}-${combo.clip.revisionId}-${JSON.stringify(request)}`} projectId={projectId} combo={combo} request={request} onSaveOrder={saveOrder} onExpand={expand} />
               ) : combo ? (
                 <p className="error small">
-                  Sem clipe para {combo.action}/{combo.direction} na postura {combo.stance}.{" "}
-                  <Link href={`/projects/${projectId}/animation`}>Criar variante na animação</Link>
+                  {m.noClip(combo.action, combo.direction, combo.stance ?? "")}{" "}
+                  <Link href={`/projects/${projectId}/animation`}>{m.createVariant}</Link>
                 </p>
               ) : (
-                <p className="muted small">Equipe peças para ver as combinações.</p>
+                <p className="muted small">{m.equipToSee}</p>
               )}
             </section>
           )}
           {view && (
             <section>
-              <h2>Matriz de cobertura</h2>
+              <h2>{m.matrixTitle}</h2>
               <CoverageMatrix view={view} onAction={matrixAction} rigidViews={rigidViews} />
             </section>
           )}
@@ -488,12 +497,16 @@ function PendencyAction({
   onShared: () => void;
   setMessage: (m: string) => void;
 }) {
+  const locale = useLocale();
+  const m = useMessages(equipmentMessages).loadout;
+  const text = useText();
   const w = p.where;
+  const label = text(p.action.label);
   switch (p.action.kind) {
     case "replace_item":
       return w.overlayRevisionId ? (
         <button type="button" onClick={() => onEquip(w.overlayRevisionId!)}>
-          {p.action.label}
+          {label}
         </button>
       ) : null;
     case "create_coverage": {
@@ -508,7 +521,7 @@ function PendencyAction({
               : onCreateCoverage({ overlayRevisionId: w.overlayRevisionId ?? null, clipRevisionIds: w.clipRevisionId ? [w.clipRevisionId] : [], partIds: w.partId && w.partId !== "rigid" ? [w.partId] : [] })
           }
         >
-          {p.action.label}
+          {label}
         </button>
       );
     }
@@ -517,7 +530,7 @@ function PendencyAction({
       return (
         <span className="row">
           <Link className="button secondary" href={`/projects/${projectId}/animation`}>
-            {p.action.label}
+            {label}
           </Link>
           {combo?.linkable.map((l) => (
             <button
@@ -527,14 +540,14 @@ function PendencyAction({
               onClick={async () => {
                 try {
                   await apiFetch(`/projects/${projectId}/equipment/clips/share`, { method: "POST", json: { clipRevisionId: l.revisionId, stance: w.stance } });
-                  setMessage(`Vínculo de ${l.name} com ${w.stance} publicado como candidato: aprove o clipe para o resolvedor usar.`);
+                  setMessage(m.linked(l.name, w.stance ?? ""));
                   onShared();
                 } catch (err) {
-                  setMessage(errorText(err));
+                  setMessage(errorText(err, locale));
                 }
               }}
             >
-              Vincular {l.name} r{l.number} como compartilhado
+              {m.linkShared(l.name, l.number)}
             </button>
           ))}
         </span>

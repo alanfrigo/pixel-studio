@@ -8,6 +8,11 @@ import { checkPassages, fillCornerVertices, isCornerMap, moveObject, objectAncho
 import { isoCellTop } from "@/domain/projection";
 import type { AssetView } from "@/server/catalog/catalog";
 import { ApiError, apiFetch } from "@/app/client/api";
+import { useMessages, useText } from "@/i18n/client";
+import type { LocalizedText } from "@/i18n/locales";
+import type { TextValue } from "@/i18n/locales";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { worldMessages } from "@/i18n/messages/world";
 import { errorText, mediaUrl } from "./world-client";
 
 /**
@@ -37,26 +42,12 @@ interface Opened {
   tileset: { revisionId: string; name: string; number: number; status: string; kind: "corner" | "sidescroller" | "isometric"; payload: CornerTilesetPayload | SideTilesetPayload | IsoTilesetPayload; atlasMediaId: string };
   objects: Record<string, ObjectCtx>;
   available: { objects: ObjectCtx[]; tilesets: { revisionId: string; name: string; number: number; status: string }[] };
-  revisions: { id: string; number: number; status: string; createdAt: string; technicalReport: { passages?: { from: string; to: string; connected: boolean }[]; warnings?: string[] } | null }[];
+  revisions: { id: string; number: number; status: string; createdAt: string; technicalReport: { passages?: { from: string; to: string; connected: boolean }[]; warnings?: TextValue[] } | null }[];
 }
 
 type Tool = "inspect" | "object" | "terrainA" | "terrainB" | "fill" | "solid" | "air" | "piece" | "collision" | "region" | "entrance";
 type Cell = [number, number];
 type Selection = { type: "object" | "entrance" | "region"; id: string } | null;
-
-const TOOL_LABEL: Record<Tool, string> = {
-  inspect: "Selecionar / inspecionar",
-  object: "Colocar e mover objetos",
-  terrainA: "Pintar terreno A",
-  terrainB: "Pintar terreno B",
-  fill: "Preencher terreno",
-  solid: "Pintar sólido",
-  air: "Apagar (ar)",
-  piece: "Pintar peça",
-  collision: "Colisão por célula",
-  region: "Região (arrastar)",
-  entrance: "Porta / entrada",
-};
 
 function useImage(src: string | null) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -70,6 +61,10 @@ function useImage(src: string | null) {
 }
 
 export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { projectId: string; assetId: string; onCatalogChange: () => void; onOpen: (assetId: string) => void }) {
+  const m = useMessages(worldMessages).editor;
+  const w = useMessages(worldMessages).shared;
+  const text = useText();
+  const c = useMessages(commonMessages);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [map, setMap] = useState<TilemapPayload | null>(null);
   const [history, setHistory] = useState<TilemapPayload[]>([]);
@@ -90,20 +85,21 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
   const drag = useRef<{ kind: "paint" | "object" | "region"; start: Cell; objectId?: string } | null>(null);
   const [regionPreview, setRegionPreview] = useState<[number, number, number, number] | null>(null);
 
-  function apply(data: Opened, revisionId?: string) {
+  function apply(data: Opened, note: string | null = null) {
     setOpened(data);
     setMap(data.payload);
     setDraftVersion(data.draftVersion);
     setHistory([]);
     setSelection(null);
-    setMessage(revisionId ? `Revisão r${data.revisions.find((r) => r.id === revisionId)?.number} aberta: editar e salvar substitui o rascunho.` : null);
+    setMessage(note);
   }
 
   const fetchOpened = (revisionId?: string) => apiFetch<Opened>(`/projects/${projectId}/world/maps/${assetId}${revisionId ? `?revision=${revisionId}` : ""}`);
 
   async function load(revisionId?: string) {
     try {
-      apply(await fetchOpened(revisionId), revisionId);
+      const data = await fetchOpened(revisionId);
+      apply(data, revisionId ? m.revisionOpened(data.revisions.find((r) => r.id === revisionId)?.number) : null);
     } catch (err) {
       setMessage(errorText(err));
     }
@@ -454,7 +450,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
       while (map.entrances.some((x) => x.entranceId === `porta-${n}`)) n++;
       const [cols, rows] = map.size;
       const side = cell[0] === 0 ? "W" : cell[0] === cols - 1 ? "E" : cell[1] === 0 ? "N" : cell[1] === rows - 1 ? "S" : "S";
-      commit({ ...map, entrances: [...map.entrances, { entranceId: `porta-${n}`, name: `Porta ${n}`, cell, side }] });
+      commit({ ...map, entrances: [...map.entrances, { entranceId: `porta-${n}`, name: m.entranceName(n), cell, side }] });
       setSelection({ type: "entrance", id: `porta-${n}` });
       return;
     }
@@ -499,12 +495,12 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
     const t = map.terrain;
     const terrain =
       t.mode === "corner"
-        ? `máscara ${cornerMask(t.vertices, cols, cell[0], cell[1])} → ${t.resolved[i] ?? "AUSENTE no tileset"}`
+        ? m.cellMask(cornerMask(t.vertices, cols, cell[0], cell[1]), t.resolved[i] ?? m.missingInTileset)
         : t.mode === "side"
-          ? `${t.solid[i] ? `sólido: ${t.resolved[i]}` : "ar"}`
-          : `peça ${t.cells[i]?.pieceKey ?? "vazia"}, elevação ${t.cells[i]?.elevation ?? 0}`;
-    const blocked = passages?.blocked?.[i] ? "bloqueada" : "caminhável";
-    setInspect(`Célula (${cell[0]}, ${cell[1]}): ${terrain} · ${blocked}`);
+          ? `${t.solid[i] ? m.solid(String(t.resolved[i])) : m.air}`
+          : m.cellPiece(t.cells[i]?.pieceKey ?? m.emptyPiece, t.cells[i]?.elevation ?? 0);
+    const blocked = passages?.blocked?.[i] ? m.blocked : m.walkable;
+    setInspect(m.cell(cell[0], cell[1], terrain, blocked));
   }
 
   function onMove(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -531,7 +527,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
     if (drag.current?.kind === "region" && regionPreview && map) {
       let n = map.regions.length + 1;
       while (map.regions.some((r) => r.regionId === `regiao-${n}`)) n++;
-      commit({ ...map, regions: [...map.regions, { regionId: `regiao-${n}`, name: `Região ${n}`, kind: "area", rect: regionPreview }] });
+      commit({ ...map, regions: [...map.regions, { regionId: `regiao-${n}`, name: m.regionName(n), kind: "area", rect: regionPreview }] });
       setSelection({ type: "region", id: `regiao-${n}` });
     }
     setRegionPreview(null);
@@ -544,9 +540,9 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
     try {
       const { draft } = await apiFetch<{ draft: { version: number } }>(`/projects/${projectId}/assets/${assetId}/draft`, { method: "PUT", json: { expectedVersion: draftVersion, payload: map } });
       setDraftVersion(draft.version);
-      setMessage(`Rascunho salvo (versão ${draft.version}).`);
+      setMessage(m.draftSaved(draft.version));
     } catch (err) {
-      setMessage(err instanceof ApiError && err.code === "revision_conflict" ? "O rascunho foi alterado em outra aba; recarregue antes de salvar." : errorText(err));
+      setMessage(err instanceof ApiError && err.code === "revision_conflict" ? m.draftConflict : errorText(err));
     }
   }
 
@@ -558,7 +554,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
         method: "POST",
         json: { payload: map, allowBrokenPassages },
       });
-      setMessage(`Revisão r${res.revision.number} publicada como candidata${res.missing.length ? ` · casos ausentes no tileset: ${res.missing.join(", ")}` : ""}. Aprove-a na biblioteca do projeto.`);
+      setMessage(m.published(res.revision.number, res.missing.join(", ")));
       setBrokenPublish(false);
       const keepDraft = draftVersion;
       await load();
@@ -566,7 +562,8 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
       onCatalogChange();
     } catch (err) {
       setMessage(errorText(err));
-      if (err instanceof ApiError && /Passagem interrompida/.test(err.message)) setBrokenPublish(true);
+      // Passagem interrompida: detalhes trazem as passagens (independe do idioma da mensagem).
+      if (err instanceof ApiError && (Array.isArray(err.details?.passages) || /Passagem interrompida/.test(err.message))) setBrokenPublish(true);
     }
   }
 
@@ -576,7 +573,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
     try {
       const { asset } = await apiFetch<{ asset: AssetView }>(`/projects/${projectId}/world/maps/${assetId}/copy`, {
         method: "POST",
-        json: { revisionId: source.id, name: `${opened.asset.name} (cópia)`, ...(copyTileset ? { tilesetRevisionId: copyTileset } : {}) },
+        json: { revisionId: source.id, name: m.copyName(opened.asset.name), ...(copyTileset ? { tilesetRevisionId: copyTileset } : {}) },
       });
       onCatalogChange();
       onOpen(asset.id);
@@ -585,7 +582,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
     }
   }
 
-  if (!opened || !map || !geo) return <section>{message ? <p className="error">{message}</p> : <p className="muted">Abrindo mapa…</p>}</section>;
+  if (!opened || !map || !geo) return <section>{message ? <p className="error">{message}</p> : <p className="muted">{m.opening}</p>}</section>;
 
   const tools: Tool[] =
     kind === "corner"
@@ -594,8 +591,20 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
         ? ["inspect", "object", "solid", "air", "collision", "region", "entrance"]
         : ["inspect", "object", "piece", "collision", "region", "entrance"];
   const terrains = kind === "corner" ? (opened.tileset.payload as CornerTilesetPayload).terrains : null;
-  const label = (t: Tool) => (terrains && t === "terrainA" ? `Pintar ${terrains[0].name}` : terrains && t === "terrainB" ? `Pintar ${terrains[1].name}` : TOOL_LABEL[t]);
-  const objectChoices = kind === "isometric" ? [...isoPieces.values()].filter((p) => p.kind === "prop").map((p) => ({ value: `piece:${p.pieceKey}`, label: p.name })) : opened.available.objects.map((o) => ({ value: o.revisionId, label: `${o.name} r${o.number}${o.status === "approved" ? "" : ` (${o.status})`}` }));
+  const label = (t: Tool) => (terrains && t === "terrainA" ? m.paint(terrains[0].name) : terrains && t === "terrainB" ? m.paint(terrains[1].name) : m.tools[t]);
+  const objectChoices =
+    kind === "isometric"
+      ? [...isoPieces.values()].filter((p) => p.kind === "prop").map((p) => ({ value: `piece:${p.pieceKey}`, label: p.name }))
+      : opened.available.objects.map((o) => ({ value: o.revisionId, label: `${o.name} r${o.number}${o.status === "approved" ? "" : ` (${labelOf(c.revisionStatus, o.status)})`}` }));
+  /** Motivo de uma passagem não conectada quando o domínio não traz o texto bilíngue. */
+  const passageReason = (from: string, to: string) => {
+    if (!passages?.supported || !passages.blocked) return m.reasonSide;
+    const [cols] = map.size;
+    const blockedEntrance = [from, to]
+      .map((id) => map.entrances.find((e) => e.entranceId === id))
+      .find((e) => e && passages.blocked![e.cell[1] * cols + e.cell[0]]);
+    return blockedEntrance ? m.reasonBlocked(blockedEntrance.name) : m.reasonNoPath;
+  };
   const issues = validation && !validation.success ? validation.error.issues.slice(0, 6) : [];
   const update = (fn: (m: TilemapPayload) => TilemapPayload) => commit(fn(map));
   const num = (v: string) => Math.max(0, Math.trunc(Number(v) || 0));
@@ -604,10 +613,10 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
     <section>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2>
-          {opened.asset.name} · {map.size.join("×")} células · {map.projection}
+          {opened.asset.name} · {m.cells(map.size.join("×"))} · {map.projection}
         </h2>
         <span className="small muted">
-          {opened.source.kind === "draft" ? `rascunho v${draftVersion}` : `revisão r${opened.source.number}`} · tileset {opened.tileset.name} r{opened.tileset.number} ({opened.tileset.status})
+          {opened.source.kind === "draft" ? m.draftVersion(draftVersion) : m.revision(opened.source.number)} · tileset {opened.tileset.name} r{opened.tileset.number} ({labelOf(c.revisionStatus, opened.tileset.status)})
         </span>
       </div>
       <div className="row">
@@ -620,7 +629,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
       <div className="row" style={{ marginTop: 6 }}>
         {tool === "object" && (
           <label>
-            Objeto a colocar
+            {m.objectToPlace}
             <select value={objectSource} onChange={(e) => setObjectSource(e.target.value)}>
               <option value="">—</option>
               {objectChoices.map((o) => (
@@ -634,9 +643,9 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
         {tool === "piece" && isoPayload && (
           <>
             <label>
-              Peça
+              {m.piece}
               <select value={piece} onChange={(e) => setPiece(e.target.value)}>
-                <option value="">vazio</option>
+                <option value="">{m.emptyOption}</option>
                 {isoPayload.pieces
                   .filter((p) => p.kind !== "prop")
                   .map((p) => (
@@ -647,13 +656,13 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
               </select>
             </label>
             <label>
-              Elevação
+              {m.elevation}
               <input type="number" min={0} max={8} value={elevation} onChange={(e) => setElevation(num(e.target.value))} style={{ width: 60 }} />
             </label>
           </>
         )}
         <label>
-          Zoom
+          {m.zoom}
           <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
             {[1, 2, 3, 4].map((z) => (
               <option key={z} value={z}>
@@ -665,11 +674,11 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
         {(Object.keys(overlays) as (keyof typeof overlays)[]).map((k) => (
           <label key={k} style={{ flexDirection: "row", gap: 4, color: "inherit" }}>
             <input type="checkbox" checked={overlays[k]} onChange={(e) => setOverlays({ ...overlays, [k]: e.target.checked })} />
-            {{ grid: "grade", blocked: "bloqueio", path: "caminho", collisions: "colisões" }[k]}
+            {m.overlays[k]}
           </label>
         ))}
         <button type="button" className="secondary" disabled={!history.length} onClick={undo}>
-          Desfazer
+          {m.undo}
         </button>
       </div>
       <div style={{ overflow: "auto", maxWidth: "100%", marginTop: 8 }}>
@@ -688,7 +697,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
         <ul className="small">
           {issues.map((i, n) => (
             <li key={n} className="error">
-              {i.path.join(".")}: {i.message}
+              {i.path.join(".")}: {text((i as { params?: { messages?: LocalizedText } }).params?.messages ?? i.message)}
             </li>
           ))}
         </ul>
@@ -696,8 +705,8 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
 
       <div className="grid2" style={{ marginTop: 8 }}>
         <div className="small">
-          <h3>Objetos</h3>
-          {map.objects.length === 0 && <p className="muted">Nenhum objeto. Ferramenta “Colocar e mover objetos”.</p>}
+          <h3>{m.objects}</h3>
+          {map.objects.length === 0 && <p className="muted">{m.noObjects}</p>}
           {map.objects.map((o) => (
             <div key={o.objectId} className="row" style={{ background: selection?.id === o.objectId ? "var(--bg)" : undefined }}>
               <button type="button" className="secondary" onClick={() => setSelection({ type: "object", id: o.objectId })}>
@@ -720,15 +729,15 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
                 <input type="number" value={o.offsetPx[1]} onChange={(e) => update((m) => moveObject(m, o.objectId, o.cell, [o.offsetPx[0], Math.trunc(Number(e.target.value) || 0)]))} style={{ width: 52 }} />
               </label>
               <button type="button" className="secondary" onClick={() => update((m) => ({ ...m, objects: m.objects.filter((x) => x.objectId !== o.objectId) }))}>
-                Remover
+                {w.remove}
               </button>
             </div>
           ))}
-          <h3>Portas / entradas</h3>
+          <h3>{m.entrances}</h3>
           {map.entrances.map((en) => (
             <div key={en.entranceId} className="row">
               <label>
-                ID estável
+                {m.stableId}
                 <input
                   value={en.entranceId}
                   onChange={(e) =>
@@ -742,7 +751,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
                 />
               </label>
               <label>
-                Nome
+                {w.name}
                 <input value={en.name} onChange={(e) => update((m) => ({ ...m, entrances: m.entrances.map((x) => (x.entranceId === en.entranceId ? { ...x, name: e.target.value } : x)) }))} style={{ width: 90 }} />
               </label>
               {[0, 1].map((axis) => (
@@ -759,7 +768,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
                 </label>
               ))}
               <label>
-                Lado
+                {m.side}
                 <select value={en.side} onChange={(e) => update((m) => ({ ...m, entrances: m.entrances.map((x) => (x.entranceId === en.entranceId ? { ...x, side: e.target.value as "N" } : x)) }))}>
                   {["N", "E", "S", "W"].map((s) => (
                     <option key={s}>{s}</option>
@@ -771,19 +780,19 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
                 className="secondary"
                 onClick={() => update((m) => ({ ...m, entrances: m.entrances.filter((x) => x.entranceId !== en.entranceId), passages: m.passages.filter((p) => p.from !== en.entranceId && p.to !== en.entranceId) }))}
               >
-                Remover
+                {w.remove}
               </button>
             </div>
           ))}
-          <h3>Passagens exigidas</h3>
+          <h3>{m.requiredPassages}</h3>
           {map.passages.map((p, i) => {
             const r = passages?.results[i];
             return (
               <div key={i} className="row">
                 {p.from} → {p.to}:{" "}
-                {r ? <span className={r.connected ? "" : "error"}>{r.connected ? `conectada (${r.steps} passos)` : r.reason}</span> : "—"}
+                {r ? <span className={r.connected ? "" : "error"}>{r.connected ? m.connected(r.steps) : r.reason ? text(r.reason) : passageReason(p.from, p.to)}</span> : "—"}
                 <button type="button" className="secondary" onClick={() => update((m) => ({ ...m, passages: m.passages.filter((_, j) => j !== i) }))}>
-                  Remover
+                  {w.remove}
                 </button>
               </div>
             );
@@ -797,21 +806,21 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
                 update((m) => ({ ...m, passages: [...m.passages, { from: a!.entranceId, to: b!.entranceId }] }));
               }}
             >
-              Exigir passagem entre as duas primeiras portas
+              {m.requirePassage}
             </button>
           )}
-          {passages && !passages.supported && <p className="muted">Passagem lateral exige física de pulo: não verificada neste perfil.</p>}
+          {passages && !passages.supported && <p className="muted">{m.sideUnchecked}</p>}
         </div>
         <div className="small">
-          <h3>Regiões</h3>
+          <h3>{m.regions}</h3>
           {map.regions.map((r) => (
             <div key={r.regionId} className="row">
               <label>
-                Nome
+                {w.name}
                 <input value={r.name} onChange={(e) => update((m) => ({ ...m, regions: m.regions.map((x) => (x.regionId === r.regionId ? { ...x, name: e.target.value } : x)) }))} style={{ width: 100 }} />
               </label>
               <label>
-                Tipo
+                {w.type}
                 <select value={r.kind} onChange={(e) => update((m) => ({ ...m, regions: m.regions.map((x) => (x.regionId === r.regionId ? { ...x, kind: e.target.value as "area" } : x)) }))}>
                   {["area", "spawn", "trigger", "no_build"].map((k) => (
                     <option key={k}>{k}</option>
@@ -830,20 +839,20 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
                 />
               </label>
               <button type="button" className="secondary" onClick={() => update((m) => ({ ...m, regions: m.regions.filter((x) => x.regionId !== r.regionId) }))}>
-                Remover
+                {w.remove}
               </button>
             </div>
           ))}
-          <h3>Colisões</h3>
+          <h3>{m.collisions}</h3>
           {map.collisions.map((c) => (
             <div key={c.collisionId} className="row">
               {c.kind === "cells" ? (
                 <span>
-                  {c.collisionId}: {c.cells.length} célula(s)
+                  {c.collisionId}: {m.cellCount(c.cells.length)}
                 </span>
               ) : (
                 <label>
-                  {c.collisionId} (polígono em px do mapa)
+                  {c.collisionId} {m.polygon}
                   <input
                     defaultValue={c.points.map((p) => p.join(",")).join(" ")}
                     onBlur={(e) => {
@@ -858,7 +867,7 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
                 </label>
               )}
               <button type="button" className="secondary" onClick={() => update((m) => ({ ...m, collisions: m.collisions.filter((x) => x.collisionId !== c.collisionId) }))}>
-                Remover
+                {w.remove}
               </button>
             </div>
           ))}
@@ -872,32 +881,32 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
               update((m) => ({ ...m, collisions: [...m.collisions, { collisionId: `poligono-${n}`, kind: "polygon", points: [[cw, ch], [cw * 2, ch], [cw * 2, ch * 2], [cw, ch * 2]] }] }));
             }}
           >
-            Adicionar polígono de colisão
+            {m.addPolygon}
           </button>
-          <h3>Revisões</h3>
+          <h3>{m.revisions}</h3>
           <div className="row">
             <button type="button" className="secondary" onClick={saveDraft}>
-              Salvar rascunho
+              {m.saveDraft}
             </button>
             <button type="button" disabled={!validation?.success} onClick={() => publish(false)}>
-              Publicar revisão
+              {m.publishRevision}
             </button>
             {brokenPublish && (
               <button type="button" className="secondary" onClick={() => publish(true)}>
-                Publicar mesmo com passagem interrompida
+                {m.publishAnyway}
               </button>
             )}
             <button type="button" className="secondary" onClick={() => load()}>
-              Reabrir rascunho
+              {m.reopenDraft}
             </button>
           </div>
           <ul>
             {opened.revisions.map((r) => (
               <li key={r.id}>
-                r{r.number} <span className={`badge state-${r.status}`}>{r.status}</span>{" "}
-                {r.technicalReport?.passages?.length ? `· passagens ${r.technicalReport.passages.every((p) => p.connected) ? "ok" : "interrompidas"}` : ""}{" "}
+                r{r.number} <span className={`badge state-${r.status}`}>{labelOf(c.revisionStatus, r.status)}</span>{" "}
+                {r.technicalReport?.passages?.length ? m.passages(r.technicalReport.passages.every((p) => p.connected)) : ""}{" "}
                 <button type="button" className="secondary" onClick={() => load(r.id)}>
-                  Abrir
+                  {m.open}
                 </button>
               </li>
             ))}
@@ -905,18 +914,18 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
           {opened.revisions.length > 0 && (
             <div className="row">
               <label>
-                Copiar a última revisão com o tileset
+                {m.copyWithTileset}
                 <select value={copyTileset} onChange={(e) => setCopyTileset(e.target.value)}>
-                  <option value="">o mesmo</option>
+                  <option value="">{m.sameTileset}</option>
                   {opened.available.tilesets.map((t) => (
                     <option key={t.revisionId} value={t.revisionId}>
-                      {t.name} r{t.number} ({t.status})
+                      {t.name} r{t.number} ({labelOf(c.revisionStatus, t.status)})
                     </option>
                   ))}
                 </select>
               </label>
               <button type="button" className="secondary" onClick={copyWith}>
-                Copiar
+                {m.copy}
               </button>
             </div>
           )}

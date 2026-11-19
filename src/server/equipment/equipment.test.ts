@@ -164,7 +164,8 @@ describe("conflitos e peça de outra base", () => {
     const conflict = resolveConfig(studio, projectId, { rigRevisionId: demo.rigRevisionId, overlayRevisionIds: [demo.overlays.mail, demo.overlays.longSword, demo.overlays.shield] });
     const pend = conflict.resolution.pendencies.find((p) => p.kind === "slot_conflict")!;
     expect(pend).toMatchObject({ where: { slotId: "off_hand" }, action: { kind: "replace_item" } });
-    expect(pend.action.label).toBe(`Substituir ${DEMO_NAMES.longSword} por ${DEMO_NAMES.shield}`);
+    expect(pend.action.label["pt-BR"]).toBe(`Substituir ${DEMO_NAMES.longSword} por ${DEMO_NAMES.shield}`);
+    expect(pend.action.label.en).toBe(`Replace ${DEMO_NAMES.longSword} with ${DEMO_NAMES.shield}`);
     expect(conflict.resolution.ready).toBe(false);
     const fixed = equipInConfig(studio, projectId, { rigRevisionId: demo.rigRevisionId, overlayRevisionIds: [demo.overlays.mail, demo.overlays.longSword] }, demo.overlays.shield);
     expect(fixed.replacement.removed).toEqual([demo.overlays.longSword]);
@@ -185,7 +186,7 @@ describe("conflitos e peça de outra base", () => {
     const { projectId, demo } = await setup();
     expect(demo.overlays.foreignMail).toBeTruthy();
     const r = resolveConfig(studio, projectId, { rigRevisionId: demo.rigRevisionId, overlayRevisionIds: [demo.overlays.foreignMail!, demo.overlays.longSword] });
-    expect(r.resolution.pendencies[0]).toMatchObject({ kind: "incompatible_rig", blocking: true, action: { kind: "create_coverage", label: "Criar cobertura para esta base" } });
+    expect(r.resolution.pendencies[0]).toMatchObject({ kind: "incompatible_rig", blocking: true, action: { kind: "create_coverage", label: { "pt-BR": "Criar cobertura para esta base", en: "Create coverage for this base" } } });
     expect(r.resolution.matrix.cells[0]!.every((c) => c === "incompatible")).toBe(true);
     await expect(publishLoadout(studio, projectId, { config: { rigRevisionId: demo.rigRevisionId, overlayRevisionIds: [demo.overlays.foreignMail!] } })).rejects.toThrow(/outra base/);
   });
@@ -263,7 +264,8 @@ describe("guias: encaixes, segunda mão e contorno cortado", () => {
     const flagged = issues(two);
     expect(flagged.length).toBeGreaterThan(0);
     expect(flagged[0]).toMatchObject({ blocking: false, action: { kind: "fix_grips" } });
-    expect(flagged[0]!.message).toMatch(/hand_left.*a 2 px.*tolerância do rig 1 px/);
+    expect(flagged[0]!.message["pt-BR"]).toMatch(/hand_left.*a 2 px.*tolerância do rig 1 px/);
+    expect(flagged[0]!.message.en).toMatch(/hand_left.*is 2 px.*rig tolerance 1 px/);
   });
 
   it("contorno cortado mostra os limites; ampliar a célula desloca camadas, sockets, pivô e coberturas pela mesma margem", async () => {
@@ -374,7 +376,7 @@ describe("extração de cobertura de um clipe vestido (ponte com transferir roup
       parts: ["torso"],
     });
     expect(calls).toEqual([]);
-    expect((extracted.revision.technicalReport as { source: string }).source).toMatch(/transferir roupa/);
+    expect((extracted.revision.technicalReport as { source: { "pt-BR": string; en: string } }).source).toMatchObject({ "pt-BR": expect.stringMatching(/transferir roupa/), en: expect.stringMatching(/outfit transfer/) });
     const payload = extracted.revision.payload as OverlayPayload;
     expect(payload.parts[0]!.coverage).toHaveLength(4);
     // Recomposição: base + peça extraída = clipe vestido, pixel a pixel.
@@ -391,7 +393,7 @@ describe("geração: plano com matriz e tiras, só lacunas, pose de prova, poses
     const base = { operation: "generate_overlay_coverage" as const, providerProfileId: "simulated", rigRevisionId: demo.rigRevisionId, description: "gibão de couro com rebites", mode: "coverage" as const, parts: ["torso"], clips: [{ clipRevisionId: clip }] };
     const plan = await buildOverlayCoveragePlan(studio, projectId, { ...base, item: { slots: ["torso"], stances: ["one_hand_shield"] } });
     expect(plan.summary).toMatchObject({ requested: 4, toGenerate: 4, reused: 0, strips: [{ frameIds: ["windup", "advance", "contact", "recover"], grid: "2×2", canvas: [128, 128] }] });
-    expect(plan.summary.routeLabel).toMatch(/não é máscara nativa/);
+    expect(plan.summary.routeLabel["pt-BR"]).toMatch(/não é máscara nativa/);
     expect(plan.plan.parts).toHaveLength(1);
     expect(plan.plan.prompt.compiled).not.toMatch(/#[0-9a-f]{6}/i);
     const proof = await buildOverlayCoveragePlan(studio, projectId, { ...base, item: { slots: ["torso"], stances: ["one_hand_shield"] }, proofPose: { clipRevisionId: clip, frameId: "contact" } });
@@ -407,7 +409,7 @@ describe("geração: plano com matriz e tiras, só lacunas, pose de prova, poses
     expect(rev.status).toBe("candidate");
     const payload = rev.payload as OverlayPayload;
     expect(payload.parts[0]!.coverage.map((c) => c.frameId).sort()).toEqual(["advance", "contact", "recover", "windup"]);
-    expect((rev.technicalReport as { routeLabel: string }).routeLabel).toMatch(/extraída localmente/);
+    expect((rev.technicalReport as { routeLabel: { "pt-BR": string } }).routeLabel["pt-BR"]).toMatch(/extraída localmente/);
     expect(rev.files.some((f) => f.role === "candidate")).toBe(true);
     approve(projectId, revisionId);
 
@@ -483,7 +485,8 @@ describe("geração: plano com matriz e tiras, só lacunas, pose de prova, poses
       },
       newItemName: "Machado",
     });
-    expect(run.summary.routeLabel).toMatch(/Vista rígida por texto/);
+    expect(run.summary.routeLabel["pt-BR"]).toMatch(/Vista rígida por texto/);
+    expect(run.summary.routeLabel.en).toMatch(/Rigid view from text/);
     await drain();
     const rev = getRevision(studio.db, projectId, (JSON.parse(studio.queue.get(run.job.id)!.result_json!) as { revisionIds: string[] }).revisionIds[0]!);
     expect((rev.payload as OverlayPayload).rigidViews).toEqual([{ viewId: "up", fileId: "view-up", rect: [0, 0, 9, 24], grips: [{ socketId: "hand_right", at: [4, 19] }] }]);

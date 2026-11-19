@@ -1,3 +1,4 @@
+import { type LocalizedText, type TextValue, tx } from "@/i18n/locales";
 import { z } from "zod";
 import { type AssetFamily, type BasePayload, Direction, DIRECTIONS_8, type GenerationPlan, GridPoint, Id, PLAN_OPERATIONS, type PlanOperation } from "@/contracts";
 import { type AssetView, createAsset, getAsset, getRevision, listRevisions, publishRevision, type RevisionView } from "../catalog/catalog";
@@ -6,7 +7,7 @@ import { mustBlob } from "../jobs/handlers/pipelines/shared";
 import { runLocal } from "../library/local";
 import { ImageRef, resolveLocalInput } from "../services";
 import type { Studio } from "../studio";
-import { loadBase } from "./base";
+import { failureText, loadBase } from "./base";
 import { S3_OPERATIONS } from "./provider-temporal";
 import { chooseTemporalRoute, findStateAsset, identityOf, stateAssetName, subjectOf, TEMPORAL_PLAN_BUILDERS, TEMPORAL_ROUTE_LABELS } from "./temporal-plans";
 import type { Env } from "./plans";
@@ -46,7 +47,7 @@ export function temporalTarget(studio: Studio, projectId: string, plan: Generati
       const t = plan.params.target;
       if (t.kind === "insert") return assetOf(studio, projectId, t.clipRevisionId);
       const start = plan.params.start;
-      if (start.kind !== "view") throw new DomainFailure("internal", "Clipe novo de transição parte de vistas");
+      if (start.kind !== "view") throw new DomainFailure("internal", tx("Clipe novo de transição parte de vistas", "A new transition clip starts from views"));
       const identity = identityOf(studio.db, projectId, loadBase(studio.db, projectId, start.baseRevisionId, { approved: false }));
       return namedAsset(studio, projectId, "character", "clip", `${identity.asset.name} · ${t.action} · ${t.direction}`);
     }
@@ -58,7 +59,7 @@ export function temporalTarget(studio: Studio, projectId: string, plan: Generati
       return namedAsset(studio, projectId, "character", "clip", `${clip.name} · ${plan.params.stateKey}`);
     }
     default:
-      throw new DomainFailure("internal", `Operação ${plan.operation} não é do cartão S3`);
+      throw new DomainFailure("internal", tx(`Operação ${plan.operation} não é do cartão S3`, `Operation ${plan.operation} is not part of card S3`));
   }
 }
 
@@ -69,7 +70,7 @@ export async function inspectCorrectionMask(studio: Studio, projectId: string, m
   const upload = getUpload(studio.db, projectId, maskUploadId);
   const sha = upload.normalizedSha256 ?? upload.sha256;
   const { report } = await runLocal(studio, "inspect_mask", [{ role: "source", sha256: sha }, { role: "editMask", sha256: sha }], { version: 1, maskConvention: "white_edits_black_preserves" });
-  if (report.emptyMask) throw new DomainFailure("validation_failed", "Máscara vazia: nenhuma região a corrigir. Nada foi enviado.", { emptyMask: true });
+  if (report.emptyMask) throw new DomainFailure("validation_failed", tx("Máscara vazia: nenhuma região a corrigir. Nada foi enviado.", "Empty mask: no region to correct. Nothing was sent."), { emptyMask: true });
   return report;
 }
 
@@ -95,23 +96,23 @@ export function selectViews(studio: Studio, projectId: string, raw: z.input<type
   const input = SelectViewsInput.parse(raw);
   const revision = getRevision(studio.db, projectId, input.revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (asset.family !== "character" || asset.kind !== "base") throw new DomainFailure("validation_failed", "A escolha por vista vale para bases, objetos e estados (character/base)");
-  if (revision.status === "rejected") throw new DomainFailure("validation_failed", "A revisão já foi reprovada");
+  if (asset.family !== "character" || asset.kind !== "base") throw new DomainFailure("validation_failed", tx("A escolha por vista vale para bases, objetos e estados (character/base)", "Per-view selection applies to bases, objects and states (character/base)"));
+  if (revision.status === "rejected") throw new DomainFailure("validation_failed", tx("A revisão já foi reprovada", "The revision was already rejected"));
   const payload = revision.payload as BasePayload;
   const keep = DIRECTIONS_8.filter((d) => input.keep.includes(d));
-  for (const d of keep) if (!payload.views.some((v) => v.direction === d)) throw new DomainFailure("not_found", `A revisão r${revision.number} não tem a vista ${d}`);
+  for (const d of keep) if (!payload.views.some((v) => v.direction === d)) throw new DomainFailure("not_found", tx(`A revisão r${revision.number} não tem a vista ${d}`, `Revision r${revision.number} has no ${d} view`));
   const overlap = input.reject.filter((r) => keep.includes(r.direction));
-  if (overlap.length) throw new DomainFailure("validation_failed", `Direção marcada como mantida e reprovada: ${overlap.map((r) => r.direction).join(", ")}`);
+  if (overlap.length) throw new DomainFailure("validation_failed", tx(`Direção marcada como mantida e reprovada: ${overlap.map((r) => r.direction).join(", ")}`, `Direction marked as both kept and rejected: ${overlap.map((r) => r.direction).join(", ")}`));
   const views = payload.views.filter((v) => keep.includes(v.direction));
   const files = views.map((v, i) => {
     const file = revision.files.find((f) => f.fileKey === v.fileId)!;
     return { fileKey: file.fileKey, role: file.role, idx: i, blob: mustBlob(studio.db, file.sha256) };
   });
   const dropped = payload.views.filter((v) => !keep.includes(v.direction)).map((v) => v.direction);
-  const previous = (revision.technicalReport as { gaps?: { direction: string; reason: string }[] } | null)?.gaps ?? [];
+  const previous = (revision.technicalReport as { gaps?: { direction: string; reason: TextValue }[] } | null)?.gaps ?? [];
   const gaps = [
     ...previous.filter((g) => !keep.includes(g.direction as Direction) && !dropped.includes(g.direction as Direction)),
-    ...dropped.map((direction) => ({ direction, reason: input.reject.find((r) => r.direction === direction)?.reason ?? "não escolhida" })),
+    ...dropped.map((direction) => ({ direction, reason: input.reject.find((r) => r.direction === direction)?.reason ?? tx("não escolhida", "not chosen") })),
   ];
   const next = publishRevision(studio.db, studio.clock, {
     projectId,
@@ -159,7 +160,7 @@ export async function createObjectFromImage(studio: Studio, projectId: string, r
         : resolveLocalInput(studio, projectId, { kind: "job_output", jobId: input.image.jobId, outputIndex: input.image.outputIndex });
   const blob = mustBlob(studio.db, sha);
   const { width, height } = blob.metadata as { width?: number; height?: number };
-  if (blob.mime !== "image/png" || !width || !height) throw new DomainFailure("validation_failed", "A imagem do objeto precisa ser PNG com dimensões medidas");
+  if (blob.mime !== "image/png" || !width || !height) throw new DomainFailure("validation_failed", tx("A imagem do objeto precisa ser PNG com dimensões medidas", "The object image must be a PNG with measured dimensions"));
   const { report } = await runLocal(studio, "compose_frames", [{ role: "layer", sha256: sha }], {
     version: 1,
     cell: [width, height],
@@ -168,7 +169,7 @@ export async function createObjectFromImage(studio: Studio, projectId: string, r
     emitFrames: false,
   });
   const box = (report.frames as { contentBox: [number, number, number, number] | null }[])[0]?.contentBox;
-  if (!box) throw new DomainFailure("validation_failed", "A imagem está vazia (toda transparente)");
+  if (!box) throw new DomainFailure("validation_failed", tx("A imagem está vazia (toda transparente)", "The image is empty (fully transparent)"));
   const groundOrigin = input.groundOrigin ?? ([Math.round(box[0] + box[2] / 2), box[1] + box[3]] as [number, number]);
   const asset = createAsset(studio.db, studio.clock, { projectId, family: "character", kind: "base", name: input.name });
   const revision = publishRevision(studio.db, studio.clock, {
@@ -206,7 +207,7 @@ export interface StateMatrixRow {
     stateKey: string;
     approvedRevisionId: string | null;
     approvedViews: Direction[];
-    gaps: { direction: string; reason: string }[];
+    gaps: { direction: string; reason: TextValue }[];
     revisions: { id: string; number: number; status: string; views: Direction[]; operation: string | null }[];
   }[];
 }
@@ -240,7 +241,7 @@ export function stateMatrix(studio: Studio, projectId: string): StateMatrixRow[]
     }
     if (identity.asset.id === asset.id) continue;
     const approved = asset.approvedRevisionId ? (revisions.find((r) => r.id === asset.approvedRevisionId)!.payload as BasePayload) : null;
-    const report = revisions.find((r) => r.id === asset.approvedRevisionId)?.technicalReport as { gaps?: { direction: string; reason: string }[] } | null;
+    const report = revisions.find((r) => r.id === asset.approvedRevisionId)?.technicalReport as { gaps?: { direction: string; reason: TextValue }[] } | null;
     rows.get(key)!.states.push({
       assetId: asset.id,
       name: asset.name,
@@ -261,13 +262,13 @@ export function stateMatrix(studio: Studio, projectId: string): StateMatrixRow[]
 }
 
 /** Rotas S3 de um perfil, pelo que ele realmente faz (ou o motivo da indisponibilidade). */
-export function temporalRoutes(e: Pick<Env, "adapter" | "profileId">): Record<string, { strategy: string; label: string } | { unavailable: string }> {
-  const tryRoute = (op: PlanOperation, native: Parameters<typeof chooseTemporalRoute>[2], sheet: string) => {
+export function temporalRoutes(e: Pick<Env, "adapter" | "profileId">): Record<string, { strategy: string; label: LocalizedText } | { unavailable: TextValue }> {
+  const tryRoute = (op: PlanOperation, native: Parameters<typeof chooseTemporalRoute>[2], sheet: LocalizedText) => {
     try {
       const r = chooseTemporalRoute(e, op, native, sheet);
       return { strategy: r.strategy, label: r.label };
     } catch (err) {
-      return { unavailable: err instanceof Error ? err.message : String(err) };
+      return { unavailable: failureText(err) };
     }
   };
   const offered = (op: PlanOperation) => e.adapter.capabilities(op);
@@ -277,8 +278,8 @@ export function temporalRoutes(e: Pick<Env, "adapter" | "profileId">): Record<st
     interpolation: tryRoute("interpolate_frames", { required: ["frame_interpolation"], label: TEMPORAL_ROUTE_LABELS.interpolate_native }, TEMPORAL_ROUTE_LABELS.interpolate_sheet),
     edit: tryRoute("edit_animation", { required: ["animation_edit"], label: TEMPORAL_ROUTE_LABELS.edit_native }, TEMPORAL_ROUTE_LABELS.edit_sheet),
     outfit: tryRoute("transfer_outfit", { required: ["outfit_transfer"], label: TEMPORAL_ROUTE_LABELS.outfit_native }, TEMPORAL_ROUTE_LABELS.outfit_sheet),
-    correctNative: offered("correct_frame").includes("native_mask") ? { strategy: "native", label: TEMPORAL_ROUTE_LABELS.correct_native } : { unavailable: "Perfil sem máscara nativa" },
-    correctCandidate: offered("correct_frame").includes("image_edit") ? { strategy: "reference_sheet", label: TEMPORAL_ROUTE_LABELS.correct_candidate } : { unavailable: "Perfil sem edição a partir do quadro" },
+    correctNative: offered("correct_frame").includes("native_mask") ? { strategy: "native", label: TEMPORAL_ROUTE_LABELS.correct_native } : { unavailable: tx("Perfil sem máscara nativa", "Provider profile has no native mask") },
+    correctCandidate: offered("correct_frame").includes("image_edit") ? { strategy: "reference_sheet", label: TEMPORAL_ROUTE_LABELS.correct_candidate } : { unavailable: tx("Perfil sem edição a partir do quadro", "Provider profile cannot edit from the frame") },
   };
 }
 

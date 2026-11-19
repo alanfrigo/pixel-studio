@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import path from "node:path";
 import { type BasePayload, DIRECTIONS_8, type GenerationPlan } from "@/contracts";
 import { identityWorldToView } from "@/domain/animation/directions";
@@ -37,13 +38,13 @@ function publishView(ctx: HandlerContext, plan: RotatePlan, asset: AssetView, pa
   const direction = plan.params.requestedViews[0]!;
   const rows = partResults(ctx, part.part_key);
   const first = rows[0];
-  if (!first) throw new DomainFailure("validation_failed", "Resposta sem imagem da vista");
+  if (!first) throw new DomainFailure("validation_failed", tx("Resposta sem imagem da vista", "Response has no image for the view"));
   const processed = parseJson<ProcessedPart>(first.processed_json)!;
   const sheet = sheetOf(plan);
   const viewSha = sheet ? (processed.details as { frames: { sha256: string }[] }).frames[0]!.sha256 : processed.normalizedSha256;
 
   const base = loadBase(ctx.db, ctx.job.project_id, plan.params.identityRevisionId, { approved: false });
-  if (base.payload.views.some((v) => v.direction === direction)) throw new DomainFailure("validation_failed", `A base já tem a vista ${direction}`);
+  if (base.payload.views.some((v) => v.direction === direction)) throw new DomainFailure("validation_failed", tx(`A base já tem a vista ${direction}`, `The base already has the ${direction} view`));
   const [w, h] = base.payload.logicalSize;
   const fileKey = viewFileKey(direction);
   const views = [...base.payload.views, { direction, fileId: fileKey, rect: [0, 0, w, h] as [number, number, number, number], sourceOffset: [0, 0] as [number, number] }].sort(
@@ -97,9 +98,9 @@ export const rotateViewsPipeline: OperationPipeline = {
   validateTarget({ db, projectId, plan, asset }) {
     if (plan.operation !== "rotate_views") throw new Error("inalcançável");
     if (getRevision(db, projectId, plan.params.identityRevisionId).assetId !== asset.id) {
-      throw new DomainFailure("validation_failed", "A nova vista publica no asset da própria base");
+      throw new DomainFailure("validation_failed", tx("A nova vista publica no asset da própria base", "The new view publishes to the base's own asset"));
     }
-    if (plan.params.requestedViews.length !== 1) throw new DomainFailure("validation_failed", "Uma vista por plano: reprovar uma direção não refaz as outras");
+    if (plan.params.requestedViews.length !== 1) throw new DomainFailure("validation_failed", tx("Uma vista por plano: reprovar uma direção não refaz as outras", "One view per plan: rejecting one direction does not redo the others"));
   },
   loadInputs: (ctx, plan) => loadViewInputs(ctx, plan as RotatePlan),
   process: (env, plan, sha256, dir) => {

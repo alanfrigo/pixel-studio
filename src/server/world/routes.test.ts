@@ -145,6 +145,6 @@ describe.skipIf(!existsSync(PYTHON))("rotas do mundo", () => {
 
     const plan = await call(plansRoute.POST, p, "POST", { operation: "generate_tileset", providerProfileId: "simulated", guideRevisionId: tileset.id, instruction: "mais detalhe" });
     expect(plan.status).toBe(200);
-    expect((plan.body as unknown as { routeLabel: string }).routeLabel).toMatch(/Não é geração nativa/);
+    expect((plan.body as unknown as { routeLabel: { "pt-BR": string; en: string } }).routeLabel).toMatchObject({ "pt-BR": expect.stringMatching(/Não é geração nativa/), en: expect.stringMatching(/Not native tileset generation/) });
   });
 });

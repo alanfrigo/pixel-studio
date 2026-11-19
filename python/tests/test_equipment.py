@@ -103,8 +103,8 @@ def test_extract_registers_shift_and_flags_spill_and_edge(pipe):
     frame = res["report"]["frames"][0]
     assert frame["shift"] == [-2, 1]
     assert res["status"] == "needs_review"
-    assert any("realinhado" in w for w in res["warnings"])
-    assert any("borda da zona" in w for w in res["warnings"])
+    assert any("realinhado" in w["pt-BR"] for w in res["warnings"])
+    assert any("borda da zona" in w["pt-BR"] and "zone edge" in w["en"] for w in res["warnings"])
     assert frame["outsideChangedPixels"] > 0
     # Nada fora da zona vira peça: a perna continua da base.
     assert pipe.image(res, "preview", "f1").getpixel((14, 26)) == TUNIC
@@ -128,7 +128,7 @@ def test_extract_drops_key_and_guide_color_residue(pipe):
         },
         [("layer", png(base_frame())), ("candidate", png(cand))],
     )
-    assert any("cor-chave" in w for w in res["warnings"])
+    assert any("cor-chave" in w["pt-BR"] and "key color" in w["en"] for w in res["warnings"])
     # O pixel residual não vira peça: a base aparece ali na prévia.
     assert pipe.image(res, "preview", "f").getpixel((12, 12)) == TUNIC
     assert pipe.image(res, "preview", "f").getpixel((13, 12)) == TUNIC

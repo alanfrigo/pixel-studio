@@ -2,23 +2,25 @@
 
 import { useState } from "react";
 import type { ProviderProfileView } from "@/server/providers/registry";
+import { useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { homeMessages } from "@/i18n/messages/home";
 import { ApiError, apiFetch } from "../client/api";
 import { usePoll } from "../client/use-poll";
 
 interface ProfileRow extends ProviderProfileView {
   capabilities: Record<string, string[]>;
-  matrix: { operation: string; capability: string; status: string; contractSnapshot: string | null }[];
-  unavailable: string | null;
+  matrix: { operation: string; capability: string; status: string; contractSnapshot: TextValue | null }[];
+  unavailable: TextValue | null;
 }
 
 type ModelField = "required" | "optional";
 
 const TRANSPORTS: Record<
   "openrouter_images" | "codex_cli" | "openai_images",
-  { label: string; base: "required" | "optional" | "none"; secret: boolean; model: ModelField; modelPlaceholder: string; idPlaceholder: string; hint?: string; example: Record<string, unknown> }
+  { base: "required" | "optional" | "none"; secret: boolean; model: ModelField; modelPlaceholder: string | null; idPlaceholder: string; hint?: boolean; example: Record<string, unknown> }
 > = {
   openrouter_images: {
-    label: "OpenRouter Images",
     base: "optional",
     secret: true,
     model: "required",
@@ -27,17 +29,16 @@ const TRANSPORTS: Record<
     example: { maxReferences: 14, transparent: false, provider: { only: ["seed"], allow_fallbacks: false } },
   },
   codex_cli: {
-    label: "Codex CLI local (login do ChatGPT)",
     base: "none",
     secret: false,
     model: "optional",
-    modelPlaceholder: "padrão do Codex",
+    // Sem modelo fixo: o texto do campo vem do catálogo (padrão do Codex).
+    modelPlaceholder: null,
     idPlaceholder: "codex-local",
-    hint: "Usa o `codex` instalado nesta máquina e o login feito com `codex login`; nenhuma chave passa pelo Studio. Cada imagem é um turno do Codex que consome a cota do seu plano. O modelo, se informado, é o que conduz o turno; a imagem sai da ferramenta de imagem embutida do Codex.",
+    hint: true,
     example: { reasoningEffort: "low", maxReferences: 5, transparent: true, timeoutMs: 600000 },
   },
   openai_images: {
-    label: "API customizada (contrato OpenAI Images)",
     base: "required",
     secret: true,
     model: "required",
@@ -50,11 +51,13 @@ type Transport = keyof typeof TRANSPORTS;
 
 
 export function ProviderSettings() {
+  const m = useMessages(homeMessages).settings;
+  const text = useText();
   const { data, refresh } = usePoll(() => apiFetch<{ profiles: ProfileRow[] }>("/settings/providers"), { active: () => false, slowMs: 30_000 });
   const [transport, setTransport] = useState<Transport>("openrouter_images");
   const [form, setForm] = useState({ id: "", name: "", baseUrl: "", secretRef: "", model: "", config: JSON.stringify(TRANSPORTS.openrouter_images.example, null, 2) });
   const [message, setMessage] = useState<string | null>(null);
-  const [checks, setChecks] = useState<Record<string, string>>({});
+  const [checks, setChecks] = useState<Record<string, { pending: true } | { ok: boolean; message: TextValue }>>({});
   const spec = TRANSPORTS[transport];
 
   async function save(e: React.FormEvent) {
@@ -74,7 +77,7 @@ export function ProviderSettings() {
           ...(spec.model === "required" || form.model.trim() ? { model: form.model } : {}),
         },
       });
-      setMessage("Perfil salvo. As capacidades ficam como declaradas até um ensaio as qualificar.");
+      setMessage(m.saved);
       refresh();
     } catch (err) {
       const issues = err instanceof ApiError ? (err.details?.issues as { path: string[]; message: string }[] | undefined) : undefined;
@@ -83,51 +86,56 @@ export function ProviderSettings() {
   }
 
   async function check(id: string) {
-    setChecks((c) => ({ ...c, [id]: "Verificando…" }));
-    const r = await apiFetch<{ ok: boolean; message: string }>(`/settings/providers/${id}/check`, { method: "POST" }).catch((e) => ({ ok: false, message: String(e.message ?? e) }));
-    setChecks((c) => ({ ...c, [id]: `${r.ok ? "✓" : "✗"} ${r.message}` }));
+    setChecks((c) => ({ ...c, [id]: { pending: true } }));
+    const r = await apiFetch<{ ok: boolean; message: TextValue }>(`/settings/providers/${id}/check`, { method: "POST" }).catch((e) => ({ ok: false, message: String(e.message ?? e) }));
+    setChecks((c) => ({ ...c, [id]: r }));
   }
+
+  const checkText = (c: { pending: true } | { ok: boolean; message: TextValue }) => ("pending" in c ? m.checking : `${c.ok ? "✓" : "✗"} ${text(c.message)}`);
 
   return (
     <>
       <section>
-        <h2>Perfis</h2>
+        <h2>{m.profiles}</h2>
         <ul className="list">
           {data?.profiles.map((p) => (
             <li key={p.id}>
               <div className="row">
                 <strong>{p.name}</strong>
                 <span className="muted small">
-                  {p.transport} {p.model ? `· ${p.model}` : ""} {p.secretRef ? `· segredo em ${p.secretRef} (${p.secretConfigured ? "definido" : "NÃO definido"})` : ""}
-                  {p.transport === "codex_cli" ? "· login local do Codex" : ""}
+                  {p.transport} {p.model ? `· ${p.model}` : ""} {p.secretRef ? m.secretIn(p.secretRef, p.secretConfigured) : ""}
+                  {p.transport === "codex_cli" ? m.codexLogin : ""}
                 </span>
                 {!p.simulated && (
                   <button className="secondary" onClick={() => check(p.id)}>
-                    Testar sem custo
+                    {m.testFree}
                   </button>
                 )}
               </div>
-              {p.unavailable && <div className="error small">{p.unavailable}</div>}
-              {checks[p.id] && <div className="small">{checks[p.id]}</div>}
+              {p.unavailable && <div className="error small">{text(p.unavailable)}</div>}
+              {checks[p.id] && <div className="small">{checkText(checks[p.id]!)}</div>}
               <div className="muted small">
                 {Object.entries(p.capabilities)
                   .map(([op, caps]) => `${op}: ${caps.join(", ")}`)
-                  .join(" · ") || "Nenhuma operação disponível"}
+                  .join(" · ") || m.noOperations}
               </div>
-              {p.matrix[0]?.contractSnapshot && <div className="muted small">Capacidades declaradas · {p.matrix[0].contractSnapshot}</div>}
+              {p.matrix[0]?.contractSnapshot && <div className="muted small">
+                  {m.declaredCapabilities} · {text(p.matrix[0].contractSnapshot)}
+                </div>}
             </li>
           ))}
         </ul>
       </section>
       <section>
-        <h2>Adicionar ou atualizar perfil</h2>
+        <h2>{m.addOrUpdate}</h2>
         <p className="muted small">
-          {spec.secret ? "O segredo nunca passa pelo navegador: informe só o nome da variável de ambiente que o servidor e o worker leem. " : ""}Nenhuma geração é feita ao salvar ou testar.
+          {spec.secret ? m.secretNote : ""}
+          {m.noGeneration}
         </p>
-        {spec.hint && <p className="muted small">{spec.hint}</p>}
+        {spec.hint && <p className="muted small">{m.codexHint}</p>}
         <form onSubmit={save}>
           <label>
-            Transporte
+            {m.transport}
             <select
               value={transport}
               onChange={(e) => {
@@ -136,42 +144,44 @@ export function ProviderSettings() {
                 setForm((f) => ({ ...f, config: JSON.stringify(TRANSPORTS[t].example, null, 2) }));
               }}
             >
-              {Object.entries(TRANSPORTS).map(([k, v]) => (
+              {Object.keys(TRANSPORTS).map((k) => (
                 <option key={k} value={k}>
-                  {v.label}
+                  {m.transports[k as Transport]}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            ID
+            {m.id}
             <input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} placeholder={spec.idPlaceholder} required />
           </label>
           <label>
-            Nome
+            {m.name}
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
           </label>
           {spec.base !== "none" && (
             <label>
-              URL base{spec.base === "required" ? "" : " (opcional)"}
-              <input value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder={spec.base === "required" ? "http://127.0.0.1:8080/v1" : "padrão do provedor"} />
+              {m.baseUrl}
+              {spec.base === "required" ? "" : m.optional}
+              <input value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder={spec.base === "required" ? "http://127.0.0.1:8080/v1" : m.providerDefault} />
             </label>
           )}
           {spec.secret && (
             <label>
-              Variável do segredo
+              {m.secretVariable}
               <input value={form.secretRef} onChange={(e) => setForm({ ...form, secretRef: e.target.value.toUpperCase() })} placeholder="OPENROUTER_API_KEY" required />
             </label>
           )}
           <label>
-            Modelo{spec.model === "optional" ? " (opcional)" : ""}
-            <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={spec.modelPlaceholder} required={spec.model === "required"} />
+            {m.model}
+            {spec.model === "optional" ? m.optional : ""}
+            <input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={spec.modelPlaceholder ?? m.codexModelPlaceholder} required={spec.model === "required"} />
           </label>
           <label style={{ flexBasis: "100%" }}>
-            Configuração (JSON)
+            {m.config}
             <textarea value={form.config} onChange={(e) => setForm({ ...form, config: e.target.value })} rows={6} />
           </label>
-          <button>Salvar perfil</button>
+          <button>{m.saveProfile}</button>
         </form>
         {message && <p className="small">{message}</p>}
       </section>

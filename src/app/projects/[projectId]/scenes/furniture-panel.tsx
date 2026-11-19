@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { MapObjectPayload, RoomPayload } from "@/contracts";
 import type { RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
+import { useLocale, useMessages } from "@/i18n/client";
+import { scenesMessages } from "@/i18n/messages/scenes";
 import { errorText, fileOf, flatRevisions, mediaUrl, PIXEL, type Profile, type ScenesCatalog, scenesApi, uploadImage } from "./scenes-client";
 import { MaskPainter, Message, PlanRunner, PointPicker, RevisionCard } from "./shared";
 
@@ -24,6 +26,7 @@ interface CutoutResult {
 }
 
 export function FurniturePanel({ projectId, catalog, profiles, refresh }: { projectId: string; catalog: ScenesCatalog; profiles: Profile[]; refresh: () => void }) {
+  const m = useMessages(scenesMessages).furniture;
   const rooms = flatRevisions(catalog.rooms, (r) => r.status === "approved");
   const [roomId, setRoomId] = useState("");
   const entry = rooms.find((r) => r.revision.id === roomId);
@@ -32,7 +35,7 @@ export function FurniturePanel({ projectId, catalog, profiles, refresh }: { proj
   return (
     <>
       <section>
-        <h2>Escolher a sala aprovada</h2>
+        <h2>{m.chooseRoom}</h2>
         <select value={roomId} onChange={(e) => setRoomId(e.target.value)}>
           <option value="">—</option>
           {rooms.map(({ asset, revision }) => (
@@ -41,29 +44,28 @@ export function FurniturePanel({ projectId, catalog, profiles, refresh }: { proj
             </option>
           ))}
         </select>
-        {room?.projection === "oblique" && <p className="small">⚠ Sala oblíqua: só paredes, portas e piso; não há móveis a extrair.</p>}
+        {room?.projection === "oblique" && <p className="small">{m.obliqueRoom}</p>}
       </section>
       {entry && room && room.projection !== "oblique" && (
         <LocalCutout key={`l-${roomId}`} projectId={projectId} revision={entry.revision} room={room} assetId={entry.asset.id} catalog={catalog} profiles={profiles} refresh={refresh} />
       )}
       <section>
-        <h2>Áreas antes ocultas (revisão)</h2>
+        <h2>{m.hiddenTitle}</h2>
         <div className="row" style={{ alignItems: "flex-start" }}>
-          {furnishedRooms.length === 0 && <p className="muted small">Nenhuma sala com móvel extraído ainda.</p>}
+          {furnishedRooms.length === 0 && <p className="muted small">{m.emptyHidden}</p>}
           {furnishedRooms.map(({ asset, revision }) => {
             const p = revision.payload as RoomPayload;
             const bg = fileOf(revision, p.background!.fileId);
             return (
               <RevisionCard key={revision.id} projectId={projectId} asset={asset} revision={revision} src={bg ? mediaUrl(projectId, bg.id) : null} refresh={refresh}>
                 {p.exposedAreas.map((a) => {
-                  const m = fileOf(revision, a.mask.fileId);
+                  const maskFile = fileOf(revision, a.mask.fileId);
                   return (
                     <div key={a.areaId} className="row">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      {m && <img src={mediaUrl(projectId, m.id)} alt={a.areaId} className="pixel" style={{ ...PIXEL, width: 64 }} />}
+                      {maskFile && <img src={mediaUrl(projectId, maskFile.id)} alt={a.areaId} className="pixel" style={{ ...PIXEL, width: 64 }} />}
                       <span>
-                        {a.pieceName}: {a.status === "reconstructed_inpaint" ? "reconstruída por inpainting (E1)" : "rocha transparente revisada"} · contorno{" "}
-                        {Math.round(a.measured.contextOpaque * 100)}% pintado
+                        {a.pieceName}: {a.status === "reconstructed_inpaint" ? m.areaReconstructed : m.areaTransparent} · {m.outlinePainted(Math.round(a.measured.contextOpaque * 100))}
                       </span>
                     </div>
                   );
@@ -79,6 +81,8 @@ export function FurniturePanel({ projectId, catalog, profiles, refresh }: { proj
 }
 
 function LocalCutout({ projectId, revision, room, assetId, catalog, profiles, refresh }: { projectId: string; revision: RevisionView; room: RoomPayload; assetId: string; catalog: ScenesCatalog; profiles: Profile[]; refresh: () => void }) {
+  const { furniture: m, shared: sm } = useMessages(scenesMessages);
+  const locale = useLocale();
   const base = room.background ?? room.picture;
   const file = fileOf(revision, base.fileId);
   const size: [number, number] = [room.picture.rect[2], room.picture.rect[3]];
@@ -86,7 +90,7 @@ function LocalCutout({ projectId, revision, room, assetId, catalog, profiles, re
   const [shadow, setShadow] = useState<Blob | null>(null);
   const [uploads, setUploads] = useState<{ mask: string; shadow: string | null } | null>(null);
   const [preview, setPreview] = useState<{ report: { pieceRect: number[]; suggestedSupport: [number, number]; needsReconstruction: boolean; contextOpaque: number }; previews: { piece: string; shadow: string | null; area: string } } | null>(null);
-  const [name, setName] = useState("mesa");
+  const [name, setName] = useState(m.defaultName);
   const [collision, setCollision] = useState("");
   const [result, setResult] = useState<CutoutResult | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -95,7 +99,7 @@ function LocalCutout({ projectId, revision, room, assetId, catalog, profiles, re
   async function doPreview() {
     if (!mask) return;
     try {
-      const up = { mask: await uploadImage(projectId, mask, "mascara-movel.png"), shadow: shadow ? await uploadImage(projectId, shadow, "mascara-sombra.png") : null };
+      const up = { mask: await uploadImage(projectId, mask, "mascara-movel.png", locale), shadow: shadow ? await uploadImage(projectId, shadow, "mascara-sombra.png", locale) : null };
       setUploads(up);
       setPreview(await apiFetch(scenesApi(projectId, "/rooms/cutout/preview"), { method: "POST", json: { roomRevisionId: revision.id, maskUploadId: up.mask, shadowMaskUploadId: up.shadow } }));
     } catch (err) {
@@ -120,7 +124,7 @@ function LocalCutout({ projectId, revision, room, assetId, catalog, profiles, re
     if (!result) return;
     try {
       await apiFetch(scenesApi(projectId, "/rooms/compose"), { method: "POST", json: { roomRevisionId: revision.id, areaMaskUploadId: result.areaMaskUploadId, reconstruction } });
-      setMessage("Sala com o móvel como prop e a área revisada publicada como candidata.");
+      setMessage(m.composed);
       refresh();
     } catch (err) {
       setMessage(errorText(err));
@@ -129,46 +133,46 @@ function LocalCutout({ projectId, revision, room, assetId, catalog, profiles, re
   if (!file) return null;
   return (
     <section>
-      <h2>Recorte local revisado (máscara explícita)</h2>
-      <p className="small muted">Pinte a peça (retângulo ou pincel). Opcional: a sombra numa segunda máscara.</p>
+      <h2>{m.cutoutTitle}</h2>
+      <p className="small muted">{m.cutoutHint}</p>
       <div className="grid2">
         <div>
-          <strong className="small">Peça</strong>
+          <strong className="small">{m.piece}</strong>
           <MaskPainter src={mediaUrl(projectId, file.id)} size={size} onChange={(b) => setMask(b)} />
         </div>
         <div>
-          <strong className="small">Sombra (opcional)</strong>
+          <strong className="small">{m.shadowOptional}</strong>
           <MaskPainter src={mediaUrl(projectId, file.id)} size={size} color={[0, 120, 255, 120]} onChange={(b) => setShadow(b)} />
         </div>
       </div>
       <button type="button" onClick={doPreview} disabled={!mask}>
-        Medir recorte e área
+        {m.measure}
       </button>
       {preview && (
         <div className="small">
           <div className="row">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={preview.previews.piece} alt="Peça" className="pixel bg-checker" style={{ ...PIXEL, height: 64 }} />
+            <img src={preview.previews.piece} alt={m.piece} className="pixel bg-checker" style={{ ...PIXEL, height: 64 }} />
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {preview.previews.shadow && <img src={preview.previews.shadow} alt="Sombra" className="pixel bg-checker" style={{ ...PIXEL, height: 32 }} />}
+            {preview.previews.shadow && <img src={preview.previews.shadow} alt={m.shadow} className="pixel bg-checker" style={{ ...PIXEL, height: 32 }} />}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={preview.previews.area} alt="Área antes oculta" className="pixel" style={{ ...PIXEL, height: 128 }} />
+            <img src={preview.previews.area} alt={sm.previouslyHidden} className="pixel" style={{ ...PIXEL, height: 128 }} />
           </div>
           <div>
-            Peça em {preview.report.pieceRect.join(", ")} · apoio sugerido {preview.report.suggestedSupport.join(", ")} · contorno {Math.round(preview.report.contextOpaque * 100)}% pintado →{" "}
-            <strong>{preview.report.needsReconstruction ? "a área atrás precisa de inpainting (E1)" : "área sobre rocha: nada a reconstruir"}</strong>
+            {m.cutoutInfo(preview.report.pieceRect.join(", "), preview.report.suggestedSupport.join(", "), Math.round(preview.report.contextOpaque * 100))}{" "}
+            <strong>{preview.report.needsReconstruction ? m.needsInpaint : m.overRock}</strong>
           </div>
           <div className="row">
             <label>
-              Nome
+              {sm.name}
               <input value={name} onChange={(e) => setName(e.target.value)} />
             </label>
             <label>
-              Colisão revisada (x,y,w,h na peça)
+              {m.collision}
               <input value={collision} onChange={(e) => setCollision(e.target.value)} placeholder="0,12,26,6" />
             </label>
             <button type="button" onClick={publish}>
-              Publicar peça como prop
+              {m.publishPiece}
             </button>
           </div>
         </div>
@@ -176,23 +180,23 @@ function LocalCutout({ projectId, revision, room, assetId, catalog, profiles, re
       {result && (
         <div className="small">
           <p>
-            Prop publicado (candidato). Área: {result.report.areaPixels}px; {result.needsReconstruction ? "reconstruir por inpainting antes de compor." : "pode compor como rocha revisada."}
+            {m.propPublished(result.report.areaPixels, result.needsReconstruction)}
           </p>
           {result.needsReconstruction ? (
             <>
               <PlanRunner
                 projectId={projectId}
-                label="Reconstruir a área (E1)"
+                label={m.rebuildArea}
                 disabled={!inpaintProfiles.length}
                 body={() => ({ operation: "inpaint", providerProfileId: inpaintProfiles[0]?.id, sourceRevisionId: result.inpaint.sourceRevisionId, sourceFileKey: result.inpaint.sourceFileKey, maskUploadId: result.inpaint.maskUploadId, instruction: `piso e parede contínuos onde estava ${name}, sem o móvel`, mode: inpaintProfiles[0]?.capabilities.inpaint?.includes("native_mask") ? "native-mask" : "candidate-composite" })}
                 target={async () => assetId}
                 onDone={refresh}
               />
-              <a href={`/projects/${projectId}/inpaint?asset=${assetId}&revision=${revision.id}&file=${base.fileId}`}>Abrir no editor de inpainting</a>
+              <a href={`/projects/${projectId}/inpaint?asset=${assetId}&revision=${revision.id}&file=${base.fileId}`}>{m.openInpaint}</a>
             </>
           ) : (
             <button type="button" onClick={() => compose({ kind: "transparent" })}>
-              Compor sala (área sobre rocha)
+              {m.composeOverRock}
             </button>
           )}
         </div>
@@ -205,7 +209,7 @@ function LocalCutout({ projectId, revision, room, assetId, catalog, profiles, re
               <RevisionCard key={r.id} projectId={projectId} asset={catalog.rooms.find((x) => x.asset.id === assetId)!.asset} revision={r} src={f ? mediaUrl(projectId, f.id) : null} refresh={refresh}>
                 {result && r.status === "approved" && (
                   <button type="button" onClick={() => compose({ kind: "inpaint", inpaintRevisionId: r.id })}>
-                    Compor sala com esta reconstrução
+                    {m.composeWithRebuild}
                   </button>
                 )}
               </RevisionCard>
@@ -219,6 +223,7 @@ function LocalCutout({ projectId, revision, room, assetId, catalog, profiles, re
 }
 
 function MoveReuse({ projectId, catalog, refresh }: { projectId: string; catalog: ScenesCatalog; refresh: () => void }) {
+  const { furniture: m, shared: sm } = useMessages(scenesMessages);
   const rooms = flatRevisions(catalog.rooms, (r) => r.status === "approved" && (r.payload as RoomPayload).projection !== "oblique");
   const props = flatRevisions(catalog.objects, (r) => r.status === "approved");
   const [roomId, setRoomId] = useState("");
@@ -234,7 +239,7 @@ function MoveReuse({ projectId, catalog, refresh }: { projectId: string; catalog
   function pick(at: [number, number]) {
     if (adding) {
       const obj = props.find((p) => p.revision.id === adding);
-      setFurniture([...list, { placementId: `movel-${list.length + 1}`, objectRevisionId: adding, supportAtPx: at, label: obj?.asset.name.split("·").pop()?.trim().slice(0, 64) || "móvel" }]);
+      setFurniture([...list, { placementId: `movel-${list.length + 1}`, objectRevisionId: adding, supportAtPx: at, label: obj?.asset.name.split("·").pop()?.trim().slice(0, 64) || m.placementFallback }]);
       setAdding("");
     } else if (selected) {
       setFurniture(list.map((f) => (f.placementId === selected ? { ...f, supportAtPx: at } : f)));
@@ -242,11 +247,11 @@ function MoveReuse({ projectId, catalog, refresh }: { projectId: string; catalog
   }
   async function save() {
     try {
-      const r = await apiFetch<{ revision: RevisionView }>(scenesApi(projectId, "/rooms/edit"), { method: "POST", json: { baseRevisionId: roomId, furniture: list, note: "Móveis movidos ou reutilizados" } });
+      const r = await apiFetch<{ revision: RevisionView }>(scenesApi(projectId, "/rooms/edit"), { method: "POST", json: { baseRevisionId: roomId, furniture: list, note: m.moveNote } });
       const pv = await apiFetch<{ previews: { zoom: string } }>(scenesApi(projectId, `/rooms/${r.revision.id}/preview`));
       setComposite(pv.previews.zoom);
       setFurniture(null);
-      setMessage("Nova revisão candidata da sala com os móveis (apoio e footprint conferidos no piso).");
+      setMessage(m.moved);
       refresh();
     } catch (err) {
       setMessage(errorText(err));
@@ -254,10 +259,10 @@ function MoveReuse({ projectId, catalog, refresh }: { projectId: string; catalog
   }
   return (
     <section>
-      <h2>Mover e reutilizar móveis</h2>
+      <h2>{m.moveTitle}</h2>
       <div className="row">
         <select value={roomId} onChange={(e) => (setRoomId(e.target.value), setFurniture(null), setComposite(null))}>
-          <option value="">— sala aprovada —</option>
+          <option value="">{sm.approvedRoomOption}</option>
           {rooms.map(({ asset, revision }) => (
             <option key={revision.id} value={revision.id}>
               {asset.name} r{revision.number}
@@ -265,17 +270,17 @@ function MoveReuse({ projectId, catalog, refresh }: { projectId: string; catalog
           ))}
         </select>
         <select value={adding} onChange={(e) => (setAdding(e.target.value), setSelected(null))}>
-          <option value="">+ reutilizar prop aprovado (clique na sala para colocar)</option>
+          <option value="">{m.reuseProp}</option>
           {props.map(({ asset, revision }) => (
             <option key={revision.id} value={revision.id}>
-              {asset.name} r{revision.number} {(revision.payload as MapObjectPayload).shadow ? "· com sombra" : ""}
+              {asset.name} r{revision.number} {(revision.payload as MapObjectPayload).shadow ? m.withShadow : ""}
             </option>
           ))}
         </select>
       </div>
       {room && pic && (
         <>
-          <p className="small muted">Escolha um móvel e clique onde o apoio dele deve pousar.</p>
+          <p className="small muted">{m.moveHint}</p>
           <div className="row small">
             {list.map((f) => (
               <button key={f.placementId} type="button" className={selected === f.placementId ? "" : "secondary"} onClick={() => (setSelected(f.placementId), setAdding(""))}>
@@ -284,18 +289,18 @@ function MoveReuse({ projectId, catalog, refresh }: { projectId: string; catalog
             ))}
             {list.length > 0 && selected && (
               <button type="button" className="secondary" onClick={() => setFurniture(list.filter((f) => f.placementId !== selected))}>
-                Retirar
+                {m.takeOut}
               </button>
             )}
           </div>
           <PointPicker src={mediaUrl(projectId, pic.id)} size={[room.picture.rect[2], room.picture.rect[3]]} points={list.map((f) => ({ at: f.supportAtPx, label: f.label }))} onPick={pick} />
           <button type="button" onClick={save} disabled={!furniture}>
-            Publicar revisão da sala
+            {m.publishRoom}
           </button>
         </>
       )}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {composite && <img src={composite} alt="Sala montada" className="pixel bg-checker" style={{ ...PIXEL, maxWidth: "100%", display: "block" }} />}
+      {composite && <img src={composite} alt={m.assembledAlt} className="pixel bg-checker" style={{ ...PIXEL, maxWidth: "100%", display: "block" }} />}
       <Message text={message} />
     </section>
   );

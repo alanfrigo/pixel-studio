@@ -1,3 +1,4 @@
+import { pick, type TextValue, tx } from "@/i18n/locales";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CostAmount, GenerationPlan } from "@/contracts";
@@ -33,13 +34,13 @@ export async function generationHandler(ctx: HandlerContext): Promise<void> {
 
   // ---- preparo: tudo que pode bloquear acontece antes de qualquer cobrança ----
   if (canonicalDigest(plan) !== request.planDigest) {
-    throw new DomainFailure("validation_failed", "Plano alterado depois de congelado; recalcule o plano");
+    throw new DomainFailure("validation_failed", tx("Plano alterado depois de congelado; recalcule o plano", "Plan changed after it was frozen; recalculate the plan"));
   }
-  if (plan.projectId !== ctx.job.project_id) throw new DomainFailure("cross_project_reference", "Plano de outro projeto");
+  if (plan.projectId !== ctx.job.project_id) throw new DomainFailure("cross_project_reference", tx("Plano de outro projeto", "Plan from another project"));
   const adapter = ctx.providers.adapterFor(plan.providerProfileId);
   const missing = plan.requiredCapabilities.filter((c) => !adapter.capabilities(plan.operation).includes(c));
   if (missing.length > 0) {
-    throw new DomainFailure("capability_missing", `O perfil ${plan.providerProfileId} não oferece: ${missing.join(", ")}`, { missing });
+    throw new DomainFailure("capability_missing", tx(`O perfil ${plan.providerProfileId} não oferece: ${missing.join(", ")}`, `Provider profile ${plan.providerProfileId} does not offer: ${missing.join(", ")}`), { missing });
   }
   const refIssues = validatePlanReferences(plan, catalogLookup(ctx.db));
   if (refIssues.length > 0) {
@@ -65,7 +66,7 @@ export async function generationHandler(ctx: HandlerContext): Promise<void> {
         ctx.queue.updatePart(ctx.attempt, part.part_key, { remote_state: "uncertain" });
         ctx.queue.needsAttention(
           ctx.attempt,
-          new DomainFailure("submission_uncertain", "Envio incerto: o provedor pode ter recebido e cobrado este pedido", {
+          new DomainFailure("submission_uncertain", tx("Envio incerto: o provedor pode ter recebido e cobrado este pedido", "Uncertain submission: the provider may have received and charged this request"), {
             partKey: part.part_key,
           }),
         );
@@ -114,13 +115,13 @@ function assertPublishable(ctx: HandlerContext, plan: GenerationPlan, asset: Ass
   const pipeline = PIPELINES[plan.operation];
   if (pipeline) return pipeline.validateTarget({ db: ctx.db, projectId: ctx.job.project_id, plan, asset });
   if (plan.operation !== "generate_asset") {
-    throw new DomainFailure("capability_missing", `A publicação de ${plan.operation} entra com o cartão responsável`);
+    throw new DomainFailure("capability_missing", tx(`A publicação de ${plan.operation} entra com o cartão responsável`, `Publishing ${plan.operation} comes with the card that owns it`));
   }
   if (plan.params.family !== asset.family || plan.params.kind !== asset.kind) {
-    throw new DomainFailure("validation_failed", `Plano gera ${plan.params.family}/${plan.params.kind}, mas o asset é ${asset.family}/${asset.kind}`);
+    throw new DomainFailure("validation_failed", tx(`Plano gera ${plan.params.family}/${plan.params.kind}, mas o asset é ${asset.family}/${asset.kind}`, `Plan generates ${plan.params.family}/${plan.params.kind}, but the asset is ${asset.family}/${asset.kind}`));
   }
   if (asset.family !== "item") {
-    throw new DomainFailure("capability_missing", `Montagem de candidatas da família ${asset.family} entra com o cartão responsável`);
+    throw new DomainFailure("capability_missing", tx(`Montagem de candidatas da família ${asset.family} entra com o cartão responsável`, `Assembling candidates for the ${asset.family} family comes with the card that owns it`));
   }
 }
 
@@ -179,12 +180,12 @@ async function submitPart(ctx: HandlerContext, adapter: ProviderAdapter, plan: G
     if (error.kind === "ambiguous") {
       if (adapter.idempotentSubmit) {
         ctx.queue.updatePart(ctx.attempt, part.part_key, { remote_state: "not_sent", error_json: errorJson });
-        throw new DomainFailure("provider_unavailable", `Falha ambígua no envio; o provedor deduplica pela chave: ${error.message}`);
+        throw new DomainFailure("provider_unavailable", withText(error.text, (m) => `Falha ambígua no envio; o provedor deduplica pela chave: ${m}`, (m) => `Ambiguous submission failure; the provider deduplicates by key: ${m}`));
       }
       ctx.queue.updatePart(ctx.attempt, part.part_key, { remote_state: "uncertain", error_json: errorJson });
       ctx.queue.needsAttention(
         ctx.attempt,
-        new DomainFailure("submission_uncertain", `Envio incerto: ${error.message}. O provedor pode ter recebido e cobrado o pedido.`, {
+        new DomainFailure("submission_uncertain", withText(error.text, (m) => `Envio incerto: ${m}. O provedor pode ter recebido e cobrado o pedido.`, (m) => `Uncertain submission: ${m}. The provider may have received and charged the request.`), {
           partKey: part.part_key,
         }),
       );
@@ -233,7 +234,7 @@ async function loadReferences(ctx: HandlerContext, plan: GenerationPlan) {
         },
         { python: ctx.config.python, workDir: dir, timeoutMs: ctx.config.pythonTimeoutMs, signal: ctx.signal },
       );
-      if (scaled.status === "error") throw new DomainFailure("internal", `Falha ao ampliar referência: ${scaled.message}`);
+      if (scaled.status === "error") throw new DomainFailure("internal", withText(scaled.message, (m) => `Falha ao ampliar referência: ${m}`, (m) => `Failed to upscale reference: ${m}`));
       bytes = new Uint8Array(await readFile(scaled.outputs[0]!.absolutePath));
     }
     refs.push({ role: source.role, mime: blob?.mime ?? "image/png", bytes });
@@ -241,16 +242,21 @@ async function loadReferences(ctx: HandlerContext, plan: GenerationPlan) {
   return refs;
 }
 
+/** Mensagem bilíngue com um texto de fora (provedor, processador) interpolado no idioma de cada lado. */
+function withText(text: TextValue, ptBR: (m: string) => string, en: (m: string) => string) {
+  return tx(ptBR(pick(text, "pt-BR")), en(pick(text, "en")));
+}
+
 function providerFailure(error: ProviderError): DomainFailure {
   switch (error.kind) {
     case "auth":
-      return new DomainFailure("provider_auth", `Credencial recusada pelo provedor: ${error.message}`);
+      return new DomainFailure("provider_auth", withText(error.text, (m) => `Credencial recusada pelo provedor: ${m}`, (m) => `Credential refused by the provider: ${m}`));
     case "balance":
-      return new DomainFailure("provider_balance", `Saldo insuficiente no provedor: ${error.message}`);
+      return new DomainFailure("provider_balance", withText(error.text, (m) => `Saldo insuficiente no provedor: ${m}`, (m) => `Insufficient balance at the provider: ${m}`));
     case "rejected":
-      return new DomainFailure("provider_rejected", `Pedido recusado pelo provedor: ${error.message}`);
+      return new DomainFailure("provider_rejected", withText(error.text, (m) => `Pedido recusado pelo provedor: ${m}`, (m) => `Request refused by the provider: ${m}`));
     default:
-      return new DomainFailure("provider_unavailable", error.message, error.retryAfterMs ? { retryAfterMs: error.retryAfterMs } : undefined);
+      return new DomainFailure("provider_unavailable", error.text, error.retryAfterMs ? { retryAfterMs: error.retryAfterMs } : undefined);
   }
 }
 
@@ -262,8 +268,8 @@ async function awaitAndDownload(ctx: HandlerContext, adapter: ProviderAdapter, p
       const status = await adapter.poll(remoteId, ctx.signal);
       if (status.state === "succeeded") break;
       if (status.state === "failed") {
-        ctx.queue.updatePart(ctx.attempt, part.part_key, { remote_state: "rejected", error_json: JSON.stringify({ message: status.message }) });
-        throw new DomainFailure("provider_rejected", `O provedor não concluiu a parte ${part.part_key}: ${status.message}`);
+        ctx.queue.updatePart(ctx.attempt, part.part_key, { remote_state: "rejected", error_json: JSON.stringify({ message: pick(status.message, "pt-BR") }) });
+        throw new DomainFailure("provider_rejected", withText(status.message, (m) => `O provedor não concluiu a parte ${part.part_key}: ${m}`, (m) => `The provider did not complete part ${part.part_key}: ${m}`));
       }
       await sleep(adapter.pollIntervalMs, ctx.signal);
     }
@@ -272,13 +278,13 @@ async function awaitAndDownload(ctx: HandlerContext, adapter: ProviderAdapter, p
       await adapter.cancel?.(remoteId).catch(() => undefined);
       throw new CancelRequestedError(ctx.job.id, {
         remoteCancelRequested: Boolean(adapter.cancel),
-        note: "A parte já aceita pelo provedor pode ser cobrada mesmo cancelada",
+        note: tx("A parte já aceita pelo provedor pode ser cobrada mesmo cancelada", "A part already accepted by the provider may be charged even if cancelled"),
         partKey: part.part_key,
       });
     }
     if (err instanceof ProviderError) {
       // Falha ao consultar não invalida o job remoto: nova tentativa volta a consultar, sem reenviar.
-      throw new DomainFailure("provider_unavailable", `Falha ao consultar o job remoto: ${err.message}`, err.retryAfterMs ? { retryAfterMs: err.retryAfterMs } : undefined);
+      throw new DomainFailure("provider_unavailable", withText(err.text, (m) => `Falha ao consultar o job remoto: ${m}`, (m) => `Failed to poll the remote job: ${m}`), err.retryAfterMs ? { retryAfterMs: err.retryAfterMs } : undefined);
     }
     throw err;
   }
@@ -286,7 +292,7 @@ async function awaitAndDownload(ctx: HandlerContext, adapter: ProviderAdapter, p
   try {
     result = await adapter.fetchResult(remoteId, ctx.signal);
   } catch (err) {
-    if (err instanceof ProviderError) throw new DomainFailure("provider_unavailable", `Falha ao baixar o resultado: ${err.message}`);
+    if (err instanceof ProviderError) throw new DomainFailure("provider_unavailable", withText(err.text, (m) => `Falha ao baixar o resultado: ${m}`, (m) => `Failed to download the result: ${m}`));
     throw err;
   }
   await storeResults(ctx, part.part_key, result, remoteId);
@@ -296,7 +302,7 @@ async function awaitAndDownload(ctx: HandlerContext, adapter: ProviderAdapter, p
 async function storeResults(ctx: HandlerContext, partKey: string, result: ProviderResult, remoteId: string | null): Promise<PartRow> {
   if (result.images.length === 0) {
     ctx.queue.updatePart(ctx.attempt, partKey, { remote_state: "rejected", error_json: JSON.stringify({ message: "Resposta sem imagem" }) });
-    throw new DomainFailure("provider_rejected", "O provedor respondeu sem nenhuma imagem");
+    throw new DomainFailure("provider_rejected", tx("O provedor respondeu sem nenhuma imagem", "The provider responded without any image"));
   }
   const blobs: BlobRecord[] = [];
   for (const [index, image] of result.images.entries()) {
@@ -333,7 +339,7 @@ export async function processProviderImage(env: PipelineEnv, plan: GenerationPla
   const [lw, lh] = plan.params.logicalSize;
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
   if (ingest.status === "error") {
-    throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+    throw new DomainFailure("validation_failed", withText(ingest.message, (m) => `Resposta do provedor não é uma imagem utilizável: ${m}`, (m) => `Provider response is not a usable image: ${m}`), { code: ingest.code });
   }
   let out = ingest.outputs.find((o) => o.role === "normalized")!;
   const warnings = [...ingest.warnings];
@@ -344,7 +350,7 @@ export async function processProviderImage(env: PipelineEnv, plan: GenerationPla
   const step = async (name: "unzoom" | "remove_background_flood" | "fit_logical", recipe: Record<string, unknown>, role: string) => {
     const current = await env.blobs.putFile(out.absolutePath);
     const result = await python(env, path.join(dir, name), name, current.sha256, recipe);
-    if (result.status === "error") throw new DomainFailure("validation_failed", `Etapa ${name} falhou: ${result.message}`, { code: result.code });
+    if (result.status === "error") throw new DomainFailure("validation_failed", withText(result.message, (m) => `Etapa ${name} falhou: ${m}`, (m) => `Step ${name} failed: ${m}`), { code: result.code });
     out = result.outputs.find((o) => o.role === role)!;
     warnings.push(...result.warnings);
     steps.push({ operation: name, ...result.report });

@@ -1,3 +1,4 @@
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { crc32, deflateRawSync, inflateRawSync } from "node:zlib";
 import { relativePathProblem } from "@/contracts";
 
@@ -116,9 +117,13 @@ export interface ZipLimits {
 
 export const DEFAULT_ZIP_LIMITS: ZipLimits = { maxEntries: 10_000, maxEntryBytes: 256 * 1024 * 1024, maxTotalBytes: 1024 * 1024 * 1024 };
 
+/** Pacote recusado na leitura. Como `DomainFailure`: `Error.message` em português, os dois idiomas em `messages`. */
 export class ZipError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly messages: LocalizedText | null;
+
+  constructor(message: string | LocalizedText) {
+    super(typeof message === "string" ? message : message["pt-BR"]);
+    this.messages = typeof message === "string" ? null : message;
     this.name = "ZipError";
   }
 }
@@ -147,21 +152,21 @@ export function readZip(bytes: Uint8Array, limits: ZipLimits = DEFAULT_ZIP_LIMIT
       break;
     }
   }
-  if (eocd < 0) throw new ZipError("Arquivo não é um ZIP (fim do diretório central ausente)");
+  if (eocd < 0) throw new ZipError(tx("Arquivo não é um ZIP (fim do diretório central ausente)", "File is not a ZIP (end of central directory missing)"));
   const count = v.getUint16(eocd + 10, true);
   const cdSize = v.getUint32(eocd + 12, true);
   const cdOffset = v.getUint32(eocd + 16, true);
-  if (v.getUint16(eocd + 4, true) !== 0 || v.getUint16(eocd + 8, true) !== count) throw new ZipError("ZIP multivolume não suportado");
-  if (count === 0xffff || cdOffset === MAX_U32 || cdSize === MAX_U32) throw new ZipError("ZIP64 não suportado");
-  if (count > limits.maxEntries) throw new ZipError(`ZIP com ${count} entradas excede o limite`);
-  if (cdOffset + cdSize > eocd) throw new ZipError("Diretório central fora do arquivo");
+  if (v.getUint16(eocd + 4, true) !== 0 || v.getUint16(eocd + 8, true) !== count) throw new ZipError(tx("ZIP multivolume não suportado", "Multi-volume ZIP is not supported"));
+  if (count === 0xffff || cdOffset === MAX_U32 || cdSize === MAX_U32) throw new ZipError(tx("ZIP64 não suportado", "ZIP64 is not supported"));
+  if (count > limits.maxEntries) throw new ZipError(tx(`ZIP com ${count} entradas excede o limite`, `ZIP with ${count} entries exceeds the limit`));
+  if (cdOffset + cdSize > eocd) throw new ZipError(tx("Diretório central fora do arquivo", "Central directory is outside the file"));
 
   const entries = new Map<string, CentralEntry>();
   const lowerNames = new Set<string>();
   let total = 0;
   let p = cdOffset;
   for (let i = 0; i < count; i++) {
-    if (p + 46 > bytes.length || v.getUint32(p, true) !== CENTRAL_SIG) throw new ZipError("Diretório central corrompido");
+    if (p + 46 > bytes.length || v.getUint32(p, true) !== CENTRAL_SIG) throw new ZipError(tx("Diretório central corrompido", "Central directory is corrupted"));
     const flags = v.getUint16(p + 8, true);
     const method = v.getUint16(p + 10, true);
     const crc = v.getUint32(p + 16, true);
@@ -175,17 +180,17 @@ export function readZip(bytes: Uint8Array, limits: ZipLimits = DEFAULT_ZIP_LIMIT
     const path = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(p + 46, p + 46 + nameLen));
     p += 46 + nameLen + extraLen + commentLen;
 
-    if (flags & 0x1) throw new ZipError(`${path}: arquivo criptografado não suportado`);
-    if (compressedSize === MAX_U32 || size === MAX_U32 || offset === MAX_U32) throw new ZipError("ZIP64 não suportado");
-    if (((external >>> 16) & 0o170000) === 0o120000) throw new ZipError(`${path}: link simbólico recusado`);
+    if (flags & 0x1) throw new ZipError(tx(`${path}: arquivo criptografado não suportado`, `${path}: encrypted file not supported`));
+    if (compressedSize === MAX_U32 || size === MAX_U32 || offset === MAX_U32) throw new ZipError(tx("ZIP64 não suportado", "ZIP64 is not supported"));
+    if (((external >>> 16) & 0o170000) === 0o120000) throw new ZipError(tx(`${path}: link simbólico recusado`, `${path}: symbolic link refused`));
     if (path.endsWith("/")) continue; // diretório
     const problem = relativePathProblem(path);
-    if (problem) throw new ZipError(`Caminho inseguro no ZIP (${path}): ${problem}`);
-    if (lowerNames.has(path.toLowerCase())) throw new ZipError(`Caminho duplicado no ZIP: ${path}`);
-    if (method !== 0 && method !== 8) throw new ZipError(`${path}: método de compressão ${method} não suportado`);
-    if (size > limits.maxEntryBytes) throw new ZipError(`${path}: ${size} bytes excede o limite por arquivo`);
+    if (problem) throw new ZipError(tx(`Caminho inseguro no ZIP (${path}): ${problem}`, `Unsafe path in the ZIP (${path}): ${problem}`));
+    if (lowerNames.has(path.toLowerCase())) throw new ZipError(tx(`Caminho duplicado no ZIP: ${path}`, `Duplicate path in the ZIP: ${path}`));
+    if (method !== 0 && method !== 8) throw new ZipError(tx(`${path}: método de compressão ${method} não suportado`, `${path}: compression method ${method} not supported`));
+    if (size > limits.maxEntryBytes) throw new ZipError(tx(`${path}: ${size} bytes excede o limite por arquivo`, `${path}: ${size} bytes exceeds the per-file limit`));
     total += size;
-    if (total > limits.maxTotalBytes) throw new ZipError("Conteúdo descompactado excede o limite do pacote");
+    if (total > limits.maxTotalBytes) throw new ZipError(tx("Conteúdo descompactado excede o limite do pacote", "Uncompressed content exceeds the package limit"));
     lowerNames.add(path.toLowerCase());
     entries.set(path, { path, method, crc, compressedSize, size, offset });
   }
@@ -195,19 +200,19 @@ export function readZip(bytes: Uint8Array, limits: ZipLimits = DEFAULT_ZIP_LIMIT
     has: (path) => entries.has(path),
     read(path) {
       const e = entries.get(path);
-      if (!e) throw new ZipError(`Arquivo ausente no ZIP: ${path}`);
-      if (e.offset + 30 > bytes.length || v.getUint32(e.offset, true) !== LOCAL_SIG) throw new ZipError(`${path}: cabeçalho local inválido`);
+      if (!e) throw new ZipError(tx(`Arquivo ausente no ZIP: ${path}`, `File missing from the ZIP: ${path}`));
+      if (e.offset + 30 > bytes.length || v.getUint32(e.offset, true) !== LOCAL_SIG) throw new ZipError(tx(`${path}: cabeçalho local inválido`, `${path}: invalid local header`));
       const start = e.offset + 30 + v.getUint16(e.offset + 26, true) + v.getUint16(e.offset + 28, true);
-      if (start + e.compressedSize > bytes.length) throw new ZipError(`${path}: dados truncados`);
+      if (start + e.compressedSize > bytes.length) throw new ZipError(tx(`${path}: dados truncados`, `${path}: truncated data`));
       const raw = bytes.subarray(start, start + e.compressedSize);
       let data: Uint8Array;
       try {
         data = e.method === 0 ? raw.slice() : new Uint8Array(inflateRawSync(raw, { maxOutputLength: Math.max(1, e.size) }));
       } catch {
-        throw new ZipError(`${path}: falha ao descompactar`);
+        throw new ZipError(tx(`${path}: falha ao descompactar`, `${path}: failed to decompress`));
       }
-      if (data.length !== e.size) throw new ZipError(`${path}: tamanho diverge do diretório central`);
-      if ((crc32(data) >>> 0) !== e.crc) throw new ZipError(`${path}: CRC diverge (arquivo corrompido)`);
+      if (data.length !== e.size) throw new ZipError(tx(`${path}: tamanho diverge do diretório central`, `${path}: size does not match the central directory`));
+      if ((crc32(data) >>> 0) !== e.crc) throw new ZipError(tx(`${path}: CRC diverge (arquivo corrompido)`, `${path}: CRC mismatch (corrupted file)`));
       return data;
     },
   };

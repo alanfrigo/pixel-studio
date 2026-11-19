@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type Capability, type GenerationPlan, Id, type PlanPart, type PlanSource, TexturePayload } from "@/contracts";
 import { canonicalDigest } from "@/domain/canonical-json";
 import { validatePlanReferences } from "@/domain/plan/references";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { type BlobRecord, getAsset, getBlob, getProject, getRevision, getStyleRevision, publishRevision, type RevisionView } from "../catalog/catalog";
 import { catalogLookup } from "../catalog/plan-lookup";
 import { DomainFailure } from "../errors";
@@ -33,7 +34,7 @@ export function resolveImageRef(studio: Studio, projectId: string, ref: z.infer<
         : resolveLocalInput(studio, projectId, { kind: "job_output", jobId: ref.jobId, outputIndex: ref.outputIndex });
   const blob = getBlob(studio.db, sha);
   const { width, height } = (blob?.metadata ?? {}) as { width?: number; height?: number };
-  if (!blob || !width || !height) throw new DomainFailure("validation_failed", "Imagem sem dimensões medidas");
+  if (!blob || !width || !height) throw new DomainFailure("validation_failed", tx("Imagem sem dimensões medidas", "Image has no measured dimensions"));
   return { ...blob, width, height };
 }
 
@@ -83,10 +84,10 @@ export const PublishTextureInput = z.strictObject({
   unshift: z.boolean().default(false),
 });
 
-export async function publishTexture(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof PublishTextureInput>): Promise<{ revision: RevisionView; report: SeamReport; verdict: string }> {
+export async function publishTexture(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof PublishTextureInput>): Promise<{ revision: RevisionView; report: SeamReport; verdict: LocalizedText }> {
   const input = PublishTextureInput.parse(raw);
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "texture" || asset.kind !== "material") throw new DomainFailure("validation_failed", `O asset é ${asset.family}/${asset.kind}; esperado texture/material`);
+  if (asset.family !== "texture" || asset.kind !== "material") throw new DomainFailure("validation_failed", tx(`O asset é ${asset.family}/${asset.kind}; esperado texture/material`, `The asset is ${asset.family}/${asset.kind}; expected texture/material`));
   let image: BlobRecord = resolveImageRef(studio, projectId, input.image);
   if (input.unshift) {
     // Deslocar meio período de novo devolve a orientação original (tamanhos pares nos eixos pedidos).
@@ -111,10 +112,10 @@ export async function publishTexture(studio: Studio, projectId: string, assetId:
     technicalReport: {
       operation: "texture_seams",
       label: input.unshift
-        ? "Deslocamento cíclico desfeito após a correção; emenda validada localmente"
+        ? tx("Deslocamento cíclico desfeito após a correção; emenda validada localmente", "Cyclic shift undone after the fix; seam validated locally")
         : input.image.from === "upload"
-          ? "Textura importada; emenda validada localmente"
-          : "Textura derivada localmente; emenda validada",
+          ? tx("Textura importada; emenda validada localmente", "Imported texture; seam validated locally")
+          : tx("Textura derivada localmente; emenda validada", "Texture derived locally; seam validated"),
       verdict,
       seams: run.report,
       warnings: run.warnings,
@@ -145,18 +146,18 @@ export type TexturePlanInput = z.input<typeof TexturePlanInput>;
 export function textureSource(studio: Studio, projectId: string, revisionId: string): { revision: RevisionView; fileKey: string; sha256: string; size: [number, number] } {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (asset.family !== "texture") throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} não é uma textura`);
-  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", `${asset.name} r${revision.number} precisa estar aprovada`);
+  if (asset.family !== "texture") throw new DomainFailure("validation_failed", tx(`${asset.name} r${revision.number} não é uma textura`, `${asset.name} r${revision.number} is not a texture`));
+  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", tx(`${asset.name} r${revision.number} precisa estar aprovada`, `${asset.name} r${revision.number} must be approved`));
   const payload = TexturePayload.parse(revision.payload);
   const file = revision.files.find((f) => f.fileKey === payload.fileId);
-  if (!file) throw new DomainFailure("not_found", `Arquivo ${payload.fileId} ausente na revisão`);
+  if (!file) throw new DomainFailure("not_found", tx(`Arquivo ${payload.fileId} ausente na revisão`, `File ${payload.fileId} is missing from the revision`));
   return { revision, fileKey: payload.fileId, sha256: file.sha256, size: payload.logicalSize };
 }
 
 export function buildTexturePlan(studio: Studio, projectId: string, raw: TexturePlanInput) {
   const input = TexturePlanInput.parse(raw);
   const project = getProject(studio.db, projectId);
-  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", "Projeto sem estilo ativo");
+  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", tx("Projeto sem estilo ativo", "Project has no active style"));
   const style = getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload;
   studio.providers.assertReady(input.providerProfileId);
   const adapter = studio.providers.adapterFor(input.providerProfileId);
@@ -168,10 +169,10 @@ export function buildTexturePlan(studio: Studio, projectId: string, raw: Texture
   const offered = adapter.capabilities("generate_texture");
   const missing = required.filter((c) => !offered.includes(c));
   if (missing.length) {
-    throw new DomainFailure("capability_missing", `O perfil ${input.providerProfileId} não gera material com ${missing.join(", ")}`, { missing, offered });
+    throw new DomainFailure("capability_missing", tx(`O perfil ${input.providerProfileId} não gera material com ${missing.join(", ")}`, `Provider profile ${input.providerProfileId} cannot generate materials with ${missing.join(", ")}`), { missing, offered });
   }
   const maxRefs = adapter.limits?.("generate_texture").maxReferences;
-  if (maxRefs !== undefined && sources.length > maxRefs) throw new DomainFailure("capability_missing", `O perfil aceita até ${maxRefs} referências`);
+  if (maxRefs !== undefined && sources.length > maxRefs) throw new DomainFailure("capability_missing", tx(`O perfil aceita até ${maxRefs} referências`, `The provider profile accepts up to ${maxRefs} references`));
   const language = input.language ?? (style.briefLanguage === "en" ? "en" : "pt-BR");
   const parts: PlanPart[] = Array.from({ length: input.variants }, (_, i) => ({ partKey: `image:material-${i + 1}`, unit: "image", label: `Candidata ${i + 1}` }));
   const plan: GenerationPlan = {
@@ -200,6 +201,9 @@ export function buildTexturePlan(studio: Studio, projectId: string, raw: Texture
     plan,
     digest: canonicalDigest(plan),
     destination: { profileId: profile.id, name: profile.name, transport: profile.transport, simulated: profile.transport === "simulated" },
-    routeLabel: "Geração de material por modelo de imagem; a repetição é validada localmente depois (não há parâmetro nativo de emenda)",
+    routeLabel: tx(
+      "Geração de material por modelo de imagem; a repetição é validada localmente depois (não há parâmetro nativo de emenda)",
+      "Material generated by an image model; tiling is validated locally afterwards (there is no native seam parameter)",
+    ),
   };
 }

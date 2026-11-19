@@ -1,3 +1,4 @@
+import { type LocalizedText, type TextValue, tx } from "@/i18n/locales";
 import { type AssetFamily, type Manifest, type ManifestEntry, type ManifestFile, parseRevisionPayload } from "@/contracts";
 import { entryRefs } from "@/domain/manifest/refs";
 import { validateManifest } from "@/domain/manifest/validate";
@@ -20,7 +21,7 @@ import { equipmentExportProblems, exportProblemMessage } from "../equipment/expo
 export interface ClosureProblem {
   code: "not_found" | "not_approved";
   revisionId: string;
-  message: string;
+  message: LocalizedText;
   /** Revisão que exige esta dependência (`null` = selecionada diretamente). */
   requiredBy: string | null;
 }
@@ -54,7 +55,7 @@ export function resolveClosure(db: Db, projectId: string, selected: string[]): C
       { id, p: projectId },
     );
     if (!row) {
-      problems.push({ code: "not_found", revisionId: id, requiredBy, message: `Revisão ${id} não existe neste projeto` });
+      problems.push({ code: "not_found", revisionId: id, requiredBy, message: tx(`Revisão ${id} não existe neste projeto`, `Revision ${id} does not exist in this project`) });
       state.set(id, "done");
       return;
     }
@@ -63,7 +64,7 @@ export function resolveClosure(db: Db, projectId: string, selected: string[]): C
         code: "not_approved",
         revisionId: id,
         requiredBy,
-        message: `${row.asset_name} r${row.number} está ${row.status === "candidate" ? "aguardando revisão" : "reprovada"}; só revisões aprovadas entram no pacote`,
+        message: tx(`${row.asset_name} r${row.number} está ${row.status === "candidate" ? "aguardando revisão" : "reprovada"}; só revisões aprovadas entram no pacote`, `${row.asset_name} r${row.number} is ${row.status === "candidate" ? "awaiting review" : "rejected"}; only approved revisions go into the package`),
       });
     }
     const deps = db.all<{ to_revision_id: string }>(
@@ -93,8 +94,9 @@ export interface ExportReport {
   files: number;
   totalBytes: number;
   families: Partial<Record<AssetFamily, number>>;
-  supports: string[];
-  limitations: string[];
+  /** Bilíngue; relatórios gravados antes guardam strings. */
+  supports: TextValue[];
+  limitations: TextValue[];
 }
 
 const FAMILY_DIRS: Record<AssetFamily, string> = {
@@ -126,7 +128,7 @@ function rewriteFileIds(value: unknown, map: Map<string, string>): unknown {
       Object.entries(value).map(([k, v]) => {
         if (k === "fileId" && typeof v === "string") {
           const mapped = map.get(v);
-          if (!mapped) throw new DomainFailure("internal", `Arquivo ${v} sem vínculo na revisão`);
+          if (!mapped) throw new DomainFailure("internal", tx(`Arquivo ${v} sem vínculo na revisão`, `File ${v} is not linked in the revision`));
           return [k, mapped];
         }
         return [k, rewriteFileIds(v, map)];
@@ -153,7 +155,7 @@ async function measure(bytes: Uint8Array, path: string): Promise<MeasuredFile> {
     const font = inspectFont(bytes);
     if (font) return { mime: kind.mime as "font/ttf" | "font/otf", glyphCount: font.glyphCount };
   }
-  throw new DomainFailure("validation_failed", `${path}: formato não suportado pelo perfil portable-v1 (PNG, WAV, TTF/OTF)`);
+  throw new DomainFailure("validation_failed", tx(`${path}: formato não suportado pelo perfil portable-v1 (PNG, WAV, TTF/OTF)`, `${path}: format not supported by the portable-v1 profile (PNG, WAV, TTF/OTF)`));
 }
 
 export async function buildPortablePackage(db: Db, blobs: BlobStore, projectId: string, selected: string[]) {
@@ -175,13 +177,13 @@ export async function buildPortablePackage(db: Db, blobs: BlobStore, projectId: 
     const rev = getRevision(db, projectId, revisionId);
     const asset = getAsset(db, projectId, rev.assetId);
     const parsed = parseRevisionPayload(asset.family, asset.kind, rev.payload);
-    if (!parsed.success) throw new DomainFailure("internal", `Payload de ${rev.id} não passa mais no schema`, { issues: parsed.issues });
+    if (!parsed.success) throw new DomainFailure("internal", tx(`Payload de ${rev.id} não passa mais no schema`, `Payload of ${rev.id} no longer passes the schema`), { issues: parsed.issues });
 
     const fileMap = new Map<string, string>();
     for (const ref of entryRefs(parsed.entry).files) {
       if (fileMap.has(ref.fileId)) continue;
       const link = rev.files.find((f) => f.fileKey === ref.fileId);
-      if (!link) throw new DomainFailure("internal", `Revisão ${rev.id} cita ${ref.fileId} sem arquivo vinculado`);
+      if (!link) throw new DomainFailure("internal", tx(`Revisão ${rev.id} cita ${ref.fileId} sem arquivo vinculado`, `Revision ${rev.id} cites ${ref.fileId} without a linked file`));
       const existing = bySha.get(link.sha256);
       if (existing) {
         fileMap.set(ref.fileId, existing);
@@ -230,7 +232,7 @@ export async function buildPortablePackage(db: Db, blobs: BlobStore, projectId: 
   };
   const validation = validateManifest(manifest);
   if (!validation.ok) {
-    throw new DomainFailure("internal", "Manifesto gerado não passou na validação do formato v1", { issues: validation.issues.slice(0, 20) });
+    throw new DomainFailure("internal", tx("Manifesto gerado não passou na validação do formato v1", "Generated manifest did not pass v1 format validation"), { issues: validation.issues.slice(0, 20) });
   }
   const manifestBytes = new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
   const report: ExportReport = {

@@ -15,7 +15,8 @@ from typing import Any
 from PIL import Image, ImageChops
 
 from pixel_pipeline import PROTOCOL_VERSION
-from pixel_pipeline.protocol import PipelineError, input_by_role, resolve_inside, rgba_sha256, sha256_file
+from pixel_pipeline.i18n import tx
+from pixel_pipeline.protocol import PipelineError, Text, input_by_role, resolve_inside, rgba_sha256, sha256_file
 
 Json = dict[str, Any]
 
@@ -31,7 +32,7 @@ Image.MAX_IMAGE_PIXELS = 8192 * 8192
 def recipe_of(request: Json) -> Json:
     recipe = request.get("recipe") or {}
     if recipe.get("version") != 1:
-        raise PipelineError("invalid_request", "Receita exige version = 1")
+        raise PipelineError("invalid_request", tx("Receita exige version = 1", "Recipe requires version = 1"))
     return recipe
 
 
@@ -41,7 +42,7 @@ def load_rgba(path: Path) -> Image.Image:
             im.load()
             return im.convert("RGBA")
     except (OSError, SyntaxError, ValueError) as exc:
-        raise PipelineError("decode_failed", f"Não foi possível ler {path.name}: {exc}") from exc
+        raise PipelineError("decode_failed", tx(f"Não foi possível ler {path.name}: {exc}", f"Could not read {path.name}: {exc}")) from exc
 
 
 def optional_input(request: Json, workdir: Path, role: str) -> Path | None:
@@ -57,7 +58,7 @@ def inputs_by_ordinal(request: Json, workdir: Path, role: str) -> dict[int, Path
         if entry.get("role") == role:
             path = resolve_inside(workdir, entry.get("relPath", ""))
             if not path.is_file() or sha256_file(path) != entry.get("sha256"):
-                raise PipelineError("invalid_request", f"Entrada {entry.get('relPath')} ausente ou com hash divergente")
+                raise PipelineError("invalid_request", tx(f"Entrada {entry.get('relPath')} ausente ou com hash divergente", f"Input {entry.get('relPath')} missing or with a mismatched hash"))
             found[int(entry["ordinal"])] = path
     return found
 
@@ -69,22 +70,22 @@ def binary_mask(path: Path, size: tuple[int, int], role: str) -> Image.Image:
             im.load()
             mask = im.copy()
     except (OSError, SyntaxError, ValueError) as exc:
-        raise PipelineError("decode_failed", f"{role} ilegível: {exc}") from exc
+        raise PipelineError("decode_failed", tx(f"{role} ilegível: {exc}", f"{role} unreadable: {exc}")) from exc
     if mask.size != size:
-        raise PipelineError("geometry_mismatch", f"{role} tem {mask.size[0]}×{mask.size[1]}, a fonte tem {size[0]}×{size[1]}")
+        raise PipelineError("geometry_mismatch", tx(f"{role} tem {mask.size[0]}×{mask.size[1]}, a fonte tem {size[0]}×{size[1]}", f"{role} is {mask.size[0]}×{mask.size[1]}, the source is {size[0]}×{size[1]}"))
     if mask.mode in ("RGBA", "LA", "PA") or (mask.mode == "P" and "transparency" in mask.info):
         alpha = mask.convert("RGBA").getchannel("A")
         if alpha.getextrema() != (255, 255):
-            raise PipelineError("invalid_request", f"{role} tem transparência; use preto e branco opacos")
+            raise PipelineError("invalid_request", tx(f"{role} tem transparência; use preto e branco opacos", f"{role} has transparency; use opaque black and white"))
     if mask.mode in ("RGB", "RGBA", "P"):
         rgb = mask.convert("RGB")
         r, g, b = rgb.split()
         if ImageChops.difference(r, g).getbbox() or ImageChops.difference(g, b).getbbox():
-            raise PipelineError("invalid_request", f"{role} é colorida; use apenas preto (0) e branco (255)")
+            raise PipelineError("invalid_request", tx(f"{role} é colorida; use apenas preto (0) e branco (255)", f"{role} is in color; use only black (0) and white (255)"))
     gray = mask.convert("L")
     hist = gray.histogram()
     if sum(hist[1:255]) > 0:
-        raise PipelineError("invalid_request", f"{role} tem cinza intermediário; a convenção é binária (0 ou 255)")
+        raise PipelineError("invalid_request", tx(f"{role} tem cinza intermediário; a convenção é binária (0 ou 255)", f"{role} has intermediate gray; the convention is binary (0 or 255)"))
     return gray
 
 
@@ -108,7 +109,7 @@ def write_png(workdir: Path, image: Image.Image, rel_path: str, role: str, key: 
     return output
 
 
-def respond(outputs: list[Json], report: Json, warnings: list[str] | None = None) -> Json:
+def respond(outputs: list[Json], report: Json, warnings: list[Text] | None = None) -> Json:
     if warnings:
         return {"protocolVersion": PROTOCOL_VERSION, "status": "needs_review", "outputs": outputs, "report": report, "warnings": warnings}
     return {"protocolVersion": PROTOCOL_VERSION, "status": "ok", "outputs": outputs, "report": report}
@@ -136,8 +137,12 @@ def slice_grid(request: Json, workdir: Path) -> Json:
     if sheet.size != expected:
         raise PipelineError(
             "geometry_mismatch",
-            f"Folha {sheet.width}×{sheet.height}; a grade declarada exige {expected[0]}×{expected[1]} "
-            "(2×margem + colunas×célula + (colunas−1)×espaço)",
+            tx(
+                f"Folha {sheet.width}×{sheet.height}; a grade declarada exige {expected[0]}×{expected[1]} "
+                "(2×margem + colunas×célula + (colunas−1)×espaço)",
+                f"Sheet {sheet.width}×{sheet.height}; the declared grid requires {expected[0]}×{expected[1]} "
+                "(2×margin + columns×cell + (columns−1)×spacing)",
+            ),
         )
 
     cells: list[tuple[int, int]] = (
@@ -147,12 +152,12 @@ def slice_grid(request: Json, workdir: Path) -> Json:
     durations: list[int] = recipe["durationMs"]
     empty = set(recipe.get("emptyCells", []))
     if len(frame_ids) > len(cells) - len(empty & set(range(len(cells)))):
-        raise PipelineError("geometry_mismatch", f"{len(frame_ids)} frames para {len(cells) - len(empty)} células disponíveis")
+        raise PipelineError("geometry_mismatch", tx(f"{len(frame_ids)} frames para {len(cells) - len(empty)} células disponíveis", f"{len(frame_ids)} frames for {len(cells) - len(empty)} available cells"))
 
     alpha = sheet.getchannel("A")
     outputs: list[Json] = []
     frames: list[Json] = []
-    warnings: list[str] = []
+    warnings: list[Text] = []
     empty_report: list[Json] = []
     k = 0
     for index, (r, c) in enumerate(cells):
@@ -162,11 +167,11 @@ def slice_grid(request: Json, workdir: Path) -> Json:
         if index in empty:
             empty_report.append({"cell": index, "rect": rect, "transparent": content is None})
             if content is not None:
-                warnings.append(f"Célula {index} declarada vazia tem conteúdo em ({rect[0] + content[0]}, {rect[1] + content[1]})")
+                warnings.append(tx(f"Célula {index} declarada vazia tem conteúdo em ({rect[0] + content[0]}, {rect[1] + content[1]})", f"Cell {index} declared empty has content at ({rect[0] + content[0]}, {rect[1] + content[1]})"))
             continue
         if k >= len(frame_ids):
             if content is not None:
-                warnings.append(f"Célula {index} tem conteúdo mas não recebeu frame (sobra na grade)")
+                warnings.append(tx(f"Célula {index} tem conteúdo mas não recebeu frame (sobra na grade)", f"Cell {index} has content but received no frame (leftover in the grid)"))
             continue
         frame_id = frame_ids[k]
         frame = sheet.crop(box)
@@ -180,7 +185,7 @@ def slice_grid(request: Json, workdir: Path) -> Json:
             }
         )
         if content is None:
-            warnings.append(f"Frame {frame_id} está vazio; declare a célula vazia se for intencional")
+            warnings.append(tx(f"Frame {frame_id} está vazio; declare a célula vazia se for intencional", f"Frame {frame_id} is empty; declare the cell empty if that is intentional"))
         k += 1
 
     # Conteúdo nas zonas de margem/espaçamento (ex.: lâmina que vazou da célula).
@@ -197,7 +202,7 @@ def slice_grid(request: Json, workdir: Path) -> Json:
                 stray.append([i % width, i // width])
                 if len(stray) >= 20:
                     break
-        warnings.append(f"Conteúdo fora das células (margem/espaçamento) a partir de ({stray[0][0]}, {stray[0][1]}); amplie a célula ou corrija a folha")
+        warnings.append(tx(f"Conteúdo fora das células (margem/espaçamento) a partir de ({stray[0][0]}, {stray[0][1]}); amplie a célula ou corrija a folha", f"Content outside the cells (margin/spacing) starting at ({stray[0][0]}, {stray[0][1]}); enlarge the cell or fix the sheet"))
 
     report = {"sheetSize": list(sheet.size), "cell": [cw, ch], "pivot": recipe["pivot"], "frames": frames, "emptyCells": empty_report, "strayPixels": stray}
     return respond(outputs, report, warnings)
@@ -228,7 +233,7 @@ def remove_background_flood(request: Json, workdir: Path) -> Json:
     min_sat = match.get("minSaturation", 96)
     min_val = match.get("minValue", 100)
     measured_key = None
-    pre_warnings: list[str] = []
+    pre_warnings: list[Text] = []
     if match["mode"] == "hue" and match.get("keyFrom") == "border":
         # O modelo raramente obedece a cor pedida: mede a matiz real do fundo na borda.
         border = [i for i in range(w)] + [(h - 1) * w + i for i in range(w)] + [j * w for j in range(h)] + [j * w + w - 1 for j in range(h)]
@@ -238,7 +243,7 @@ def remove_background_flood(request: Json, workdir: Path) -> Json:
             key_hue = hues[len(hues) // 2]
             measured_key = round(key_hue * 360 / 255)
             if min(abs(measured_key - requested), 360 - abs(measured_key - requested)) > 40:
-                pre_warnings.append(f"O fundo veio em outra cor (matiz {measured_key}°, pedido {requested}°); confira a remoção")
+                pre_warnings.append(tx(f"O fundo veio em outra cor (matiz {measured_key}°, pedido {requested}°); confira a remoção", f"The background came in another color (hue {measured_key}°, requested {requested}°); check the removal"))
 
     def background(i: int) -> bool:
         o = i * 4
@@ -254,7 +259,7 @@ def remove_background_flood(request: Json, workdir: Path) -> Json:
 
     visited = bytearray(w * h)
     queue: deque[int] = deque()
-    warnings: list[str] = pre_warnings
+    warnings: list[Text] = pre_warnings
 
     def seed(i: int) -> bool:
         if visited[i] or (keep and keep[i]) or not background(i):
@@ -273,9 +278,9 @@ def remove_background_flood(request: Json, workdir: Path) -> Json:
             seed(y * w + w - 1)
     for x, y in seeds["points"]:
         if x >= w or y >= h:
-            raise PipelineError("geometry_mismatch", f"Semente ({x}, {y}) fora da imagem {w}×{h}")
+            raise PipelineError("geometry_mismatch", tx(f"Semente ({x}, {y}) fora da imagem {w}×{h}", f"Seed ({x}, {y}) outside the {w}×{h} image"))
         if not seed(y * w + x) and not visited[y * w + x]:
-            warnings.append(f"Semente ({x}, {y}) não tem a cor do fundo ou está protegida; ignorada")
+            warnings.append(tx(f"Semente ({x}, {y}) não tem a cor do fundo ou está protegida; ignorada", f"Seed ({x}, {y}) does not have the background color or is protected; ignored"))
 
     while queue:
         i = queue.popleft()
@@ -312,7 +317,7 @@ def remove_background_flood(request: Json, workdir: Path) -> Json:
                     brush_removed += 1
             out[i * 4 + 3] = 0  # só alfa muda; RGB preservado
     if overlap:
-        warnings.append(f"{overlap} pixels marcados nos dois pincéis; a proteção prevaleceu")
+        warnings.append(tx(f"{overlap} pixels marcados nos dois pincéis; a proteção prevaleceu", f"{overlap} pixels marked by both brushes; protection won"))
 
     cutout = Image.frombytes("RGBA", image.size, bytes(out))
     outputs = [
@@ -383,7 +388,7 @@ def crop_to_content(request: Json, workdir: Path) -> Json:
     threshold = recipe["alphaThreshold"]
     bbox = image.getchannel("A").point(lambda a: 255 if a > threshold else 0).getbbox()
     if bbox is None:
-        raise PipelineError("unsupported_input", "Imagem sem conteúdo visível para recortar")
+        raise PipelineError("unsupported_input", tx("Imagem sem conteúdo visível para recortar", "Image has no visible content to crop"))
     pad = recipe["padding"]
     x0, y0, x1, y1 = bbox
     out = Image.new("RGBA", (x1 - x0 + 2 * pad, y1 - y0 + 2 * pad), (0, 0, 0, 0))
@@ -485,11 +490,11 @@ def compose_layers(request: Json, workdir: Path) -> Json:
     for n, layer in enumerate(recipe["layers"]):
         path = layers.get(layer["inputOrdinal"])
         if path is None:
-            raise PipelineError("invalid_request", f"Camada {n} cita entrada {layer['inputOrdinal']} inexistente")
+            raise PipelineError("invalid_request", tx(f"Camada {n} cita entrada {layer['inputOrdinal']} inexistente", f"Layer {n} references missing input {layer['inputOrdinal']}"))
         image = load_rgba(path)
         ox, oy = layer["offset"]
         if ox < 0 or oy < 0 or ox + image.width > cw or oy + image.height > ch:
-            raise PipelineError("geometry_mismatch", f"Camada {n} ({image.width}×{image.height} em {ox},{oy}) excede a tela {cw}×{ch}")
+            raise PipelineError("geometry_mismatch", tx(f"Camada {n} ({image.width}×{image.height} em {ox},{oy}) excede a tela {cw}×{ch}", f"Layer {n} ({image.width}×{image.height} at {ox},{oy}) exceeds the {cw}×{ch} canvas"))
         canvas.alpha_composite(image, dest=(ox, oy))
         placed.append({"inputOrdinal": layer["inputOrdinal"], "offset": [ox, oy], "size": list(image.size)})
     return respond([write_png(workdir, canvas, "out/composite.png", "composite")], {"canvas": [cw, ch], "layers": placed})
@@ -506,7 +511,7 @@ def composite_protected(request: Json, workdir: Path) -> Json:
     if candidate.size != source.size:
         raise PipelineError(
             "geometry_mismatch",
-            f"Resposta fora da grade: candidato {candidate.width}×{candidate.height}, fonte {source.width}×{source.height}",
+            tx(f"Resposta fora da grade: candidato {candidate.width}×{candidate.height}, fonte {source.width}×{source.height}", f"Response off the grid: candidate {candidate.width}×{candidate.height}, source {source.width}×{source.height}"),
         )
     mask = binary_mask(mask_path, source.size, "editMask")
     edited = mask.histogram()[255]
@@ -518,7 +523,7 @@ def composite_protected(request: Json, workdir: Path) -> Json:
         Image.composite(source, Image.new("RGBA", out.size, (0, 0, 0, 0)), ImageChops.invert(mask)),
     ).getbbox()
     if protected_diff is not None:
-        raise PipelineError("internal", "Pixels protegidos divergem da fonte após a composição")
+        raise PipelineError("internal", tx("Pixels protegidos divergem da fonte após a composição", "Protected pixels differ from the source after compositing"))
     protected = total - edited
     # Quanto o candidato respeitou a área protegida: candidato deslocado ou redesenhado deixa emenda na borda.
     agreement = None
@@ -535,10 +540,10 @@ def composite_protected(request: Json, workdir: Path) -> Json:
         "protectedDiffPixels": 0,
         "candidateAgreement": None if agreement is None else round(agreement, 4),
     }
-    warnings = ["Máscara vazia: nenhuma região a editar; resultado idêntico à fonte"] if edited == 0 else []
+    warnings = [tx("Máscara vazia: nenhuma região a editar; resultado idêntico à fonte", "Empty mask: no region to edit; result identical to the source")] if edited == 0 else []
     if agreement is not None and edited > 0 and agreement < 0.6:
         warnings.append(
-            f"O candidato mudou a área protegida (só {agreement:.0%} coincide com a fonte): pode haver emenda na borda da máscara; revise"
+            tx(f"O candidato mudou a área protegida (só {agreement:.0%} coincide com a fonte): pode haver emenda na borda da máscara; revise", f"The candidate changed the protected area (only {agreement:.0%} matches the source): there may be a seam at the mask edge; review it")
         )
     return respond([write_png(workdir, out, "out/protected.png", "protected")], report, warnings)
 
@@ -622,7 +627,7 @@ def fit_logical(request: Json, workdir: Path) -> Json:
     tw, th = recipe["targetSize"]
     _, source = input_by_role(request, workdir, "source")
     image = load_rgba(source)
-    warnings: list[str] = []
+    warnings: list[Text] = []
     threshold = recipe.get("alphaThreshold")
     binarized = 0
     if threshold is not None:
@@ -637,7 +642,7 @@ def fit_logical(request: Json, workdir: Path) -> Json:
         # Objeto isolado (ícone): leva o conteúdo visível ao tamanho lógico, não o canvas inteiro.
         bbox = image.getchannel("A").point(lambda a: 255 if a > 0 else 0).getbbox()
         if bbox is None:
-            raise PipelineError("unsupported_input", "Nada visível depois da remoção do fundo")
+            raise PipelineError("unsupported_input", tx("Nada visível depois da remoção do fundo", "Nothing visible after background removal"))
         pad = crop["padding"]
         content = image.crop(bbox)
         cropped_from = [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]]
@@ -651,7 +656,7 @@ def fit_logical(request: Json, workdir: Path) -> Json:
             offset = ((tw - scaled.width) // 2, (th - scaled.height) // 2)
             out.paste(scaled, offset)
             if max(side_w * k / tw, side_h * k / th) < 0.75:
-                warnings.append(f"O objeto ocupa {scaled.width}×{scaled.height} de {tw}×{th}: o modelo desenhou com menos células que o tamanho pedido")
+                warnings.append(tx(f"O objeto ocupa {scaled.width}×{scaled.height} de {tw}×{th}: o modelo desenhou com menos células que o tamanho pedido", f"The object takes {scaled.width}×{scaled.height} of {tw}×{th}: the model drew with fewer cells than the requested size"))
             report = {
                 "sourceSize": list(image.size), "targetSize": [tw, th], "factor": 1 / k, "method": "nearest_upscale" if k > 1 else "center",
                 "lossless": True, "fittedSize": list(scaled.size), "offset": list(offset), "contentRect": cropped_from, "alphaBinarized": binarized,
@@ -664,7 +669,7 @@ def fit_logical(request: Json, workdir: Path) -> Json:
         image = canvas
     w, h = image.size
     if recipe.get("exactAspect") and abs((w / h) / (tw / th) - 1) > 0.01:
-        raise PipelineError("geometry_mismatch", f"Resposta fora da grade: candidato {w}×{h} não tem a proporção da fonte {tw}×{th}")
+        raise PipelineError("geometry_mismatch", tx(f"Resposta fora da grade: candidato {w}×{h} não tem a proporção da fonte {tw}×{th}", f"Response off the grid: candidate {w}×{h} does not have the source's {tw}×{th} aspect ratio"))
     factor = max(w / tw, h / th)
     fitted_size = (max(1, round(w / factor)), max(1, round(h / factor)))
     if recipe.get("exactAspect"):
@@ -680,20 +685,20 @@ def fit_logical(request: Json, workdir: Path) -> Json:
         if not lossless and recipe.get("exactAspect"):
             # Candidato de modelo fora da grade exata: a cor majoritária do bloco resiste ao ruído do centro.
             fitted, method = _block_mode(image, fitted_size), "block_mode"
-            warnings.append(f"O candidato não está numa grade exata de {k} px: cada pixel recebe a cor majoritária do seu bloco; revise")
+            warnings.append(tx(f"O candidato não está numa grade exata de {k} px: cada pixel recebe a cor majoritária do seu bloco; revise", f"The candidate is not on an exact {k} px grid: each pixel gets its block's majority color; review it"))
         elif not lossless:
-            warnings.append(f"A imagem não está numa grade de {k} px: a redução {k}× amostrou pixels e descartou detalhe; revise o resultado")
+            warnings.append(tx(f"A imagem não está numa grade de {k} px: a redução {k}× amostrou pixels e descartou detalhe; revise o resultado", f"The image is not on a {k} px grid: the {k}× reduction sampled pixels and discarded detail; review the result"))
     elif factor < 1 and float(1 / factor).is_integer():
         fitted, method, lossless = image.resize(fitted_size, Image.Resampling.NEAREST), "nearest_upscale", True
     else:
         fitted = _block_mode(image, fitted_size)
         method, lossless = "block_mode", False
-        warnings.append(f"Fator {factor:.2f} não inteiro: cada pixel recebe a cor majoritária do seu bloco; contornos finos podem sumir — revise")
+        warnings.append(tx(f"Fator {factor:.2f} não inteiro: cada pixel recebe a cor majoritária do seu bloco; contornos finos podem sumir — revise", f"Non-integer factor {factor:.2f}: each pixel gets its block's majority color; thin outlines may disappear — review it"))
     out = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
     offset = ((tw - fitted.width) // 2, (th - fitted.height) // 2)
     out.paste(fitted, offset)
     if fitted.size != (tw, th):
-        warnings.append(f"Proporção diferente do tamanho lógico: {fitted.width}×{fitted.height} centralizado em {tw}×{th}")
+        warnings.append(tx(f"Proporção diferente do tamanho lógico: {fitted.width}×{fitted.height} centralizado em {tw}×{th}", f"Aspect ratio differs from the logical size: {fitted.width}×{fitted.height} centered in {tw}×{th}"))
     if threshold is not None:
         # A redução por maioria pode reintroduzir alfa parcial; mantém binário.
         out.putalpha(out.getchannel("A").point(lambda a: 255 if a >= threshold else 0))
@@ -901,7 +906,7 @@ def unzoom(request: Json, workdir: Path) -> Json:
     found = detect_grid(image, recipe["minAgreement"], key[0] if key else None, recipe.get("minContentCells"))
     if not found or found.get("native") is None:
         report = {"detected": False, "cell": [1, 1], "grid": list(image.size), "agreement": 1.0, "tried": (found or {}).get("tried", [])}
-        warnings = ["Nenhuma grade de pixel art reconhecida; imagem mantida sem redução"] if found else []
+        warnings = [tx("Nenhuma grade de pixel art reconhecida; imagem mantida sem redução", "No pixel art grid recognized; image kept without reduction")] if found else []
         return respond([write_png(workdir, image, "out/native.png", "native")], report, warnings)
     report = {
         "detected": True,
@@ -914,5 +919,5 @@ def unzoom(request: Json, workdir: Path) -> Json:
     }
     warnings = []
     if found.get("coarseOnly"):
-        warnings.append(f"Só uma grade grossa ({report['cell'][0]} px) reproduz a imagem: o objeto fica com menos de {recipe['minContentCells']} células — revise o resultado")
+        warnings.append(tx(f"Só uma grade grossa ({report['cell'][0]} px) reproduz a imagem: o objeto fica com menos de {recipe['minContentCells']} células — revise o resultado", f"Only a coarse grid ({report['cell'][0]} px) reproduces the image: the object ends up with fewer than {recipe['minContentCells']} cells — review the result"))
     return respond([write_png(workdir, found["native"], "out/native.png", "native")], report, warnings)

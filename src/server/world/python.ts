@@ -1,3 +1,4 @@
+import { type TextValue, tx } from "@/i18n/locales";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PythonOperation } from "@/contracts";
@@ -25,7 +26,7 @@ export interface WorldOutput {
 export interface WorldRun {
   status: "ok" | "needs_review";
   report: Record<string, unknown>;
-  warnings: string[];
+  warnings: TextValue[];
   outputs: WorldOutput[];
 }
 
@@ -68,7 +69,7 @@ export async function runWorldPython(
 
 export function outputOf(run: WorldRun, role: string): WorldOutput {
   const out = run.outputs.find((o) => o.role === role);
-  if (!out) throw new DomainFailure("internal", `Processador não devolveu a saída ${role}`);
+  if (!out) throw new DomainFailure("internal", tx(`Processador não devolveu a saída ${role}`, `The processor did not return the ${role} output`));
   return out;
 }
 

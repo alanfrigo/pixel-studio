@@ -105,7 +105,8 @@ def test_hash_mismatch_is_rejected(tmp_path):
         "inputs": [{"ordinal": 0, "role": "source", "sha256": "0" * 64, "relPath": "in/source"}],
         "recipe": {"version": 1, "limits": LIMITS},
     }
-    assert "diverge" in run(tmp_path, request)["error"]["message"]
+    message = run(tmp_path, request)["error"]["message"]
+    assert "diverge" in message["pt-BR"] and "does not match" in message["en"]
 
 
 def test_fixture_png_keeps_pixels_and_partial_alpha(tmp_path):
@@ -174,7 +175,8 @@ def test_animated_gif_needs_frame_split(tmp_path):
     frames[0].save(buf, format="GIF", save_all=True, append_images=frames[1:], duration=100)
     response = ingest(tmp_path, buf.getvalue())
     assert response["error"]["code"] == "unsupported_input"
-    assert "tira PNG" in response["error"]["message"]
+    assert "tira PNG" in response["error"]["message"]["pt-BR"]
+    assert "PNG strip" in response["error"]["message"]["en"]
 
 
 def test_unrecognized_bytes(tmp_path):

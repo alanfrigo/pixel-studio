@@ -1,4 +1,5 @@
 import { SceneLayerPayload } from "@/contracts";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import type { Studio } from "../studio";
 import { runWorldPython, type WorldOutput } from "../world/python";
 
@@ -70,10 +71,13 @@ export function layerCheckPayload(
   });
 }
 
-export function layerVerdict(report: LayerCheckReport, requested: { x: boolean; y: boolean }): string {
-  const parts = (["x", "y"] as const)
-    .filter((a) => requested[a])
-    .map((a) => `${a.toUpperCase()}: ${report[a]?.passed ? "repete" : "não repete"} (emenda/interior ${report[a]?.ratio ?? "?"} ≤ ${report.threshold}?)`);
-  const ground = report.ground ? ` · chão em y=${report.ground.y}: ${report.ground.continuous ? "contínuo" : `${report.ground.gaps} px de falha`}` : "";
-  return `${parts.join(" · ") || "sem repetição pedida"}${ground}`;
+export function layerVerdict(report: LayerCheckReport, requested: { x: boolean; y: boolean }): LocalizedText {
+  const axes = (["x", "y"] as const).filter((a) => requested[a]);
+  const pt = axes.map((a) => `${a.toUpperCase()}: ${report[a]?.passed ? "repete" : "não repete"} (emenda/interior ${report[a]?.ratio ?? "?"} ≤ ${report.threshold}?)`);
+  const en = axes.map((a) => `${a.toUpperCase()}: ${report[a]?.passed ? "tiles" : "does not tile"} (seam/interior ${report[a]?.ratio ?? "?"} ≤ ${report.threshold}?)`);
+  const g = report.ground;
+  return tx(
+    `${pt.join(" · ") || "sem repetição pedida"}${g ? ` · chão em y=${g.y}: ${g.continuous ? "contínuo" : `${g.gaps} px de falha`}` : ""}`,
+    `${en.join(" · ") || "no tiling requested"}${g ? ` · ground at y=${g.y}: ${g.continuous ? "continuous" : `${g.gaps} px gap`}` : ""}`,
+  );
 }

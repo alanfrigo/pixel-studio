@@ -1,8 +1,10 @@
+import { tx } from "@/i18n/locales";
 import { z } from "zod";
 import { type BasePayload, type ClipPayload, Direction, DIRECTIONS_8, Id, parseRevisionPayload, type Rect, Slug } from "@/contracts";
 import { type CanvasMargins, marginsAreZero, resizeBaseCanvas, resizeClipCanvas } from "@/domain/animation/canvas";
 import { frameDigest, MIRROR_PAIR, mirrorGridPoint, mirrorPixel, removeFrames, removePart } from "@/domain/animation/temporal";
 import { entryRefs } from "@/domain/manifest/refs";
+import { failureText } from "../animation/base";
 import { type AssetView, createAsset, getAsset, getRevision, publishRevision, type RevisionView } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import { mustBlob } from "../jobs/handlers/pipelines/shared";
@@ -74,14 +76,14 @@ export function assetsWithTag(studio: Studio, projectId: string, tag: string): s
 function sourceOf(studio: Studio, projectId: string, revisionId: string) {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (revision.status === "rejected") throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} foi reprovada; parta de uma revisão válida`);
+  if (revision.status === "rejected") throw new DomainFailure("validation_failed", tx(`${asset.name} r${revision.number} foi reprovada; parta de uma revisão válida`, `${asset.name} r${revision.number} was rejected; start from a valid revision`));
   return { revision, asset };
 }
 
 /** Arquivos citados pelo payload, com as mesmas chaves e blobs. */
 function referencedFiles(studio: Studio, asset: AssetView, revision: RevisionView, payload: unknown) {
   const parsed = parseRevisionPayload(asset.family, asset.kind, payload);
-  if (!parsed.success) throw new DomainFailure("validation_failed", "Payload resultante não passa no schema", { issues: parsed.issues.slice(0, 10) });
+  if (!parsed.success) throw new DomainFailure("validation_failed", tx("Payload resultante não passa no schema", "Resulting payload does not match the schema"), { issues: parsed.issues.slice(0, 10) });
   const referenced = new Set(entryRefs(parsed.entry).files.map((f) => f.fileId));
   return revision.files.filter((f) => referenced.has(f.fileKey)).map((f) => ({ fileKey: f.fileKey, role: f.role, idx: f.idx, blob: mustBlob(studio.db, f.sha256) }));
 }
@@ -123,13 +125,13 @@ export const UngroupInput = z.strictObject({ revisionId: Id, directions: z.array
 export function ungroupDirections(studio: Studio, projectId: string, raw: z.input<typeof UngroupInput>) {
   const input = UngroupInput.parse(raw);
   const { revision, asset } = sourceOf(studio, projectId, input.revisionId);
-  if (asset.family !== "character" || asset.kind !== "base") throw new DomainFailure("validation_failed", "Separar direções vale para bases, objetos e estados (character/base)");
+  if (asset.family !== "character" || asset.kind !== "base") throw new DomainFailure("validation_failed", tx("Separar direções vale para bases, objetos e estados (character/base)", "Splitting directions applies to bases, objects and states (character/base)"));
   const payload = revision.payload as BasePayload;
   const directions = input.directions ?? payload.views.map((v) => v.direction);
   const created = [];
   for (const direction of directions) {
     const view = payload.views.find((v) => v.direction === direction);
-    if (!view) throw new DomainFailure("not_found", `A revisão r${revision.number} não tem a vista ${direction}`);
+    if (!view) throw new DomainFailure("not_found", tx(`A revisão r${revision.number} não tem a vista ${direction}`, `Revision r${revision.number} has no ${direction} view`));
     const file = revision.files.find((f) => f.fileKey === view.fileId)!;
     const target = createAsset(studio.db, studio.clock, { projectId, family: "character", kind: "base", name: `${asset.name} · ${direction}`.slice(0, 120) });
     const rev = publishRevision(studio.db, studio.clock, {
@@ -171,10 +173,10 @@ export function removeParts(studio: Studio, projectId: string, raw: z.input<type
   if (asset.family === "character" && asset.kind === "base") {
     const base = revision.payload as BasePayload;
     const drop = new Set(input.directions ?? []);
-    if (drop.size === 0) throw new DomainFailure("validation_failed", "Informe as direções a retirar");
-    for (const d of drop) if (!base.views.some((v) => v.direction === d)) throw new DomainFailure("not_found", `A revisão não tem a vista ${d}`);
+    if (drop.size === 0) throw new DomainFailure("validation_failed", tx("Informe as direções a retirar", "Choose the directions to remove"));
+    for (const d of drop) if (!base.views.some((v) => v.direction === d)) throw new DomainFailure("not_found", tx(`A revisão não tem a vista ${d}`, `The revision has no ${d} view`));
     const views = base.views.filter((v) => !drop.has(v.direction));
-    if (views.length === 0) throw new DomainFailure("validation_failed", "Uma base precisa de ao menos uma vista; arquive o asset em vez de retirar todas");
+    if (views.length === 0) throw new DomainFailure("validation_failed", tx("Uma base precisa de ao menos uma vista; arquive o asset em vez de retirar todas", "A base needs at least one view; archive the asset instead of removing them all"));
     payload = { ...base, views };
     report = localReport("remove_directions", { removedDirections: [...drop], keptDirections: views.map((v) => v.direction) });
   } else if (asset.family === "character" && asset.kind === "clip") {
@@ -191,13 +193,13 @@ export function removeParts(studio: Studio, projectId: string, raw: z.input<type
         removed.removedPart = input.partId;
       }
     } catch (err) {
-      throw new DomainFailure("validation_failed", err instanceof Error ? err.message : String(err), { needsRemap: err instanceof RangeError && /remapeie/.test(err.message) });
+      throw new DomainFailure("validation_failed", failureText(err), { needsRemap: err instanceof RangeError && /remapeie/.test(err.message) });
     }
-    if (!input.frameIds?.length && !input.partId) throw new DomainFailure("validation_failed", "Informe quadros ou parte a retirar");
+    if (!input.frameIds?.length && !input.partId) throw new DomainFailure("validation_failed", tx("Informe quadros ou parte a retirar", "Choose frames or a part to remove"));
     payload = clip;
     report = localReport("remove_part", { ...removed, affected: affectedByFrames(studio.db, projectId, revision.id, input.frameIds ?? []) });
   } else {
-    throw new DomainFailure("validation_failed", `Excluir parte vale para bases e clipes; ${asset.name} é ${asset.family}/${asset.kind}`);
+    throw new DomainFailure("validation_failed", tx(`Excluir parte vale para bases e clipes; ${asset.name} é ${asset.family}/${asset.kind}`, `Removing a part applies to bases and clips; ${asset.name} is ${asset.family}/${asset.kind}`));
   }
   const created = publishRevision(studio.db, studio.clock, {
     projectId,
@@ -241,8 +243,14 @@ function guardAsymmetry(report: { asymmetry: number | null; asymmetric: boolean 
     throw new DomainFailure(
       "validation_failed",
       report.asymmetric === null
-        ? "Sem vista frontal para medir a simetria do sujeito: o espelho exige confirmação explícita (arte simétrica, sem luz direcional ou marca lateral)"
-        : `Arte assimétrica (${declared.length ? `assimetrias declaradas: ${declared.join("; ")}` : `${Math.round((report.asymmetry ?? 0) * 100)}% da vista frontal difere do próprio espelho`}): espelhar trocaria escudo, marcas e luz de lado. Confirme com um motivo para derivar mesmo assim`,
+        ? tx(
+            "Sem vista frontal para medir a simetria do sujeito: o espelho exige confirmação explícita (arte simétrica, sem luz direcional ou marca lateral)",
+            "No front view to measure the subject's symmetry: mirroring requires explicit confirmation (symmetric art, no directional light or side marking)",
+          )
+        : tx(
+            `Arte assimétrica (${declared.length ? `assimetrias declaradas: ${declared.join("; ")}` : `${Math.round((report.asymmetry ?? 0) * 100)}% da vista frontal difere do próprio espelho`}): espelhar trocaria escudo, marcas e luz de lado. Confirme com um motivo para derivar mesmo assim`,
+            `Asymmetric art (${declared.length ? `declared asymmetries: ${declared.join("; ")}` : `${Math.round((report.asymmetry ?? 0) * 100)}% of the front view differs from its own mirror`}): mirroring would swap the shield, markings and light to the other side. Confirm with a reason to derive it anyway`,
+          ),
       { needsConfirmation: true, asymmetry: report.asymmetry, declared },
     );
   }
@@ -254,18 +262,18 @@ export async function mirrorExplicit(studio: Studio, projectId: string, raw: z.i
   const { revision, asset } = sourceOf(studio, projectId, input.revisionId);
   if (asset.family === "character" && asset.kind === "base") return mirrorBaseView(studio, projectId, asset, revision, input);
   if (asset.family === "character" && asset.kind === "clip") return mirrorClip(studio, projectId, asset, revision, input);
-  throw new DomainFailure("validation_failed", "Espelho explícito vale para vistas de base/objeto e para clipes");
+  throw new DomainFailure("validation_failed", tx("Espelho explícito vale para vistas de base/objeto e para clipes", "Explicit mirroring applies to base/object views and to clips"));
 }
 
 async function mirrorBaseView(studio: Studio, projectId: string, asset: AssetView, revision: RevisionView, input: z.infer<typeof MirrorInput>) {
   const base = revision.payload as BasePayload;
   const source = input.source;
-  if (!source) throw new DomainFailure("validation_failed", "Informe a vista de origem do espelho");
+  if (!source) throw new DomainFailure("validation_failed", tx("Informe a vista de origem do espelho", "Choose the source view to mirror"));
   const target = MIRROR_PAIR[source];
-  if (!target) throw new DomainFailure("validation_failed", `${source} encara a câmera e não tem par de espelho (só E↔W, NE↔NW, SE↔SW)`);
-  if (base.views.some((v) => v.direction === target)) throw new DomainFailure("validation_failed", `A vista ${target} já existe: espelho não substitui arte aprovada`);
+  if (!target) throw new DomainFailure("validation_failed", tx(`${source} encara a câmera e não tem par de espelho (só E↔W, NE↔NW, SE↔SW)`, `${source} faces the camera and has no mirror pair (only E↔W, NE↔NW, SE↔SW)`));
+  if (base.views.some((v) => v.direction === target)) throw new DomainFailure("validation_failed", tx(`A vista ${target} já existe: espelho não substitui arte aprovada`, `View ${target} already exists: a mirror does not replace approved art`));
   const view = base.views.find((v) => v.direction === source);
-  if (!view) throw new DomainFailure("not_found", `A revisão não tem a vista ${source}`);
+  if (!view) throw new DomainFailure("not_found", tx(`A revisão não tem a vista ${source}`, `The revision has no ${source} view`));
   const file = revision.files.find((f) => f.fileKey === view.fileId)!;
   const probe = asymmetryProbe(base, revision);
   const out = await runLocal(studio, "mirror_frames", [...(probe.sha256 ? [{ role: "source", sha256: probe.sha256 }] : []), { role: "layer", sha256: file.sha256 }], { version: 1, asymmetryThreshold: ASYMMETRY_THRESHOLD });
@@ -277,7 +285,7 @@ async function mirrorBaseView(studio: Studio, projectId: string, asset: AssetVie
   const [W] = base.logicalSize;
   const newView = { direction: target, fileId: fileKey, rect: [0, 0, mirrored.width!, mirrored.height!] as Rect, sourceOffset: [W - (view.sourceOffset[0] + view.rect[2]), view.sourceOffset[1]] as [number, number] };
   if (view.rect[0] !== 0 || view.rect[1] !== 0 || view.rect[2] !== mirrored.width || view.rect[3] !== mirrored.height) {
-    throw new DomainFailure("validation_failed", "A vista está num atlas; recorte-a para a célula antes de espelhar");
+    throw new DomainFailure("validation_failed", tx("A vista está num atlas; recorte-a para a célula antes de espelhar", "The view is in an atlas; crop it to the cell before mirroring"));
   }
   const views = [...base.views, newView].sort((a, b) => DIRECTIONS_8.indexOf(a.direction) - DIRECTIONS_8.indexOf(b.direction));
   const files = [...referencedFiles(studio, asset, revision, base), { fileKey, role: "mirror", idx: 0, blob: mirrored.blob }];
@@ -297,7 +305,7 @@ async function mirrorBaseView(studio: Studio, projectId: string, asset: AssetVie
       asymmetry: measured.asymmetry,
       asymmetric,
       confirmedAsymmetric: input.confirmAsymmetric ?? null,
-      note: "Derivação local autorizada e registrada como espelho; não conta como geração de vista",
+      note: tx("Derivação local autorizada e registrada como espelho; não conta como geração de vista", "Authorized local derivation recorded as a mirror; it does not count as view generation"),
     }),
   });
   return { revision: created, mirrored: { from: source, to: target }, asymmetry: measured.asymmetry };
@@ -307,7 +315,7 @@ async function mirrorBaseView(studio: Studio, projectId: string, asset: AssetVie
 async function mirrorClip(studio: Studio, projectId: string, asset: AssetView, revision: RevisionView, input: z.infer<typeof MirrorInput>) {
   const clip = revision.payload as ClipPayload;
   const target = MIRROR_PAIR[clip.direction];
-  if (!target) throw new DomainFailure("validation_failed", `Clipe ${clip.direction} encara a câmera e não tem par de espelho`);
+  if (!target) throw new DomainFailure("validation_failed", tx(`Clipe ${clip.direction} encara a câmera e não tem par de espelho`, `Clip ${clip.direction} faces the camera and has no mirror pair`));
   const [W, H] = clip.logicalSize;
   // Recompõe cada quadro na célula e espelha a célula inteira (camadas viram uma só, desenhada na mesma ordem).
   const files = [...new Set(clip.frames.flatMap((f) => f.layers.map((l) => l.fileId)))];
@@ -384,7 +392,7 @@ async function mirrorClip(studio: Studio, projectId: string, asset: AssetView, r
       confirmedAsymmetric: input.confirmAsymmetric ?? null,
       socketSwaps: Object.fromEntries(swaps),
       flattenedLayers: clip.frames.filter((f) => f.layers.length > 1).map((f) => f.frameId),
-      note: "Derivação local autorizada e registrada como espelho; não conta como geração",
+      note: tx("Derivação local autorizada e registrada como espelho; não conta como geração", "Authorized local derivation recorded as a mirror; it does not count as generation"),
     }),
   });
   return { asset: targetAsset, revision: created, mirrored: { from: clip.direction, to: target }, asymmetry: measured.asymmetry };
@@ -401,7 +409,7 @@ export async function resizeCanvas(studio: Studio, projectId: string, raw: z.inp
   const input = CanvasInput.parse(raw);
   const { revision, asset } = sourceOf(studio, projectId, input.revisionId);
   const m: CanvasMargins = input.margins;
-  if (marginsAreZero(m)) throw new DomainFailure("validation_failed", "Nada a mudar: todas as margens são zero");
+  if (marginsAreZero(m)) throw new DomainFailure("validation_failed", tx("Nada a mudar: todas as margens são zero", "Nothing to change: all margins are zero"));
   const shrinking = m.left < 0 || m.right < 0 || m.top < 0 || m.bottom < 0;
   if (asset.family === "character" && asset.kind === "clip") {
     const clip = revision.payload as ClipPayload;
@@ -450,7 +458,7 @@ export async function resizeCanvas(studio: Studio, projectId: string, raw: z.inp
       const file = revision.files.find((f) => f.fileKey === placement.fileId)!;
       const { width, height } = file.metadata as { width?: number; height?: number };
       if (placement.rect[0] !== 0 || placement.rect[1] !== 0 || placement.rect[2] !== width || placement.rect[3] !== height) {
-        throw new DomainFailure("validation_failed", `A vista ${placement.direction} está num atlas; recorte-a para a célula antes de mudar o canvas`);
+        throw new DomainFailure("validation_failed", tx(`A vista ${placement.direction} está num atlas; recorte-a para a célula antes de mudar o canvas`, `View ${placement.direction} is in an atlas; crop it to the cell before changing the canvas`));
       }
       // Mesmos pixels numa tela nova: recortar pixel visível falha no processador local.
       const out = await runLocal(studio, "canvas_fit", [{ role: "source", sha256: file.sha256 }], { version: 1, size: result.size, offset: placement.offset });
@@ -470,5 +478,5 @@ export async function resizeCanvas(studio: Studio, projectId: string, raw: z.inp
     });
     return { revision: created, shift: result.shift, size: result.size };
   }
-  throw new DomainFailure("validation_failed", `Canvas vale para clipes e bases/objetos; ${asset.name} é ${asset.family}/${asset.kind}`);
+  throw new DomainFailure("validation_failed", tx(`Canvas vale para clipes e bases/objetos; ${asset.name} é ${asset.family}/${asset.kind}`, `Canvas changes apply to clips and bases/objects; ${asset.name} is ${asset.family}/${asset.kind}`));
 }

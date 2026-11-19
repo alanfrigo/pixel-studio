@@ -1,3 +1,4 @@
+import { type LocalizedText, type TextValue, tx } from "@/i18n/locales";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
@@ -34,26 +35,26 @@ export interface VerifiedOutput {
 }
 
 export type PythonResult =
-  | { status: "ok" | "needs_review"; outputs: VerifiedOutput[]; report: Record<string, unknown>; warnings: string[] }
-  | { status: "error"; code: string; message: string };
+  | { status: "ok" | "needs_review"; outputs: VerifiedOutput[]; report: Record<string, unknown>; warnings: (string | LocalizedText)[] }
+  | { status: "error"; code: string; message: string | LocalizedText };
 
 const MAX_STDOUT = 4 * 1024 * 1024;
 
 export async function runPython(request: PythonRequest, opts: PythonRunOptions): Promise<PythonResult> {
   const parsedRequest = PythonRequest.parse(request);
   const { stdout, stderr, code, timedOut } = await spawnPython(opts, JSON.stringify(parsedRequest));
-  if (timedOut) throw new DomainFailure("internal", "Processamento local excedeu o tempo limite", { stderr: tail(stderr) });
-  if (code !== 0) throw new DomainFailure("internal", `Processador Python terminou com código ${code}`, { stderr: tail(stderr) });
+  if (timedOut) throw new DomainFailure("internal", tx("Processamento local excedeu o tempo limite", "Local processing exceeded the time limit"), { stderr: tail(stderr) });
+  if (code !== 0) throw new DomainFailure("internal", tx(`Processador Python terminou com código ${code}`, `Python processor exited with code ${code}`), { stderr: tail(stderr) });
 
   let json: unknown;
   try {
     json = JSON.parse(stdout);
   } catch {
-    throw new DomainFailure("internal", "Resposta do processador Python não é JSON", { stdout: tail(stdout), stderr: tail(stderr) });
+    throw new DomainFailure("internal", tx("Resposta do processador Python não é JSON", "Python processor response is not JSON"), { stdout: tail(stdout), stderr: tail(stderr) });
   }
   const parsed = PythonResponse.safeParse(json);
   if (!parsed.success) {
-    throw new DomainFailure("internal", "Resposta do processador Python fora do contrato", { issues: parsed.error.issues.slice(0, 5) });
+    throw new DomainFailure("internal", tx("Resposta do processador Python fora do contrato", "Python processor response is outside the contract"), { issues: parsed.error.issues.slice(0, 5) });
   }
   const response = parsed.data;
   if (response.status === "error") return { status: "error", code: response.error.code, message: response.error.message };
@@ -62,19 +63,19 @@ export async function runPython(request: PythonRequest, opts: PythonRunOptions):
   const outputs: VerifiedOutput[] = [];
   for (const out of response.outputs) {
     const problem = relativePathProblem(out.relPath);
-    if (problem) throw new DomainFailure("internal", `Saída com caminho inválido: ${problem}`);
+    if (problem) throw new DomainFailure("internal", tx(`Saída com caminho inválido: ${problem}`, `Output with an invalid path: ${problem}`));
     const absolute = await realpath(path.join(root, out.relPath)).catch(() => null);
     if (!absolute || !absolute.startsWith(root + path.sep)) {
-      throw new DomainFailure("internal", `Saída fora da pasta da tentativa: ${out.relPath}`);
+      throw new DomainFailure("internal", tx(`Saída fora da pasta da tentativa: ${out.relPath}`, `Output outside the attempt folder: ${out.relPath}`));
     }
     const bytes = await readFile(absolute);
     if (createHash("sha256").update(bytes).digest("hex") !== out.sha256) {
-      throw new DomainFailure("internal", `Hash da saída ${out.relPath} diverge do relatório`);
+      throw new DomainFailure("internal", tx(`Hash da saída ${out.relPath} diverge do relatório`, `Hash of output ${out.relPath} does not match the report`));
     }
     if (out.mime === "image/png") {
       const info = readPngInfo(bytes);
       if (!info || info.width !== out.width || info.height !== out.height) {
-        throw new DomainFailure("internal", `Dimensões da saída ${out.relPath} divergem do relatório`);
+        throw new DomainFailure("internal", tx(`Dimensões da saída ${out.relPath} divergem do relatório`, `Dimensions of output ${out.relPath} do not match the report`));
       }
     }
     outputs.push({ ...out, absolutePath: absolute });
@@ -117,7 +118,7 @@ function spawnPython(opts: PythonRunOptions, input: string) {
     });
     child.on("error", (err) => {
       clearTimeout(timer);
-      reject(new DomainFailure("internal", `Não foi possível iniciar o Python (${opts.python})`, { cause: err.message }));
+      reject(new DomainFailure("internal", tx(`Não foi possível iniciar o Python (${opts.python})`, `Could not start Python (${opts.python})`), { cause: err.message }));
     });
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -138,7 +139,8 @@ export interface PythonInfo {
   pipeline?: string;
   pillow?: string;
   python?: string;
-  error?: string;
+  /** Bilíngue quando a mensagem é nossa; a última linha do stderr fica como veio. */
+  error?: TextValue;
 }
 
 /** Diagnóstico de inicialização: o interpretador existe e fala o protocolo esperado? */
@@ -152,16 +154,16 @@ export async function pythonInfo(python: string): Promise<PythonInfo> {
     child.stderr.on("data", (c: Buffer) => (err += c.toString()));
     child.on("error", (e) => {
       clearTimeout(timer);
-      resolve({ ok: false, error: `Python não encontrado em ${python}: ${e.message}. Rode npm run python:setup` });
+      resolve({ ok: false, error: tx(`Python não encontrado em ${python}: ${e.message}. Rode npm run python:setup`, `Python not found at ${python}: ${e.message}. Run npm run python:setup`) });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (code !== 0) return resolve({ ok: false, error: err.trim().split("\n").pop() ?? `código ${code}` });
+      if (code !== 0) return resolve({ ok: false, error: err.trim().split("\n").pop() ?? tx(`código ${code}`, `code ${code}`) });
       try {
         const info = JSON.parse(out) as Omit<PythonInfo, "ok">;
-        resolve({ ok: info.protocolVersion === 1, ...info, ...(info.protocolVersion === 1 ? {} : { error: "Versão de protocolo incompatível" }) });
+        resolve({ ok: info.protocolVersion === 1, ...info, ...(info.protocolVersion === 1 ? {} : { error: tx("Versão de protocolo incompatível", "Incompatible protocol version") }) });
       } catch {
-        resolve({ ok: false, error: "Resposta de versão ilegível" });
+        resolve({ ok: false, error: tx("Resposta de versão ilegível", "Unreadable version response") });
       }
     });
   });

@@ -1,3 +1,4 @@
+import { type LocalizedText, type TextValue, tx } from "@/i18n/locales";
 import {
   AudioFile,
   fileModality,
@@ -45,7 +46,8 @@ export type ManifestIssueCode =
 
 export interface ManifestIssue {
   code: ManifestIssueCode;
-  message: string;
+  /** Bilíngue nas regras deste validador; texto do zod (schema) fica string. */
+  message: TextValue;
   path: Path;
   revisionId?: string;
   fileId?: string;
@@ -65,7 +67,7 @@ export function validateManifest(input: unknown): ManifestValidation {
       issues: [
         {
           code: "unsupported_version",
-          message: `Versão de manifesto não suportada: ${String(input.schemaVersion)} (este leitor entende a versão 1)`,
+          message: tx(`Versão de manifesto não suportada: ${String(input.schemaVersion)} (este leitor entende a versão 1)`, `Unsupported manifest version: ${String(input.schemaVersion)} (this reader understands version 1)`),
           path: ["schemaVersion"],
         },
       ],
@@ -102,7 +104,7 @@ export function validateManifest(input: unknown): ManifestValidation {
     if (!files.has(a.subject) && !entries.has(a.subject)) {
       issues.push({
         code: "attribution_subject_unknown",
-        message: `Atribuição cita item inexistente: ${a.subject}`,
+        message: tx(`Atribuição cita item inexistente: ${a.subject}`, `Attribution cites a missing item: ${a.subject}`),
         path: ["attributions", i, "subject"],
       });
     }
@@ -116,19 +118,19 @@ function indexFiles(manifest: Manifest, issues: ManifestIssue[]): Map<string, Ma
   const paths = new Map<string, number>();
   manifest.files.forEach((file, i) => {
     if (byId.has(file.fileId)) {
-      issues.push({ code: "duplicate_file_id", message: `fileId duplicado: ${file.fileId}`, path: ["files", i, "fileId"], fileId: file.fileId });
+      issues.push({ code: "duplicate_file_id", message: tx(`fileId duplicado: ${file.fileId}`, `Duplicate fileId: ${file.fileId}`), path: ["files", i, "fileId"], fileId: file.fileId });
     } else {
       byId.set(file.fileId, file);
     }
     // Comparação sem diferenciar maiúsculas: o pacote precisa abrir em qualquer sistema de arquivos.
     const key = file.path.toLowerCase();
     if (paths.has(key)) {
-      issues.push({ code: "duplicate_path", message: `Caminho duplicado: ${file.path}`, path: ["files", i, "path"], fileId: file.fileId });
+      issues.push({ code: "duplicate_path", message: tx(`Caminho duplicado: ${file.path}`, `Duplicate path: ${file.path}`), path: ["files", i, "path"], fileId: file.fileId });
     } else {
       paths.set(key, i);
     }
     if (key === MANIFEST_FILE_NAME) {
-      issues.push({ code: "reserved_path", message: `${MANIFEST_FILE_NAME} é reservado`, path: ["files", i, "path"], fileId: file.fileId });
+      issues.push({ code: "reserved_path", message: tx(`${MANIFEST_FILE_NAME} é reservado`, `${MANIFEST_FILE_NAME} is reserved`), path: ["files", i, "path"], fileId: file.fileId });
     }
   });
   return byId;
@@ -140,7 +142,7 @@ function indexEntries(manifest: Manifest, issues: ManifestIssue[]): Map<string, 
     if (byId.has(entry.revisionId)) {
       issues.push({
         code: "duplicate_revision_id",
-        message: `revisionId duplicado: ${entry.revisionId}`,
+        message: tx(`revisionId duplicado: ${entry.revisionId}`, `Duplicate revisionId: ${entry.revisionId}`),
         path: ["entries", i, "revisionId"],
         revisionId: entry.revisionId,
       });
@@ -168,13 +170,13 @@ function checkEntryReferences(
   entry.dependencies.forEach((dep, di) => {
     const path: Path = [...base, "dependencies", di];
     if (declared.has(dep.revisionId)) {
-      issues.push({ code: "duplicate_dependency", message: `Dependência repetida: ${dep.revisionId}`, path, revisionId: entry.revisionId });
+      issues.push({ code: "duplicate_dependency", message: tx(`Dependência repetida: ${dep.revisionId}`, `Repeated dependency: ${dep.revisionId}`), path, revisionId: entry.revisionId });
     }
     declared.add(dep.revisionId);
     if (!entries.has(dep.revisionId)) {
       issues.push({
         code: "dependency_missing",
-        message: `${entry.revisionId} depende de ${dep.revisionId} (${dep.role}), ausente do pacote`,
+        message: tx(`${entry.revisionId} depende de ${dep.revisionId} (${dep.role}), ausente do pacote`, `${entry.revisionId} depends on ${dep.revisionId} (${dep.role}), missing from the package`),
         path,
         revisionId: entry.revisionId,
       });
@@ -188,7 +190,7 @@ function checkEntryReferences(
     if (ref.runtime && !declared.has(ref.revisionId)) {
       issues.push({
         code: "undeclared_dependency",
-        message: `${entry.revisionId} usa ${ref.revisionId} sem declará-lo em dependencies`,
+        message: tx(`${entry.revisionId} usa ${ref.revisionId} sem declará-lo em dependencies`, `${entry.revisionId} uses ${ref.revisionId} without declaring it in dependencies`),
         path,
         revisionId: entry.revisionId,
       });
@@ -197,7 +199,7 @@ function checkEntryReferences(
       const expected = ref.expect.map((e) => (e.kinds ? `${e.family}/${e.kinds.join("|")}` : e.family)).join(" ou ");
       issues.push({
         code: "dependency_kind_mismatch",
-        message: `${ref.revisionId} é ${target.family}/${target.kind}; esperado ${expected}`,
+        message: tx(`${ref.revisionId} é ${target.family}/${target.kind}; esperado ${expected}`, `${ref.revisionId} is ${target.family}/${target.kind}; expected ${expected}`),
         path,
         revisionId: entry.revisionId,
       });
@@ -208,14 +210,14 @@ function checkEntryReferences(
     const path = [...base, ...ref.path];
     const file = files.get(ref.fileId);
     if (!file) {
-      issues.push({ code: "missing_file", message: `Arquivo inexistente: ${ref.fileId}`, path, revisionId: entry.revisionId, fileId: ref.fileId });
+      issues.push({ code: "missing_file", message: tx(`Arquivo inexistente: ${ref.fileId}`, `Missing file: ${ref.fileId}`), path, revisionId: entry.revisionId, fileId: ref.fileId });
       continue;
     }
     const modality = fileModality(file);
     if (modality !== ref.modality) {
       issues.push({
         code: "file_modality_mismatch",
-        message: `${ref.fileId} é ${modality}; esperado ${ref.modality}`,
+        message: tx(`${ref.fileId} é ${modality}; esperado ${ref.modality}`, `${ref.fileId} is ${modality}; expected ${ref.modality}`),
         path,
         revisionId: entry.revisionId,
         fileId: ref.fileId,
@@ -225,7 +227,7 @@ function checkEntryReferences(
     if (ref.rect && "width" in file && !rectInside(ref.rect, file.width, file.height)) {
       issues.push({
         code: "rect_out_of_bounds",
-        message: `Retângulo [${ref.rect.join(", ")}] excede ${file.width}×${file.height} de ${ref.fileId}`,
+        message: tx(`Retângulo [${ref.rect.join(", ")}] excede ${file.width}×${file.height} de ${ref.fileId}`, `Rectangle [${ref.rect.join(", ")}] exceeds ${file.width}×${file.height} of ${ref.fileId}`),
         path,
         revisionId: entry.revisionId,
         fileId: ref.fileId,
@@ -243,7 +245,7 @@ function checkCrossEntry(
   issues: ManifestIssue[],
 ) {
   const base: Path = ["entries", ei, "payload"];
-  const push = (code: ManifestIssueCode, message: string, path: Path) =>
+  const push = (code: ManifestIssueCode, message: LocalizedText, path: Path) =>
     issues.push({ code, message, path: [...base, ...path], revisionId: entry.revisionId });
 
   const getRig = (id: string | null) => {
@@ -261,24 +263,24 @@ function checkCrossEntry(
     if (rig) {
       const expected = [rig.logicalCell[0] + clip.margins.left + clip.margins.right, rig.logicalCell[1] + clip.margins.top + clip.margins.bottom];
       if (clip.logicalSize[0] !== expected[0] || clip.logicalSize[1] !== expected[1]) {
-        push("cell_mismatch", `Célula do clipe deve ser ${expected.join("×")} (célula do rig + margens)`, ["logicalSize"]);
+        push("cell_mismatch", tx(`Célula do clipe deve ser ${expected.join("×")} (célula do rig + margens)`, `Clip cell must be ${expected.join("×")} (rig cell + margins)`), ["logicalSize"]);
       }
       const sockets = new Set(rig.sockets.map((s) => s.socketId));
       const parts = new Set(rig.parts.map((p) => p.partId));
       clip.frames.forEach((frame, fi) => {
         frame.sockets.forEach((s, si) => {
-          if (!sockets.has(s.socketId)) push("unknown_socket", `Socket ${s.socketId} não existe no rig`, ["frames", fi, "sockets", si]);
+          if (!sockets.has(s.socketId)) push("unknown_socket", tx(`Socket ${s.socketId} não existe no rig`, `Socket ${s.socketId} does not exist in the rig`), ["frames", fi, "sockets", si]);
         });
         frame.layers.forEach((l, li) => {
-          if (!parts.has(l.partId)) push("unknown_part", `Parte ${l.partId} não existe no rig`, ["frames", fi, "layers", li]);
+          if (!parts.has(l.partId)) push("unknown_part", tx(`Parte ${l.partId} não existe no rig`, `Part ${l.partId} does not exist in the rig`), ["frames", fi, "layers", li]);
         });
       });
       if (clip.stance && !rig.stances.includes(clip.stance)) {
-        push("stance_incompatible", `Postura ${clip.stance} não existe no rig`, ["stance"]);
+        push("stance_incompatible", tx(`Postura ${clip.stance} não existe no rig`, `Stance ${clip.stance} does not exist in the rig`), ["stance"]);
       }
       clip.events.forEach((ev, i) => {
         if (ev.vfx?.socketId && !sockets.has(ev.vfx.socketId)) {
-          push("unknown_socket", `Evento usa socket inexistente: ${ev.vfx.socketId}`, ["events", i, "vfx", "socketId"]);
+          push("unknown_socket", tx(`Evento usa socket inexistente: ${ev.vfx.socketId}`, `Event uses a missing socket: ${ev.vfx.socketId}`), ["events", i, "vfx", "socketId"]);
         }
       });
     }
@@ -290,14 +292,14 @@ function checkCrossEntry(
     if (rig) {
       const slots = new Set(rig.slots.map((s) => s.slotId));
       overlay.slots.forEach((slot, i) => {
-        if (!slots.has(slot)) push("slot_conflict", `Slot ${slot} não existe no rig`, ["slots", i]);
+        if (!slots.has(slot)) push("slot_conflict", tx(`Slot ${slot} não existe no rig`, `Slot ${slot} does not exist in the rig`), ["slots", i]);
       });
       overlay.stances.forEach((stance, i) => {
-        if (!rig.stances.includes(stance)) push("stance_incompatible", `Postura ${stance} não existe no rig`, ["stances", i]);
+        if (!rig.stances.includes(stance)) push("stance_incompatible", tx(`Postura ${stance} não existe no rig`, `Stance ${stance} does not exist in the rig`), ["stances", i]);
       });
       const parts = new Set(rig.parts.map((p) => p.partId));
       overlay.parts.forEach((part, pi) => {
-        if (!parts.has(part.partId)) push("unknown_part", `Parte ${part.partId} não existe no rig`, ["parts", pi, "partId"]);
+        if (!parts.has(part.partId)) push("unknown_part", tx(`Parte ${part.partId} não existe no rig`, `Part ${part.partId} does not exist in the rig`), ["parts", pi, "partId"]);
       });
     }
     overlay.parts.forEach((part, pi) =>
@@ -305,10 +307,10 @@ function checkCrossEntry(
         const clip = getClip(c.clipRevisionId);
         if (!clip) return;
         if (clip.rigRevisionId !== overlay.rigRevisionId) {
-          push("rig_mismatch", `Clipe ${c.clipRevisionId} usa outro rig`, ["parts", pi, "coverage", ci, "clipRevisionId"]);
+          push("rig_mismatch", tx(`Clipe ${c.clipRevisionId} usa outro rig`, `Clip ${c.clipRevisionId} uses a different rig`), ["parts", pi, "coverage", ci, "clipRevisionId"]);
         }
         if (!clip.frames.some((f) => f.frameId === c.frameId)) {
-          push("unknown_frame", `Frame ${c.frameId} não existe em ${c.clipRevisionId}`, ["parts", pi, "coverage", ci, "frameId"]);
+          push("unknown_frame", tx(`Frame ${c.frameId} não existe em ${c.clipRevisionId}`, `Frame ${c.frameId} does not exist in ${c.clipRevisionId}`), ["parts", pi, "coverage", ci, "frameId"]);
         }
       }),
     );
@@ -321,27 +323,27 @@ function checkCrossEntry(
       const e = entries.get(id);
       if (e?.family !== "equipment" || e.kind !== "overlay") return;
       if (e.payload.rigRevisionId !== loadout.rigRevisionId) {
-        push("rig_mismatch", `Peça ${id} foi feita para outro rig`, ["overlayRevisionIds", i]);
+        push("rig_mismatch", tx(`Peça ${id} foi feita para outro rig`, `Piece ${id} was made for a different rig`), ["overlayRevisionIds", i]);
       }
       if (!e.payload.stances.includes(loadout.stance)) {
-        push("stance_incompatible", `Peça ${id} não cobre a postura ${loadout.stance}`, ["overlayRevisionIds", i]);
+        push("stance_incompatible", tx(`Peça ${id} não cobre a postura ${loadout.stance}`, `Piece ${id} does not cover stance ${loadout.stance}`), ["overlayRevisionIds", i]);
       }
       for (const slot of e.payload.slots) {
         const other = occupied.get(slot);
-        if (other) push("slot_conflict", `Slot ${slot} ocupado por ${other} e ${id}`, ["overlayRevisionIds", i]);
+        if (other) push("slot_conflict", tx(`Slot ${slot} ocupado por ${other} e ${id}`, `Slot ${slot} is taken by both ${other} and ${id}`), ["overlayRevisionIds", i]);
         else occupied.set(slot, id);
       }
     });
     loadout.clips.forEach((c, i) => {
       const clip = getClip(c.clipRevisionId);
       if (!clip) return;
-      if (clip.rigRevisionId !== loadout.rigRevisionId) push("rig_mismatch", `Clipe ${c.clipRevisionId} usa outro rig`, ["clips", i]);
+      if (clip.rigRevisionId !== loadout.rigRevisionId) push("rig_mismatch", tx(`Clipe ${c.clipRevisionId} usa outro rig`, `Clip ${c.clipRevisionId} uses a different rig`), ["clips", i]);
       // S2: um clipe de outra postura só vale com vínculo explícito de compartilhamento.
       if (clip.stance && clip.stance !== loadout.stance && !(clip.sharedStances ?? []).includes(loadout.stance)) {
-        push("stance_incompatible", `Clipe ${c.clipRevisionId} é da postura ${clip.stance}`, ["clips", i]);
+        push("stance_incompatible", tx(`Clipe ${c.clipRevisionId} é da postura ${clip.stance}`, `Clip ${c.clipRevisionId} is for stance ${clip.stance}`), ["clips", i]);
       }
       if (clip.action !== c.action || clip.direction !== c.direction) {
-        push("cell_mismatch", `Clipe ${c.clipRevisionId} é ${clip.action}/${clip.direction}, não ${c.action}/${c.direction}`, ["clips", i]);
+        push("cell_mismatch", tx(`Clipe ${c.clipRevisionId} é ${clip.action}/${clip.direction}, não ${c.action}/${c.direction}`, `Clip ${c.clipRevisionId} is ${clip.action}/${clip.direction}, not ${c.action}/${c.direction}`), ["clips", i]);
       }
     });
   }
@@ -351,7 +353,7 @@ function checkCrossEntry(
     if (expr?.family === "portrait" && expr.kind === "expression") {
       const visemes = new Set(expr.payload.visemes.map((v) => v.visemeId));
       entry.payload.timeline.forEach((step, i) => {
-        if (!visemes.has(step.visemeId)) push("unknown_viseme", `Viseme ${step.visemeId} não existe na expressão`, ["timeline", i, "visemeId"]);
+        if (!visemes.has(step.visemeId)) push("unknown_viseme", tx(`Viseme ${step.visemeId} não existe na expressão`, `Viseme ${step.visemeId} does not exist in the expression`), ["timeline", i, "visemeId"]);
       });
     }
   }
@@ -360,7 +362,7 @@ function checkCrossEntry(
     const file = files.get(entry.payload.fileId);
     const audio = file ? AudioFile.safeParse(file) : undefined;
     if (audio?.success && entry.payload.loop.endFrame > audio.data.frameCount) {
-      push("audio_loop_out_of_range", `Fim do loop (${entry.payload.loop.endFrame}) além do arquivo (${audio.data.frameCount} frames)`, ["loop"]);
+      push("audio_loop_out_of_range", tx(`Fim do loop (${entry.payload.loop.endFrame}) além do arquivo (${audio.data.frameCount} frames)`, `Loop end (${entry.payload.loop.endFrame}) is past the end of the file (${audio.data.frameCount} frames)`), ["loop"]);
     }
   }
 }
@@ -387,7 +389,7 @@ function checkCycles(manifest: Manifest, entries: Map<string, ManifestEntry>, is
           const index = manifest.entries.findIndex((e) => e.revisionId === id);
           issues.push({
             code: "dependency_cycle",
-            message: `Ciclo de dependências: ${cycle.join(" → ")}`,
+            message: tx(`Ciclo de dependências: ${cycle.join(" → ")}`, `Dependency cycle: ${cycle.join(" → ")}`),
             path: ["entries", index, "dependencies"],
             revisionId: id,
           });

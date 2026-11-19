@@ -18,6 +18,7 @@ import { floorPlanProblems, furnitureDrawPositions, furnitureOrder, furniturePro
 import { doorWallCells, furniturePlacement, type KitKey, kitTilesetPayload, roomEntrances, roomVertices } from "@/domain/scenes/room-map";
 import { checkPassages, emptyCornerMap, reresolveCorner } from "@/domain/world/map";
 import { createImage, encodePng, fillRect } from "@/lib/media/png";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { createAsset, getAsset, getProject, getRevision, getUpload, publishRevision, type RevisionView, saveDraft } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import { ImageRef } from "../services";
@@ -42,14 +43,14 @@ import { assertInpaintOf, registerMaskUpload } from "./scenes";
 export function roomRevision(studio: Studio, projectId: string, revisionId: string) {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (asset.family !== "map" || asset.kind !== "room") throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} não é uma sala`);
+  if (asset.family !== "map" || asset.kind !== "room") throw new DomainFailure("validation_failed", tx(`${asset.name} r${revision.number} não é uma sala`, `${asset.name} r${revision.number} is not a room`));
   return { revision, asset, payload: RoomPayload.parse(revision.payload) };
 }
 
 function objectRevision(studio: Studio, projectId: string, revisionId: string) {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} não é um prop (map/object)`);
+  if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", tx(`${asset.name} r${revision.number} não é um prop (map/object)`, `${asset.name} r${revision.number} is not a prop (map/object)`));
   return { revision, asset, payload: MapObjectPayload.parse(revision.payload) };
 }
 
@@ -77,7 +78,7 @@ export const RoomImportInput = z.strictObject({
 export function importRoom(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof RoomImportInput>) {
   const input = RoomImportInput.parse(raw);
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "map" || asset.kind !== "room") throw new DomainFailure("validation_failed", "O asset não é uma sala");
+  if (asset.family !== "map" || asset.kind !== "room") throw new DomainFailure("validation_failed", tx("O asset não é uma sala", "The asset is not a room"));
   const problems = floorPlanProblems(input.floorPlan, input.doors);
   if (problems.length) throw new DomainFailure("validation_failed", problems[0]!.message, { problems });
   const image = resolveImageRef(studio, projectId, input.image);
@@ -115,14 +116,26 @@ export function furnitureReport(studio: Studio, projectId: string, room: RoomPay
     const obj = objectRevision(studio, projectId, f.objectRevisionId);
     const problems = [...furnitureProblems(room, f.supportAtPx, obj.payload)];
     const wantIso = room.projection === "isometric";
-    if ((obj.payload.projection === "isometric") !== wantIso) problems.push(`${obj.asset.name} é ${obj.payload.projection}; a sala é ${room.projection}`);
+    if ((obj.payload.projection === "isometric") !== wantIso) problems.push(tx(`${obj.asset.name} é ${obj.payload.projection}; a sala é ${room.projection}`, `${obj.asset.name} is ${obj.payload.projection}; the room is ${room.projection}`));
     if (obj.payload.sourceRoom) {
       const src = getRevision(studio.db, projectId, obj.payload.sourceRoom.roomRevisionId);
       const srcRoom = RoomPayload.parse(src.payload);
-      if (srcRoom.cellPx[0] !== room.cellPx[0] || srcRoom.cellPx[1] !== room.cellPx[1]) problems.push(`${obj.asset.name} veio de uma sala com célula ${srcRoom.cellPx.join("×")}; esta usa ${room.cellPx.join("×")} (escala diferente)`);
+      if (srcRoom.cellPx[0] !== room.cellPx[0] || srcRoom.cellPx[1] !== room.cellPx[1]) {
+        problems.push(
+          tx(
+            `${obj.asset.name} veio de uma sala com célula ${srcRoom.cellPx.join("×")}; esta usa ${room.cellPx.join("×")} (escala diferente)`,
+            `${obj.asset.name} came from a room with ${srcRoom.cellPx.join("×")} cells; this one uses ${room.cellPx.join("×")} (different scale)`,
+          ),
+        );
+      }
     }
     return { placementId: f.placementId, objectRevisionId: f.objectRevisionId, name: obj.asset.name, problems, draw: furnitureDrawPositions(f.supportAtPx, obj.payload) };
   });
+}
+
+/** Problemas de colocação que impedem publicar, prefixados pelo ID do móvel. */
+function furnitureBlocking(furniture: ReturnType<typeof furnitureReport>): LocalizedText[] {
+  return furniture.flatMap((f) => f.problems.map((p) => tx(`${f.placementId}: ${p["pt-BR"]}`, `${f.placementId}: ${p.en}`)));
 }
 
 function connectionReport(studio: Studio, projectId: string, room: RoomPayload, connections: RoomPayload["connections"]) {
@@ -146,11 +159,18 @@ export function editRoom(studio: Studio, projectId: string, raw: z.input<typeof 
     sourceRoomRevisionId: base.revision.id,
   });
   const furniture = furnitureReport(studio, projectId, next, next.furniture);
-  const blocking = furniture.flatMap((f) => f.problems.map((p) => `${f.placementId}: ${p}`));
+  const blocking = furnitureBlocking(furniture);
   if (blocking.length) throw new DomainFailure("validation_failed", blocking[0]!, { problems: blocking });
   const connections = connectionReport(studio, projectId, next, next.connections);
   const broken = connections.filter((c) => !c.ok);
-  if (broken.length) throw new DomainFailure("validation_failed", `Porta ${broken[0]!.doorId} não liga: ${broken[0]!.problems.join("; ")}`, { connections });
+  if (broken.length) {
+    const b = broken[0]!;
+    throw new DomainFailure(
+      "validation_failed",
+      tx(`Porta ${b.doorId} não liga: ${b.problems.map((p) => p["pt-BR"]).join("; ")}`, `Door ${b.doorId} does not connect: ${b.problems.map((p) => p.en).join("; ")}`),
+      { connections },
+    );
+  }
   const revision = publishRevision(studio.db, studio.clock, {
     projectId,
     assetId: base.asset.id,
@@ -161,7 +181,7 @@ export function editRoom(studio: Studio, projectId: string, raw: z.input<typeof 
     files: carryFiles(studio.db, base.revision, "map", "room", next, { keep: ROOM_PROVENANCE_FILES }),
     technicalReport: {
       operation: "room_edit",
-      label: input.note ?? "Sala revisada (grade, portas, móveis ou ligações)",
+      label: input.note ?? tx("Sala revisada (grade, portas, móveis ou ligações)", "Room revised (grid, doors, furniture or links)"),
       furniture: furniture.map((f) => ({ placementId: f.placementId, objectRevisionId: f.objectRevisionId, name: f.name, problems: f.problems })),
       connections: connections.map((c) => ({ doorId: c.doorId, toRoomRevisionId: c.toRoomRevisionId, toDoorId: c.toDoorId, offsetPx: c.offsetPx, method: c.method })),
     },
@@ -176,7 +196,7 @@ export function editRoom(studio: Studio, projectId: string, raw: z.input<typeof 
 export async function roomComposite(studio: Studio, projectId: string, revision: RevisionView, payload: RoomPayload = RoomPayload.parse(revision.payload)) {
   const baseImg = roomBaseImage(payload);
   const baseFile = revision.files.find((f) => f.fileKey === baseImg.fileId);
-  if (!baseFile) throw new DomainFailure("not_found", "Imagem-base da sala ausente na revisão");
+  if (!baseFile) throw new DomainFailure("not_found", tx("Imagem-base da sala ausente na revisão", "The room base image is missing from the revision"));
   const inputs: { role: string; sha256: string }[] = [{ role: "source", sha256: baseFile.sha256 }];
   const items: { inputOrdinal: number; at: [number, number] }[] = [];
   const furniture = furnitureReport(studio, projectId, payload, payload.furniture);
@@ -247,8 +267,8 @@ export const CutoutInput = z.strictObject({
 
 async function cutoutRun(studio: Studio, projectId: string, input: z.output<typeof CutoutInput>) {
   const room = roomRevision(studio, projectId, input.roomRevisionId);
-  if (room.payload.projection === "oblique") throw new DomainFailure("capability_missing", "Sala oblíqua não tem móveis a recortar: só paredes, portas e piso");
-  if (room.revision.status !== "approved") throw new DomainFailure("source_not_approved", "Aprove a sala antes de recortar móveis");
+  if (room.payload.projection === "oblique") throw new DomainFailure("capability_missing", tx("Sala oblíqua não tem móveis a recortar: só paredes, portas e piso", "An oblique room has no furniture to cut out: walls, doors and floor only"));
+  if (room.revision.status !== "approved") throw new DomainFailure("source_not_approved", tx("Aprove a sala antes de recortar móveis", "Approve the room before cutting out furniture"));
   const baseImg = roomBaseImage(room.payload);
   const baseFile = room.revision.files.find((f) => f.fileKey === baseImg.fileId)!;
   const mask = getUpload(studio.db, projectId, input.maskUploadId);
@@ -327,8 +347,13 @@ export async function publishCutout(studio: Studio, projectId: string, raw: z.in
       operation: "room_cutout",
       routeLabel: ROOM_ROUTE_LABELS.cutLocal,
       cutout: report,
-      shadow: shadow ? "Sombra estimada (escura translúcida) na máscara revisada: a pintura não separa a sombra do piso" : null,
-      label: "Apoio, footprint e colisão revisados pelo artista; o recorte não cria colisão confiável",
+      shadow: shadow
+        ? tx(
+            "Sombra estimada (escura translúcida) na máscara revisada: a pintura não separa a sombra do piso",
+            "Estimated shadow (translucent dark) within the reviewed mask: the painting does not separate the shadow from the floor",
+          )
+        : null,
+      label: tx("Apoio, footprint e colisão revisados pelo artista; o recorte não cria colisão confiável", "Support, footprint and collision reviewed by the artist; the cutout does not create reliable collision"),
     },
   });
   const area = await storeOutput(studio, outputOf(run, "area_mask"));
@@ -365,7 +390,7 @@ export function composeExtracted(studio: Studio, projectId: string, raw: z.input
   const room = roomRevision(studio, projectId, input.roomRevisionId);
   const upload = getUpload(studio.db, projectId, input.areaMaskUploadId);
   const meta = (upload.metadata ?? {}) as { roomRevisionId?: string; objectRevisionId?: string; holedSha256?: string; cutout?: { pieceName: string; areaRect: [number, number, number, number] | null; areaPixels: number; contextOpaque: number; needsReconstruction: boolean; supportAtPx: [number, number] } };
-  if (meta.roomRevisionId !== room.revision.id || !meta.cutout || !meta.objectRevisionId) throw new DomainFailure("validation_failed", "A máscara não é a área de um recorte desta revisão da sala");
+  if (meta.roomRevisionId !== room.revision.id || !meta.cutout || !meta.objectRevisionId) throw new DomainFailure("validation_failed", tx("A máscara não é a área de um recorte desta revisão da sala", "The mask is not the area of a cutout from this room revision"));
   const object = objectRevision(studio, projectId, meta.objectRevisionId);
   const baseImg = roomBaseImage(room.payload);
   let background;
@@ -374,13 +399,20 @@ export function composeExtracted(studio: Studio, projectId: string, raw: z.input
   if (input.reconstruction.kind === "inpaint") {
     const inpaint = assertInpaintOf(studio, projectId, input.reconstruction.inpaintRevisionId, room.revision, input.areaMaskUploadId);
     const edited = inpaint.files.find((f) => f.fileKey === baseImg.fileId);
-    if (!edited) throw new DomainFailure("validation_failed", "O inpainting não editou a imagem-base da sala");
+    if (!edited) throw new DomainFailure("validation_failed", tx("O inpainting não editou a imagem-base da sala", "The inpainting did not edit the room base image"));
     background = fileBlob(studio.db, edited.sha256);
     status = "reconstructed_inpaint";
     inpaintRevisionId = inpaint.id;
   } else {
     if (meta.cutout.needsReconstruction) {
-      throw new DomainFailure("validation_failed", `A área tem ${Math.round(meta.cutout.contextOpaque * 100)}% de piso/parede em volta: o que a peça cobria nunca foi pintado; reconstrua por inpainting (apagar o alfa não basta)`);
+      const pct = Math.round(meta.cutout.contextOpaque * 100);
+      throw new DomainFailure(
+        "validation_failed",
+        tx(
+          `A área tem ${pct}% de piso/parede em volta: o que a peça cobria nunca foi pintado; reconstrua por inpainting (apagar o alfa não basta)`,
+          `The area has ${pct}% floor/wall around it: what the piece covered was never painted; rebuild it by inpainting (clearing alpha is not enough)`,
+        ),
+      );
     }
     background = fileBlob(studio.db, meta.holedSha256!);
     status = "transparent_reviewed";
@@ -407,7 +439,7 @@ export function composeExtracted(studio: Studio, projectId: string, raw: z.input
     sourceRoomRevisionId: room.revision.id,
   });
   const furniture = furnitureReport(studio, projectId, next, next.furniture);
-  const blocking = furniture.flatMap((f) => f.problems.map((p) => `${f.placementId}: ${p}`));
+  const blocking = furnitureBlocking(furniture);
   if (blocking.length) throw new DomainFailure("validation_failed", blocking[0]!, { problems: blocking });
   return publishRevision(studio.db, studio.clock, {
     projectId,
@@ -427,8 +459,14 @@ export function composeExtracted(studio: Studio, projectId: string, raw: z.input
       area: { piece: meta.cutout.pieceName, status, inpaintRevisionId, contextOpaque: meta.cutout.contextOpaque, pixels: meta.cutout.areaPixels },
       label:
         status === "reconstructed_inpaint"
-          ? "Área antes oculta reconstruída por inpainting (E1) e revisada; o móvel virou prop colocado pelo apoio"
-          : "Área sobre rocha transparente: nada a reconstruir; o móvel virou prop colocado pelo apoio",
+          ? tx(
+              "Área antes oculta reconstruída por inpainting (E1) e revisada; o móvel virou prop colocado pelo apoio",
+              "Previously hidden area rebuilt by inpainting (E1) and reviewed; the furniture became a prop placed by its support point",
+            )
+          : tx(
+              "Área sobre rocha transparente: nada a reconstruir; o móvel virou prop colocado pelo apoio",
+              "Area over transparent rock: nothing to rebuild; the furniture became a prop placed by its support point",
+            ),
     },
   });
 }
@@ -442,7 +480,7 @@ export function inspectKit(studio: Studio, projectId: string, roomRevisionId: st
   const room = roomRevision(studio, projectId, roomRevisionId);
   const picture = room.revision.files.find((f) => f.fileKey === room.payload.picture.fileId);
   const sheets = [
-    { sheetId: "picture", name: "Imagem da sala (kit local pela grade)", fileKey: room.payload.picture.fileId, mediaId: picture?.id ?? null, size: [room.payload.picture.rect[2], room.payload.picture.rect[3]] as [number, number], source: "picture" as const },
+    { sheetId: "picture", name: tx("Imagem da sala (kit local pela grade)", "Room image (local kit by grid)"), fileKey: room.payload.picture.fileId, mediaId: picture?.id ?? null, size: [room.payload.picture.rect[2], room.payload.picture.rect[3]] as [number, number], source: "picture" as const },
   ];
   return { sheets, grid: { cellPx: room.payload.cellPx, gridOrigin: room.payload.gridOrigin }, projection: room.payload.projection };
 }
@@ -490,13 +528,19 @@ async function cropRect(studio: Studio, sha256: string, size: readonly [number, 
 export async function mapKit(studio: Studio, projectId: string, raw: z.input<typeof KitMapInput>) {
   const input = KitMapInput.parse(raw);
   const room = roomRevision(studio, projectId, input.roomRevisionId);
-  if (room.payload.projection === "oblique") throw new DomainFailure("capability_missing", "Sala oblíqua: as paredes inclinadas não cabem no tileset por cantos do T1 (quadro = célula); sem mapa automático");
+  if (room.payload.projection === "oblique") throw new DomainFailure(
+      "capability_missing",
+      tx(
+        "Sala oblíqua: as paredes inclinadas não cabem no tileset por cantos do T1 (quadro = célula); sem mapa automático",
+        "Oblique room: the slanted walls do not fit the T1 corner tileset (frame = cell); no automatic map",
+      ),
+    );
   const sheet = { fileKey: room.payload.picture.fileId, size: [room.payload.picture.rect[2], room.payload.picture.rect[3]] as [number, number] };
   const file = room.revision.files.find((f) => f.fileKey === sheet.fileKey)!;
   const rects = gridRects(sheet.size, input.origin, input.cell, input.spacing);
-  if (input.keys.length > rects.length) throw new DomainFailure("validation_failed", `A grade declarada tem ${rects.length} células; recebidas ${input.keys.length} chaves`);
+  if (input.keys.length > rects.length) throw new DomainFailure("validation_failed", tx(`A grade declarada tem ${rects.length} células; recebidas ${input.keys.length} chaves`, `The declared grid has ${rects.length} cells; received ${input.keys.length} keys`));
   const mapped = kitTilesetPayload({ fileId: "atlas", cell: input.cell, margin: 0, spacing: input.spacing, rects, keys: input.keys as KitKey[] });
-  if (mapped.payload.tiles.length === 0) throw new DomainFailure("validation_failed", "Nenhuma célula mapeada para máscara piso/parede");
+  if (mapped.payload.tiles.length === 0) throw new DomainFailure("validation_failed", tx("Nenhuma célula mapeada para máscara piso/parede", "No cell is mapped to a floor/wall mask"));
   const atlas = fileBlob(studio.db, file.sha256);
   const check = await checkTilesetAtlas(studio, "corner", mapped.payload, atlas.sha256);
   const label = ROOM_ROUTE_LABELS.kitLocal;
@@ -516,7 +560,10 @@ export async function mapKit(studio: Studio, projectId: string, raw: z.input<typ
       keys: input.keys,
       missing: mapped.missing,
       check: check.report,
-      warnings: [...(mapped.missing.length ? [`Máscaras ausentes: ${mapped.missing.join(", ")} — o conjunto não é declarado completo`] : []), ...check.warnings],
+      warnings: [
+        ...(mapped.missing.length ? [tx(`Máscaras ausentes: ${mapped.missing.join(", ")} — o conjunto não é declarado completo`, `Missing masks: ${mapped.missing.join(", ")} — the set is not declared complete`)] : []),
+        ...check.warnings,
+      ],
     },
   });
   const doors = [];
@@ -534,7 +581,7 @@ export async function mapKit(studio: Studio, projectId: string, raw: z.input<typ
         payload: MapObjectPayload.parse({ projection: "top_down", fileId: "image", rect: [0, 0, w, h], logicalSize: [w, h], supportPoint: [Math.floor(w / 2), h], footprintCells: [1, 1], collision: [], occlusionAboveY: null }),
         files: [{ fileKey: "image", role: "normalized", idx: 0, blob }],
         edges: [{ toRevisionId: room.revision.id, role: "source_room", ordinal: 0, runtime: false }],
-        technicalReport: { operation: "room_kit_door", routeLabel: label, rect: d.rect, label: "Peça de porta do kit: passagem livre (sem colisão); a entrada do mapa marca a porta" },
+        technicalReport: { operation: "room_kit_door", routeLabel: label, rect: d.rect, label: tx("Peça de porta do kit: passagem livre (sem colisão); a entrada do mapa marca a porta", "Kit door piece: free passage (no collision); the map entrance marks the door") },
       }),
     });
   }
@@ -553,10 +600,16 @@ export const RoomToMapInput = z.strictObject({
 export function roomToMap(studio: Studio, projectId: string, raw: z.input<typeof RoomToMapInput>) {
   const input = RoomToMapInput.parse(raw);
   const room = roomRevision(studio, projectId, input.roomRevisionId);
-  if (room.payload.projection !== "top_down") throw new DomainFailure("capability_missing", "Remontar em mapa por cantos vale para salas top-down; a vista isométrica usa o tileset isométrico do T1");
+  if (room.payload.projection !== "top_down") throw new DomainFailure(
+      "capability_missing",
+      tx(
+        "Remontar em mapa por cantos vale para salas top-down; a vista isométrica usa o tileset isométrico do T1",
+        "Rebuilding as a corner map applies to top-down rooms; the isometric view uses the T1 isometric tileset",
+      ),
+    );
   const tsRev = getRevision(studio.db, projectId, input.tilesetRevisionId);
   const tsAsset = getAsset(studio.db, projectId, tsRev.assetId);
-  if (tsAsset.family !== "tileset" || tsAsset.kind !== "corner") throw new DomainFailure("validation_failed", "O kit mapeado é um tileset por cantos (piso ↔ parede)");
+  if (tsAsset.family !== "tileset" || tsAsset.kind !== "corner") throw new DomainFailure("validation_failed", tx("O kit mapeado é um tileset por cantos (piso ↔ parede)", "The mapped kit must be a corner tileset (floor ↔ wall)"));
   const ts = tsRev.payload as CornerTilesetPayload;
   const { size, vertices } = roomVertices(room.payload.floorPlan);
   let map = emptyCornerMap({ size, cellSize: ts.cellSize, tilesetRevisionId: tsRev.id, tileset: ts, seed: 1, walkable: [true, false] });
@@ -587,7 +640,10 @@ export function roomToMap(studio: Studio, projectId: string, raw: z.input<typeof
     draft: saved,
     passages: passages.results.map(({ path, ...r }) => ({ ...r, pathLength: path.length })),
     openUrl: `/projects/${projectId}/world?tab=maps&map=${asset.id}`,
-    label: "Trecho editável no editor do T1: terreno por vértice, entradas com os IDs das portas, móveis com apoio/footprint/colisão/oclusão do próprio prop",
+    label: tx(
+      "Trecho editável no editor do T1: terreno por vértice, entradas com os IDs das portas, móveis com apoio/footprint/colisão/oclusão do próprio prop",
+      "Editable section in the T1 editor: per-vertex terrain, entrances with the door IDs, furniture with each prop's own support/footprint/collision/occlusion",
+    ),
   };
 }
 
@@ -616,6 +672,9 @@ export function reviewObject(studio: Studio, projectId: string, raw: z.input<typ
     payload,
     files: carryFiles(studio.db, base.revision, "map", "object", payload, { keep: (k) => k === "raw" }),
     edges: [{ toRevisionId: base.revision.id, role: "source", ordinal: 0, runtime: false }],
-    technicalReport: { operation: "map_object_review", label: "Apoio, footprint, colisão e oclusão revisados pelo artista (sombra e origem preservadas)" },
+    technicalReport: {
+      operation: "map_object_review",
+      label: tx("Apoio, footprint, colisão e oclusão revisados pelo artista (sombra e origem preservadas)", "Support, footprint, collision and occlusion reviewed by the artist (shadow and origin preserved)"),
+    },
   });
 }

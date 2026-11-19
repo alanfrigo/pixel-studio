@@ -1,4 +1,5 @@
 import type { BasePayload, ClipPayload, Insets, Offset, Rect, Size } from "@/contracts";
+import { type LocalizedText, tx } from "@/i18n/locales";
 
 /**
  * Canvas de clipe e de objeto (04 §contratos: "Ao ampliar a célula de um golpe,
@@ -25,7 +26,7 @@ export interface CanvasResult<T> {
   /** Deslocamento aplicado a tudo que está na célula: `[left, top]`. */
   shift: Offset;
   size: Size;
-  problems: string[];
+  problems: LocalizedText[];
 }
 
 export function marginsAreZero(m: CanvasMargins): boolean {
@@ -56,10 +57,10 @@ function inside(box: Rect, [W, H]: Size): boolean {
  * transparentes por construção).
  */
 export function resizeClipCanvas(clip: ClipPayload, m: CanvasMargins, contentBoxes?: Record<string, Rect | null>): CanvasResult<ClipPayload> {
-  const problems: string[] = [];
+  const problems: LocalizedText[] = [];
   const shift: Offset = [m.left, m.top];
   const size = resizedCell(clip.logicalSize, m);
-  if (size[0] < 1 || size[1] < 1) return { payload: clip, shift, size, problems: [`A célula ficaria ${size.join("×")}`] };
+  if (size[0] < 1 || size[1] < 1) return { payload: clip, shift, size, problems: [tx(`A célula ficaria ${size.join("×")}`, `The cell would be ${size.join("×")}`)] };
   const margins: Insets = {
     left: clip.margins.left + m.left,
     right: clip.margins.right + m.right,
@@ -67,16 +68,16 @@ export function resizeClipCanvas(clip: ClipPayload, m: CanvasMargins, contentBox
     bottom: clip.margins.bottom + m.bottom,
   };
   for (const side of ["left", "right", "top", "bottom"] as const) {
-    if (margins[side] < 0) problems.push(`Reduzir ${side} além das margens acrescentadas deixaria a célula menor que a do rig/objeto (margem ${margins[side]})`);
+    if (margins[side] < 0) problems.push(tx(`Reduzir ${side} além das margens acrescentadas deixaria a célula menor que a do rig/objeto (margem ${margins[side]})`, `Shrinking ${side} past the added margins would make the cell smaller than the rig/object cell (margin ${margins[side]})`));
   }
   const pivot: [number, number] = [clip.pivot[0] + shift[0], clip.pivot[1] + shift[1]];
-  if (pivot[0] < 0 || pivot[1] < 0 || pivot[0] > size[0] || pivot[1] > size[1]) problems.push(`O pivô ficaria fora da célula (${pivot.join(",")})`);
+  if (pivot[0] < 0 || pivot[1] < 0 || pivot[0] > size[0] || pivot[1] > size[1]) problems.push(tx(`O pivô ficaria fora da célula (${pivot.join(",")})`, `The pivot would fall outside the cell (${pivot.join(",")})`));
 
   const frames = clip.frames.map((frame) => {
     const box = contentBoxes?.[frame.frameId];
     if (box) {
       const moved: Rect = [box[0] + shift[0], box[1] + shift[1], box[2], box[3]];
-      if (!inside(moved, size)) problems.push(`Quadro ${frame.frameId}: pixels visíveis sairiam da célula ${size.join("×")}`);
+      if (!inside(moved, size)) problems.push(tx(`Quadro ${frame.frameId}: pixels visíveis sairiam da célula ${size.join("×")}`, `Frame ${frame.frameId}: visible pixels would fall outside the ${size.join("×")} cell`));
     }
     const layers: ClipPayload["frames"][number]["layers"] = [];
     frame.layers.forEach((layer, li) => {
@@ -86,7 +87,7 @@ export function resizeClipCanvas(clip: ClipPayload, m: CanvasMargins, contentBox
         return;
       }
       if (contentBoxes === undefined || !(frame.frameId in contentBoxes)) {
-        problems.push(`Quadro ${frame.frameId}, camada ${li} (${layer.partId}): reduzir exige medir o conteúdo do quadro`);
+        problems.push(tx(`Quadro ${frame.frameId}, camada ${li} (${layer.partId}): reduzir exige medir o conteúdo do quadro`, `Frame ${frame.frameId}, layer ${li} (${layer.partId}): shrinking requires measuring the frame content`));
         layers.push(layer);
         return;
       }
@@ -100,7 +101,7 @@ export function resizeClipCanvas(clip: ClipPayload, m: CanvasMargins, contentBox
     });
     const sockets = frame.sockets.map((s) => {
       const at: [number, number] = [s.at[0] + shift[0], s.at[1] + shift[1]];
-      if (at[0] < 0 || at[1] < 0 || at[0] >= size[0] || at[1] >= size[1]) problems.push(`Quadro ${frame.frameId}: socket ${s.socketId} sairia da célula`);
+      if (at[0] < 0 || at[1] < 0 || at[0] >= size[0] || at[1] >= size[1]) problems.push(tx(`Quadro ${frame.frameId}: socket ${s.socketId} sairia da célula`, `Frame ${frame.frameId}: socket ${s.socketId} would fall outside the cell`));
       return { ...s, at: [Math.max(0, at[0]), Math.max(0, at[1])] as [number, number] };
     });
     return { ...frame, layers, sockets };
@@ -114,13 +115,13 @@ export function resizeClipCanvas(clip: ClipPayload, m: CanvasMargins, contentBox
  * vista, onde o arquivo atual deve ser colocado na tela nova (`canvas_fit`).
  */
 export function resizeBaseCanvas(base: BasePayload, m: CanvasMargins): CanvasResult<BasePayload> & { placements: { direction: string; fileId: string; offset: Offset; rect: Rect }[] } {
-  const problems: string[] = [];
+  const problems: LocalizedText[] = [];
   const shift: Offset = [m.left, m.top];
   const size = resizedCell(base.logicalSize, m);
-  if (size[0] < 1 || size[1] < 1) return { payload: base, shift, size, problems: [`A célula ficaria ${size.join("×")}`], placements: [] };
+  if (size[0] < 1 || size[1] < 1) return { payload: base, shift, size, problems: [tx(`A célula ficaria ${size.join("×")}`, `The cell would be ${size.join("×")}`)], placements: [] };
   const groundOrigin: [number, number] = [base.groundOrigin[0] + shift[0], base.groundOrigin[1] + shift[1]];
   if (groundOrigin[0] < 0 || groundOrigin[1] < 0 || groundOrigin[0] > size[0] || groundOrigin[1] > size[1]) {
-    problems.push(`A origem no chão ficaria fora da célula (${groundOrigin.join(",")})`);
+    problems.push(tx(`A origem no chão ficaria fora da célula (${groundOrigin.join(",")})`, `The ground origin would fall outside the cell (${groundOrigin.join(",")})`));
   }
   const placements = base.views.map((v) => ({
     direction: v.direction,

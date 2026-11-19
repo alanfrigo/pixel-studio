@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { GenerationPlan } from "@/contracts";
+import { pick, tx } from "@/i18n/locales";
 import { type AssetView, publishRevision } from "../../../catalog/catalog";
 import { DomainFailure } from "../../../errors";
 import { ROOM_GUIDE_COLORS, ROOM_ROUTE_LABELS } from "../../../scenes/core";
@@ -47,7 +48,7 @@ export function guideScale([w, h]: readonly [number, number]): number {
 
 async function renderGuide(env: PipelineEnv, plan: RoomPlan, dir: string, scale: number) {
   const run = await pythonWith(env, dir, "room_guide", [], guideRecipe(plan, scale));
-  if (run.status === "error") throw new DomainFailure("validation_failed", `Guia da planta: ${run.message}`, { code: run.code });
+  if (run.status === "error") throw new DomainFailure("validation_failed", tx(`Guia da planta: ${pick(run.message, "pt-BR")}`, `Floor plan guide: ${pick(run.message, "en")}`), { code: run.code });
   return outputBytes(run, "guide");
 }
 
@@ -74,7 +75,7 @@ async function processRoom(env: PipelineEnv, plan: GenerationPlan, sha256: strin
 function publishRoom(ctx: HandlerContext, plan: RoomPlan, asset: AssetView, part: PartRow): string[] {
   const p = plan.params;
   const [row] = partResults(ctx, part.part_key);
-  if (!row) throw new DomainFailure("provider_rejected", "O provedor não devolveu a imagem da sala");
+  if (!row) throw new DomainFailure("provider_rejected", tx("O provedor não devolveu a imagem da sala", "The provider did not return the room image"));
   const image = { row, processed: parseJson<ProcessedPart>(row.processed_json)! };
   const params = { theme: p.theme, projection: p.projection, tileSize: p.tileSize, doors: p.doors, floorPlan: p.floorPlan, styleRoomRevisionId: p.styleRoomRevisionId };
   const payload = genericRoomPayload({ params, grid: { pictureSize: [image.processed.width, image.processed.height], cellPx: p.guide.cellPx, gridOrigin: p.guide.gridOrigin } });
@@ -110,7 +111,7 @@ function publishRoom(ctx: HandlerContext, plan: RoomPlan, asset: AssetView, part
 export const roomPipeline: OperationPipeline = {
   validateTarget({ plan, asset }) {
     roomPlan(plan);
-    if (asset.family !== "map" || asset.kind !== "room") throw new DomainFailure("validation_failed", `Sala publica em map/room; o asset é ${asset.family}/${asset.kind}`);
+    if (asset.family !== "map" || asset.kind !== "room") throw new DomainFailure("validation_failed", tx(`Sala publica em map/room; o asset é ${asset.family}/${asset.kind}`, `A room publishes to map/room; the asset is ${asset.family}/${asset.kind}`));
   },
   loadInputs: (ctx, plan) => loadRoomInputs(ctx, plan),
   process: processRoom,

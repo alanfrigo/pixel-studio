@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale, useMessages } from "@/i18n/client";
+import { commonMessages } from "@/i18n/messages/common";
+import { workspaceMessages } from "@/i18n/messages/workspace";
 
 export type PreviewBg = "checker" | "dark" | "light";
 
@@ -9,7 +12,7 @@ interface Side {
   src: string;
 }
 
-function loadPixels(src: string): Promise<ImageData> {
+function loadPixels(src: string, failed: (src: string) => string): Promise<ImageData> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -20,7 +23,7 @@ function loadPixels(src: string): Promise<ImageData> {
       ctx.drawImage(img, 0, 0);
       resolve(ctx.getImageData(0, 0, c.width, c.height));
     };
-    img.onerror = () => reject(new Error(`Falha ao carregar ${src}`));
+    img.onerror = () => reject(new Error(failed(src)));
     img.src = src;
   });
 }
@@ -48,11 +51,15 @@ function Pixels({ data, zoom, bg, title }: { data: ImageData; zoom: number; bg: 
  * mapa dos pixels que mudaram (RGBA exato), para revisar uma variação.
  */
 export function RevisionCompare({ a, b, zoom, bg, onClose }: { a: Side; b: Side; zoom: number; bg: PreviewBg; onClose?: () => void }) {
+  const locale = useLocale();
+  const m = useMessages(workspaceMessages).compare;
+  const c = useMessages(commonMessages);
+  const loadFailed = m.loadFailed;
   const [state, setState] = useState<{ key: string; a: ImageData; b: ImageData; diff: ImageData | null; changed: number } | { key: string; error: string } | null>(null);
   const key = `${a.src}|${b.src}`;
   useEffect(() => {
     let alive = true;
-    Promise.all([loadPixels(a.src), loadPixels(b.src)])
+    Promise.all([loadPixels(a.src, loadFailed), loadPixels(b.src, loadFailed)])
       .then(([pa, pb]) => {
         if (!alive) return;
         if (pa.width !== pb.width || pa.height !== pb.height) return setState({ key, a: pa, b: pb, diff: null, changed: -1 });
@@ -70,23 +77,23 @@ export function RevisionCompare({ a, b, zoom, bg, onClose }: { a: Side; b: Side;
     return () => {
       alive = false;
     };
-  }, [a.src, b.src, key]);
+  }, [a.src, b.src, key, loadFailed]);
 
   const current = state?.key === key ? state : null;
   return (
     <div className="compare">
       <div className="row">
-        <strong>Comparar</strong>
+        <strong>{m.title}</strong>
         <span className="small muted">
           {a.label} × {b.label}
         </span>
         {onClose && (
           <button type="button" className="secondary" onClick={onClose}>
-            Fechar
+            {c.close}
           </button>
         )}
       </div>
-      {!current && <p className="muted small">Carregando…</p>}
+      {!current && <p className="muted small">{c.loading}</p>}
       {current && "error" in current && <p className="error small">{current.error}</p>}
       {current && !("error" in current) && (
         <>
@@ -101,17 +108,21 @@ export function RevisionCompare({ a, b, zoom, bg, onClose }: { a: Side; b: Side;
             </figure>
             {current.diff && (
               <figure>
-                <Pixels data={current.diff} zoom={zoom} bg={bg} title="Pixels alterados em vermelho" />
-                <figcaption className="small">diferença</figcaption>
+                <Pixels data={current.diff} zoom={zoom} bg={bg} title={m.changedTitle} />
+                <figcaption className="small">{m.diff}</figcaption>
               </figure>
             )}
           </div>
           <p className="small">
             {current.changed < 0
-              ? "Tamanhos diferentes: comparação só visual."
+              ? m.sizeDiffers
               : current.changed === 0
-                ? "Pixels idênticos."
-                : `${current.changed} pixel(s) diferentes de ${current.a.width * current.a.height} (${((100 * current.changed) / (current.a.width * current.a.height)).toFixed(1)}%).`}
+                ? m.identical
+                : m.changed(
+                    current.changed,
+                    current.a.width * current.a.height,
+                    new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format((100 * current.changed) / (current.a.width * current.a.height)),
+                  )}
           </p>
         </>
       )}

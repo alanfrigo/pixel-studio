@@ -4,6 +4,9 @@ import { useState } from "react";
 import type { MapObjectPayload } from "@/contracts";
 import type { AssetView, RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
+import { useLocale, useMessages } from "@/i18n/client";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { worldMessages } from "@/i18n/messages/world";
 import { MapEditor } from "./map-editor";
 import { errorText, fileOf, mediaUrl, PIXEL, review, uploadImage, type WorldCatalog } from "./world-client";
 
@@ -12,13 +15,16 @@ import { errorText, fileOf, mediaUrl, PIXEL, review, uploadImage, type WorldCata
  * com apoio/colisão/oclusão revisados e abrir o editor.
  */
 export function MapsPanel({ projectId, catalog, refresh, initialMap }: { projectId: string; catalog: WorldCatalog; refresh: () => void; initialMap: string | null }) {
+  const m = useMessages(worldMessages).maps;
+  const w = useMessages(worldMessages).shared;
+  const c = useMessages(commonMessages);
   const [open, setOpen] = useState<string | null>(initialMap);
   const [message, setMessage] = useState<string | null>(null);
   const tilesets = catalog.tilesets.flatMap(({ asset, revisions }) => revisions.filter((r) => r.status !== "rejected").map((r) => ({ asset, revision: r })));
 
   async function decideObject(asset: AssetView, revision: RevisionView, decision: "approve" | "reject") {
     try {
-      const reason = decision === "reject" ? (window.prompt("Motivo da reprovação") ?? "").trim() || null : null;
+      const reason = decision === "reject" ? (window.prompt(c.rejectReasonPrompt) ?? "").trim() || null : null;
       if (decision === "reject" && !reason) return;
       await review(projectId, asset, revision.id, decision, reason);
       refresh();
@@ -35,19 +41,20 @@ export function MapsPanel({ projectId, catalog, refresh, initialMap }: { project
         <ImportObject projectId={projectId} refresh={refresh} />
       </div>
       <section>
-        <h2>Mapas</h2>
-        {catalog.maps.length === 0 && <p className="muted small">Nenhum mapa ainda.</p>}
+        <h2>{m.title}</h2>
+        {catalog.maps.length === 0 && <p className="muted small">{m.empty}</p>}
         <ul className="small">
           {catalog.maps.map(({ asset, revisions }) => (
             <li key={asset.id}>
               <button type="button" className={open === asset.id ? "" : "secondary"} onClick={() => setOpen(asset.id)}>
                 {asset.name}
               </button>{" "}
-              {revisions.length} revisão(ões){asset.approvedRevisionId ? ` · ativa r${revisions.find((r) => r.id === asset.approvedRevisionId)?.number}` : ""}
+              {m.revisions(revisions.length)}
+              {asset.approvedRevisionId ? ` · ${w.activeRevision(revisions.find((r) => r.id === asset.approvedRevisionId)?.number)}` : ""}
             </li>
           ))}
         </ul>
-        <h3 className="small">Objetos de mapa</h3>
+        <h3 className="small">{m.mapObjects}</h3>
         <div className="row" style={{ alignItems: "flex-end" }}>
           {catalog.objects.flatMap(({ asset, revisions }) =>
             revisions.slice(0, 2).map((rev) => {
@@ -58,18 +65,16 @@ export function MapsPanel({ projectId, catalog, refresh, initialMap }: { project
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   {img && <img src={mediaUrl(projectId, img.id)} alt={asset.name} className="pixel bg-checker" style={{ ...PIXEL, width: p.logicalSize[0] * 2 }} />}
                   <div>
-                    {asset.name} r{rev.number} <span className={`badge state-${rev.status}`}>{rev.status}</span>
+                    {asset.name} r{rev.number} <span className={`badge state-${rev.status}`}>{labelOf(c.revisionStatus, rev.status)}</span>
                   </div>
-                  <div className="muted">
-                    apoio {p.supportPoint.join(",")} · {p.collision.length} colisão(ões)
-                  </div>
+                  <div className="muted">{m.objectInfo(p.supportPoint.join(","), p.collision.length)}</div>
                   {rev.status === "candidate" && (
                     <div className="row" style={{ justifyContent: "center" }}>
                       <button type="button" onClick={() => decideObject(asset, rev, "approve")}>
-                        Aprovar
+                        {c.approve}
                       </button>
                       <button type="button" className="secondary" onClick={() => decideObject(asset, rev, "reject")}>
-                        Reprovar
+                        {c.reject}
                       </button>
                     </div>
                   )}
@@ -85,7 +90,10 @@ export function MapsPanel({ projectId, catalog, refresh, initialMap }: { project
 }
 
 function CreateMap({ projectId, tilesets, onCreated }: { projectId: string; tilesets: { asset: AssetView; revision: RevisionView }[]; onCreated: (assetId: string) => void }) {
-  const [name, setName] = useState("Clareira 12×8");
+  const m = useMessages(worldMessages).maps;
+  const w = useMessages(worldMessages).shared;
+  const c = useMessages(commonMessages);
+  const [name, setName] = useState(m.createDefaultName);
   const [tileset, setTileset] = useState("");
   const [cols, setCols] = useState(12);
   const [rows, setRows] = useState(8);
@@ -101,36 +109,36 @@ function CreateMap({ projectId, tilesets, onCreated }: { projectId: string; tile
   }
   return (
     <section>
-      <h2>Novo mapa</h2>
+      <h2>{m.createTitle}</h2>
       <div className="row">
         <label>
-          Nome
+          {w.name}
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label>
-          Tileset
+          {m.tileset}
           <select value={tileset} onChange={(e) => setTileset(e.target.value)}>
             <option value="">—</option>
             {tilesets.map(({ asset, revision }) => (
               <option key={revision.id} value={revision.id}>
-                {asset.name} r{revision.number} ({asset.kind}, {revision.status})
+                {asset.name} r{revision.number} ({asset.kind}, {labelOf(c.revisionStatus, revision.status)})
               </option>
             ))}
           </select>
         </label>
         <label>
-          Colunas
+          {m.columns}
           <input type="number" min={1} max={128} value={cols} onChange={(e) => setCols(Number(e.target.value))} style={{ width: 70 }} />
         </label>
         <label>
-          Linhas
+          {m.rows}
           <input type="number" min={1} max={128} value={rows} onChange={(e) => setRows(Number(e.target.value))} style={{ width: 70 }} />
         </label>
         <button type="button" disabled={!tileset} onClick={submit}>
-          Criar
+          {m.create}
         </button>
       </div>
-      <p className="small muted">O mapa guarda a grade lógica de terreno, a regra resolvida, objetos, colisões, regiões e portas; não é uma imagem achatada.</p>
+      <p className="small muted">{m.createNote}</p>
       {message && <p className="error small">{message}</p>}
     </section>
   );
@@ -138,8 +146,11 @@ function CreateMap({ projectId, tilesets, onCreated }: { projectId: string; tile
 
 function ImportObject({ projectId, refresh }: { projectId: string; refresh: () => void }) {
   const [file, setFile] = useState<File | null>(null);
+  const m = useMessages(worldMessages).maps;
+  const w = useMessages(worldMessages).shared;
+  const locale = useLocale();
   const [size, setSize] = useState<[number, number] | null>(null);
-  const [name, setName] = useState("Árvore");
+  const [name, setName] = useState(m.objectDefaultName);
   const [support, setSupport] = useState("16,44");
   const [footprint, setFootprint] = useState("1,1");
   const [collision, setCollision] = useState("13,38,6,7");
@@ -166,7 +177,7 @@ function ImportObject({ projectId, refresh }: { projectId: string; refresh: () =
     setMessage(null);
     try {
       const nums = (s: string) => s.split(",").map((n) => Number(n.trim()));
-      const uploadId = await uploadImage(projectId, file, file.name);
+      const uploadId = await uploadImage(projectId, file, file.name, locale);
       const res = await apiFetch<{ revision: RevisionView }>(`/projects/${projectId}/world/objects`, {
         method: "POST",
         json: {
@@ -181,7 +192,7 @@ function ImportObject({ projectId, refresh }: { projectId: string; refresh: () =
           },
         },
       });
-      setMessage(`${name} r${res.revision.number} publicado como candidato`);
+      setMessage(m.objectPublished(name, res.revision.number));
       refresh();
     } catch (err) {
       setMessage(errorText(err));
@@ -190,41 +201,41 @@ function ImportObject({ projectId, refresh }: { projectId: string; refresh: () =
 
   return (
     <section>
-      <h2>Importar objeto de mapa</h2>
-      <p className="small muted">Apoio em px da imagem (pousa no centro do footprint); colisão em retângulos x,y,w,h separados por “;” (ex.: só o tronco); a copa acima da linha de oclusão cobre o personagem.</p>
+      <h2>{m.importTitle}</h2>
+      <p className="small muted">{m.importNote}</p>
       <div className="row">
         <input type="file" accept="image/png" onChange={(e) => pick(e.target.files?.[0] ?? null)} />
         {size && <span className="small muted">{size.join("×")} px</span>}
         <label>
-          Nome
+          {w.name}
           <input value={name} onChange={(e) => setName(e.target.value)} style={{ width: 110 }} />
         </label>
         <label>
-          Vista
+          {m.view}
           <select value={projection} onChange={(e) => setProjection(e.target.value)}>
-            <option value="top_down">top-down</option>
-            <option value="three_quarter">três-quartos</option>
-            <option value="side">lateral</option>
+            <option value="top_down">{m.projection.top_down}</option>
+            <option value="three_quarter">{m.projection.three_quarter}</option>
+            <option value="side">{m.projection.side}</option>
           </select>
         </label>
         <label>
-          Apoio x,y
+          {m.supportXY}
           <input value={support} onChange={(e) => setSupport(e.target.value)} style={{ width: 70 }} />
         </label>
         <label>
-          Footprint
+          {m.footprint}
           <input value={footprint} onChange={(e) => setFootprint(e.target.value)} style={{ width: 50 }} />
         </label>
         <label>
-          Colisão
+          {m.collision}
           <input value={collision} onChange={(e) => setCollision(e.target.value)} style={{ width: 110 }} />
         </label>
         <label>
-          Oclusão acima de y
+          {m.occlusionAbove}
           <input value={occlusion} onChange={(e) => setOcclusion(e.target.value)} style={{ width: 60 }} />
         </label>
         <button type="button" disabled={!file} onClick={submit}>
-          Importar
+          {m.import}
         </button>
       </div>
       {message && <p className="small">{message}</p>}

@@ -3,6 +3,7 @@ import { Direction, Id, type LoadoutPayload, Slug } from "@/contracts";
 import { exportBlockers, type ResolvedCombo } from "@/domain/equipment/resolve";
 import { replaceConflicting } from "@/domain/equipment/slots";
 import { comboKey, describeWhere } from "@/domain/equipment/types";
+import { tx } from "@/i18n/locales";
 import { createAsset, getAsset, getProject, publishRevision, type PublishFile } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import type { Studio } from "../studio";
@@ -41,18 +42,21 @@ export async function publishLoadout(studio: Studio, projectId: string, raw: Pub
   const { resolution } = ctx;
   const global = resolution.pendencies.filter((p) => p.blocking);
   if (global.length > 0 || !resolution.snapshot) {
-    throw new DomainFailure("validation_failed", global[0]?.message ?? "Conjunto sem postura resolvida", { pendencies: global });
+    throw new DomainFailure("validation_failed", global[0]?.message ?? tx("Conjunto sem postura resolvida", "Loadout has no resolved stance"), { pendencies: global });
   }
   const wanted = input.subset ? new Set(input.subset.combos.map(comboKey)) : new Set(resolution.combos.map((c) => c.key));
   const unknown = [...wanted].filter((k) => !resolution.combos.some((c) => c.key === k));
-  if (unknown.length) throw new DomainFailure("validation_failed", `Combinações fora do pedido: ${unknown.join(", ")}`);
+  if (unknown.length) throw new DomainFailure("validation_failed", tx(`Combinações fora do pedido: ${unknown.join(", ")}`, `Combinations not in the request: ${unknown.join(", ")}`));
   const included = resolution.combos.filter((c) => wanted.has(c.key));
   const noClip = included.filter((c) => !c.clip);
   if (noClip.length > 0) {
     const pend = noClip.flatMap((c) => c.pendencies);
     throw new DomainFailure(
       "coverage_incomplete",
-      `Sem clipe para ${noClip.map((c) => c.key).join(", ")}: crie a variante ou publique um subconjunto explícito`,
+      tx(
+        `Sem clipe para ${noClip.map((c) => c.key).join(", ")}: crie a variante ou publique um subconjunto explícito`,
+        `No clip for ${noClip.map((c) => c.key).join(", ")}: create the variant or publish an explicit subset`,
+      ),
       { pendencies: pend },
     );
   }
@@ -60,9 +64,16 @@ export async function publishLoadout(studio: Studio, projectId: string, raw: Pub
     const notReady = included.filter((c) => c.status !== "ready");
     if (notReady.length > 0) {
       const blockers = notReady.flatMap((c) => c.pendencies.filter((p) => p.blocking));
-      throw new DomainFailure("coverage_incomplete", `O subconjunto não está completo: ${blockers[0] ? `${blockers[0].message} (${describeWhere(blockers[0].where)})` : notReady[0]!.key}`, {
-        pendencies: blockers,
-      });
+      const first = blockers[0];
+      const where = first ? describeWhere(first.where) : null;
+      throw new DomainFailure(
+        "coverage_incomplete",
+        tx(
+          `O subconjunto não está completo: ${first ? `${first.message["pt-BR"]} (${where!["pt-BR"]})` : notReady[0]!.key}`,
+          `The subset is not complete: ${first ? `${first.message.en} (${where!.en})` : notReady[0]!.key}`,
+        ),
+        { pendencies: blockers },
+      );
     }
   }
 
@@ -98,7 +109,7 @@ export async function publishLoadout(studio: Studio, projectId: string, raw: Pub
   let assetId = input.assetId;
   if (assetId) {
     const asset = getAsset(studio.db, projectId, assetId);
-    if (asset.family !== "equipment" || asset.kind !== "loadout") throw new DomainFailure("validation_failed", `${asset.name} não é um conjunto`);
+    if (asset.family !== "equipment" || asset.kind !== "loadout") throw new DomainFailure("validation_failed", tx(`${asset.name} não é um conjunto`, `${asset.name} is not a loadout`));
   } else {
     const names = ctx.overlays.map((o) => o.name).join(" + ");
     assetId = createAsset(studio.db, studio.clock, { projectId, family: "equipment", kind: "loadout", name: (input.name ?? `Conjunto: ${names || "sem peças"}`).slice(0, 120) }).id;

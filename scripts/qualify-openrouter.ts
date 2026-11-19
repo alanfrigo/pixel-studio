@@ -11,6 +11,7 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pick } from "@/i18n/locales";
 import { buildClareira } from "@/fixtures/clareira";
 import { createAsset, createProject, getRevision } from "@/server/catalog/catalog";
 import { loadConfig, loadDotEnv, REPO_ROOT } from "@/server/config";
@@ -127,7 +128,7 @@ async function preview(sha256: string, maxSize: number, file: string) {
     { protocolVersion: 1, jobId: "job_q", attemptId: "att_q", operation: "make_thumbnail", inputs: [{ ordinal: 0, role: "source", sha256, relPath: "in/source" }], recipe: { version: 1, maxSize } },
     { python: studio.config.python, workDir: work },
   );
-  if (r.status === "error") throw new Error(r.message);
+  if (r.status === "error") throw new Error(pick(r.message, "pt-BR"));
   await writeFile(path.join(reportDir, file), await readFile(r.outputs[0]!.absolutePath));
 }
 

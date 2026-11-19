@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { ErrorCode, JobKind } from "@/contracts";
@@ -71,12 +72,12 @@ export class JobRunner {
     log("Job reservado", { jobId: job.id, kind: job.kind, attempt: attempt.number, stage: job.stage });
     try {
       const handler = this.handlers[job.kind];
-      if (!handler) throw new DomainFailure("capability_missing", `Nenhum executor para jobs do tipo ${job.kind}`);
+      if (!handler) throw new DomainFailure("capability_missing", tx(`Nenhum executor para jobs do tipo ${job.kind}`, `No executor for jobs of kind ${job.kind}`));
       await mkdir(workDir, { recursive: true });
       await handler(ctx);
       const after = queue.get(job.id);
       if (after?.state === "running" && after.current_attempt_id === attempt.id) {
-        throw new DomainFailure("internal", "O executor terminou sem concluir o job");
+        throw new DomainFailure("internal", tx("O executor terminou sem concluir o job", "The executor finished without completing the job"));
       }
     } catch (err) {
       this.handleError(ctx, err);

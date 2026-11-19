@@ -22,9 +22,10 @@ from typing import Any
 
 from PIL import Image, ImageOps
 
-from pixel_pipeline.animation import _binary, _feet_x, _paste_clipped, _scale, grid_crossings
+from pixel_pipeline.animation import _binary, _feet_x, _paste_clipped, _scale, crossing_warning, grid_crossings
+from pixel_pipeline.i18n import tx
 from pixel_pipeline.operations import hex_rgb, inputs_by_ordinal, load_rgba, optional_input, recipe_of, respond, write_png
-from pixel_pipeline.protocol import PipelineError, input_by_role, rgba_sha256
+from pixel_pipeline.protocol import PipelineError, Text, input_by_role, rgba_sha256
 
 Json = dict[str, Any]
 
@@ -46,13 +47,13 @@ def compose_frames(request: Json, workdir: Path) -> Json:
         for n, layer in enumerate(frame["layers"]):
             image = sources.get(layer["input"])
             if image is None:
-                raise PipelineError("invalid_request", f"Quadro {frame['key']}: camada {n} cita a entrada {layer['input']} inexistente")
+                raise PipelineError("invalid_request", tx(f"Quadro {frame['key']}: camada {n} cita a entrada {layer['input']} inexistente", f"Frame {frame['key']}: layer {n} references missing input {layer['input']}"))
             x, y, w, h = layer["rect"]
             if x + w > image.width or y + h > image.height:
-                raise PipelineError("geometry_mismatch", f"Quadro {frame['key']}: retângulo {layer['rect']} fora do arquivo {image.width}×{image.height}")
+                raise PipelineError("geometry_mismatch", tx(f"Quadro {frame['key']}: retângulo {layer['rect']} fora do arquivo {image.width}×{image.height}", f"Frame {frame['key']}: rectangle {layer['rect']} outside the {image.width}×{image.height} file"))
             ox, oy = layer["offset"]
             if ox < 0 or oy < 0 or ox + w > cw or oy + h > ch:
-                raise PipelineError("geometry_mismatch", f"Quadro {frame['key']}: camada {w}×{h} em {ox},{oy} excede a célula {cw}×{ch}")
+                raise PipelineError("geometry_mismatch", tx(f"Quadro {frame['key']}: camada {w}×{h} em {ox},{oy} excede a célula {cw}×{ch}", f"Frame {frame['key']}: {w}×{h} layer at {ox},{oy} exceeds the {cw}×{ch} cell"))
             canvas.alpha_composite(image.crop((x, y, x + w, y + h)), dest=(ox, oy))
         composed.append(canvas)
         frames.append({"key": frame["key"], "contentBox": _box(canvas), "rgbaSha256": rgba_sha256(canvas)})
@@ -63,7 +64,7 @@ def compose_frames(request: Json, workdir: Path) -> Json:
     if sheet:
         cols, rows, k = sheet["columns"], sheet["rows"], sheet["scale"]
         if len(composed) > cols * rows:
-            raise PipelineError("geometry_mismatch", f"{len(composed)} quadros para {cols * rows} células")
+            raise PipelineError("geometry_mismatch", tx(f"{len(composed)} quadros para {cols * rows} células", f"{len(composed)} frames for {cols * rows} cells"))
         flat = sheet["flattenOnto"]
         background = (*hex_rgb(flat), 255) if flat else (0, 0, 0, 0)
         big = Image.new("RGBA", (cols * cw * k, rows * ch * k), background)
@@ -86,10 +87,10 @@ def sheet_match(request: Json, workdir: Path) -> Json:
     by_ordinal = inputs_by_ordinal(request, workdir, "layer")
     originals = [_binary(load_rgba(by_ordinal[k]), threshold) for k in sorted(by_ordinal)]
     if len(originals) != len(frame_ids):
-        raise PipelineError("invalid_request", f"{len(frame_ids)} quadros pedidos e {len(originals)} originais")
+        raise PipelineError("invalid_request", tx(f"{len(frame_ids)} quadros pedidos e {len(originals)} originais", f"{len(frame_ids)} frames requested and {len(originals)} originals"))
     for i, original in enumerate(originals):
         if original.size != (cw, ch):
-            raise PipelineError("geometry_mismatch", f"Original {frame_ids[i]} tem {original.width}×{original.height}; a célula é {cw}×{ch}")
+            raise PipelineError("geometry_mismatch", tx(f"Original {frame_ids[i]} tem {original.width}×{original.height}; a célula é {cw}×{ch}", f"Original {frame_ids[i]} is {original.width}×{original.height}; the cell is {cw}×{ch}"))
 
     sw, sh = sheet.size
     xs = [round(i * sw / cols) for i in range(cols + 1)]
@@ -113,12 +114,12 @@ def sheet_match(request: Json, workdir: Path) -> Json:
     resampled = abs(factor - 1) > recipe["scaleTolerance"]
     if not resampled:
         factor = 1.0
-    warnings: list[str] = []
+    warnings: list[Text] = []
     crossings = grid_crossings(sheet, xs, ys)
     if crossings:
-        warnings.append(f"Conteúdo atravessa a divisão da grade ({', '.join(crossings)}): o modelo não respeitou as células; quadros podem sair cortados — revise")
+        warnings.append(crossing_warning(crossings))
     if resampled:
-        warnings.append(f"Folha {sw}×{sh} fora da grade {cols * cw}×{rows * ch}: escala comum de {factor:.3f}× ({'maioria de bloco' if factor < 1 else 'vizinho mais próximo'}); revise contornos")
+        warnings.append(tx(f"Folha {sw}×{sh} fora da grade {cols * cw}×{rows * ch}: escala comum de {factor:.3f}× ({'maioria de bloco' if factor < 1 else 'vizinho mais próximo'}); revise contornos", f"Sheet {sw}×{sh} off the {cols * cw}×{rows * ch} grid: common {factor:.3f}× scale ({'block majority' if factor < 1 else 'nearest neighbor'}); review outlines"))
 
     # Apoio típico dos originais: usado quando o original de uma célula está vazio.
     anchors = []
@@ -137,13 +138,13 @@ def sheet_match(request: Json, workdir: Path) -> Json:
         box = region.getchannel("A").getbbox()
         if index >= len(frame_ids):
             if box is not None:
-                warnings.append(f"Célula {index + 1} da folha tem conteúdo mas não corresponde a nenhum quadro pedido")
+                warnings.append(tx(f"Célula {index + 1} da folha tem conteúdo mas não corresponde a nenhum quadro pedido", f"Sheet cell {index + 1} has content but matches no requested frame"))
             continue
         frame_id = frame_ids[index]
         canvas = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
         entry: Json = {"frameId": frame_id, "cell": index, "regionRect": [xs[c], ys[r], xs[c + 1] - xs[c], ys[r + 1] - ys[r]]}
         if box is None:
-            warnings.append(f"Quadro {frame_id} veio vazio na folha")
+            warnings.append(tx(f"Quadro {frame_id} veio vazio na folha", f"Frame {frame_id} came out empty in the sheet"))
             entry.update(empty=True, offset=None, clippedPixels=0)
         else:
             content = _binary(_scale(region.crop(box), factor), threshold)
@@ -156,7 +157,7 @@ def sheet_match(request: Json, workdir: Path) -> Json:
             visible_total = sum(1 for a in content.getchannel("A").getdata() if a)
             clipped = visible_total - visible_in
             if clipped:
-                warnings.append(f"Quadro {frame_id}: {clipped} pixel(s) ficaram fora da célula {cw}×{ch}; amplie o canvas")
+                warnings.append(tx(f"Quadro {frame_id}: {clipped} pixel(s) ficaram fora da célula {cw}×{ch}; amplie o canvas", f"Frame {frame_id}: {clipped} pixel(s) fell outside the {cw}×{ch} cell; enlarge the canvas"))
             entry.update(empty=False, offset=[dx, dy], clippedPixels=clipped, anchoredTo="original" if anchors[index] else "typical")
         strip.alpha_composite(canvas, dest=(len(frames) * cw, 0))
         outputs.append(write_png(workdir, canvas, f"out/frames/{len(frames):03d}.png", "frame", key=frame_id))
@@ -186,7 +187,7 @@ def mirror_frames(request: Json, workdir: Path) -> Json:
     recipe = recipe_of(request)
     layers = inputs_by_ordinal(request, workdir, "layer")
     if not layers:
-        raise PipelineError("invalid_request", "Espelho exige ao menos uma imagem (papel layer)")
+        raise PipelineError("invalid_request", tx("Espelho exige ao menos uma imagem (papel layer)", "Mirror requires at least one image (layer role)"))
     outputs = []
     for ordinal in sorted(layers):
         image = load_rgba(layers[ordinal])
@@ -210,6 +211,6 @@ def canvas_fit(request: Json, workdir: Path) -> Json:
     visible_in = sum(1 for a in canvas.getchannel("A").getdata() if a)
     visible_total = sum(1 for a in source.getchannel("A").getdata() if a)
     if visible_in != visible_total:
-        raise PipelineError("geometry_mismatch", f"A tela {w}×{h} com deslocamento {dx},{dy} recortaria {visible_total - visible_in} pixel(s) visíveis")
+        raise PipelineError("geometry_mismatch", tx(f"A tela {w}×{h} com deslocamento {dx},{dy} recortaria {visible_total - visible_in} pixel(s) visíveis", f"The {w}×{h} canvas with offset {dx},{dy} would clip {visible_total - visible_in} visible pixel(s)"))
     report = {"sourceSize": list(source.size), "size": [w, h], "offset": [dx, dy], "visiblePixels": visible_total, "contentBox": _box(canvas)}
     return respond([write_png(workdir, canvas, "out/fitted.png", "fitted")], report)

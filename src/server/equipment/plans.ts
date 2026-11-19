@@ -1,3 +1,4 @@
+import { type LocalizedText, type TextValue, tx } from "@/i18n/locales";
 import { z } from "zod";
 import {
   type Capability,
@@ -90,7 +91,7 @@ const cellKey = (clipRevisionId: string, frameId: string, partId: string) => `${
 
 export interface CoveragePlanSummary {
   mode: "coverage" | "rigid_view";
-  routeLabel: string;
+  routeLabel: LocalizedText;
   requested: number;
   existing: number;
   empty: number;
@@ -99,7 +100,7 @@ export interface CoveragePlanSummary {
   strips: { stripKey: string; clipRevisionId: string; clipName: string; frameIds: string[]; grid: string; canvas: [number, number] }[];
   /** Matriz pedida: por clipe, frame e parte, o que acontece com cada célula. */
   cells: { clipRevisionId: string; clipName: string; frameId: string; partId: string; fate: "existing" | "empty" | "reused" | "generate" | "later" }[];
-  warnings: string[];
+  warnings: TextValue[];
 }
 
 /** Cobertura: guia e prompt pedem o personagem inteiro vestido, só dentro da zona pintada. */
@@ -200,7 +201,7 @@ async function frameContentBoxes(studio: Studio, projectId: string, clipRevision
 export async function buildOverlayCoveragePlan(studio: Studio, projectId: string, raw: OverlayCoveragePlanInput) {
   const input = OverlayCoveragePlanInput.parse(raw);
   const project = getProject(studio.db, projectId);
-  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", "Projeto sem estilo ativo");
+  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", tx("Projeto sem estilo ativo", "Project has no active style"));
   const style = getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload;
   studio.providers.assertReady(input.providerProfileId);
   const adapter = studio.providers.adapterFor(input.providerProfileId);
@@ -210,8 +211,14 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
     throw new DomainFailure(
       "capability_missing",
       offered.length === 0
-        ? `O perfil ${input.providerProfileId} não tem rota para criar peças por frame. Alternativas: uma rota de imagem + referências (candidato vestido extraído localmente) ou "transferir roupa" para um clipe vestido e extrair a cobertura dele`
-        : `O perfil ${input.providerProfileId} não recebe as duas referências (frames da base e guia da zona) que a cobertura exige`,
+        ? tx(
+            `O perfil ${input.providerProfileId} não tem rota para criar peças por frame. Alternativas: uma rota de imagem + referências (candidato vestido extraído localmente) ou "transferir roupa" para um clipe vestido e extrair a cobertura dele`,
+            `Provider profile ${input.providerProfileId} has no route to create pieces per frame. Alternatives: an image + references route (dressed candidate extracted locally) or "outfit transfer" to a dressed clip and extract its coverage`,
+          )
+        : tx(
+            `O perfil ${input.providerProfileId} não recebe as duas referências (frames da base e guia da zona) que a cobertura exige`,
+            `Provider profile ${input.providerProfileId} does not accept the two references (base frames and zone guide) that coverage requires`,
+          ),
       { missing: required.filter((c) => !offered.includes(c)), offered },
     );
   }
@@ -221,17 +228,20 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
   const markColor = chooseKeyColor([...palette, keyColor]);
 
   const rig = loadRig(studio.db, projectId, input.rigRevisionId);
-  if (getRevision(studio.db, projectId, rig.ref.revisionId).status !== "approved") throw new DomainFailure("source_not_approved", "O rig precisa estar aprovado");
+  if (getRevision(studio.db, projectId, rig.ref.revisionId).status !== "approved") throw new DomainFailure("source_not_approved", tx("O rig precisa estar aprovado", "The rig must be approved"));
   const base = input.overlayRevisionId ? loadOverlay(studio.db, projectId, input.overlayRevisionId) : null;
-  if (base && base.status !== "approved") throw new DomainFailure("source_not_approved", `${base.name} r${base.number} precisa estar aprovada para receber coberturas novas`);
+  if (base && base.status !== "approved") throw new DomainFailure("source_not_approved", tx(`${base.name} r${base.number} precisa estar aprovada para receber coberturas novas`, `${base.name} r${base.number} must be approved to receive new coverage`));
   if (base && base.payload.rigRevisionId !== rig.ref.revisionId) {
-    throw new DomainFailure("validation_failed", `${base.name} foi feita para outra base; crie uma peça nova para esta base (a arte dela pode ir como referência de material)`);
+    throw new DomainFailure("validation_failed", tx(
+        `${base.name} foi feita para outra base; crie uma peça nova para esta base (a arte dela pode ir como referência de material)`,
+        `${base.name} was made for another base; create a new piece for this base (its art can go as a material reference)`,
+      ));
   }
   const slots = base?.payload.slots ?? input.item?.slots;
   const stances = base?.payload.stances ?? input.item?.stances;
-  if (!slots || !stances) throw new DomainFailure("validation_failed", "Peça nova precisa de slots e posturas");
+  if (!slots || !stances) throw new DomainFailure("validation_failed", tx("Peça nova precisa de slots e posturas", "A new piece needs slots and stances"));
   const unknownSlot = slots.find((s) => !rig.ref.payload.slots.some((x) => x.slotId === s));
-  if (unknownSlot) throw new DomainFailure("validation_failed", `Slot ${unknownSlot} não existe no rig`);
+  if (unknownSlot) throw new DomainFailure("validation_failed", tx(`Slot ${unknownSlot} não existe no rig`, `Slot ${unknownSlot} does not exist in the rig`));
 
   const sources: PlanSource[] = [];
   const pushSource = (s: Omit<PlanSource, "ordinal">) => sources.push({ ...s, ordinal: sources.length });
@@ -240,7 +250,7 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
   if (input.materialReference) {
     const ref = getRevision(studio.db, projectId, input.materialReference.revisionId);
     const file = ref.files.find((f) => f.fileKey === input.materialReference!.fileKey);
-    if (!file || file.mime !== "image/png") throw new DomainFailure("not_found", `A referência não tem a imagem ${input.materialReference.fileKey}`);
+    if (!file || file.mime !== "image/png") throw new DomainFailure("not_found", tx(`A referência não tem a imagem ${input.materialReference.fileKey}`, `The reference has no image ${input.materialReference.fileKey}`));
     materialSha = file.sha256;
   }
 
@@ -252,10 +262,10 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
   // ------------------------------------------------------------------ vista rígida
   if (input.mode === "rigid_view") {
     const view = input.view;
-    if (!view) throw new DomainFailure("validation_failed", "Informe a vista rígida (tamanho, empunhaduras e orientação)");
+    if (!view) throw new DomainFailure("validation_failed", tx("Informe a vista rígida (tamanho, empunhaduras e orientação)", "Provide the rigid view (size, grips and orientation)"));
     for (const g of view.grips) {
-      if (g.at[0] >= view.size[0] || g.at[1] >= view.size[1]) throw new DomainFailure("validation_failed", `Empunhadura ${g.socketId} fora da vista ${view.size.join("×")}`);
-      if (!rig.ref.payload.sockets.some((s) => s.socketId === g.socketId)) throw new DomainFailure("validation_failed", `Socket ${g.socketId} não existe no rig`);
+      if (g.at[0] >= view.size[0] || g.at[1] >= view.size[1]) throw new DomainFailure("validation_failed", tx(`Empunhadura ${g.socketId} fora da vista ${view.size.join("×")}`, `Grip ${g.socketId} is outside the ${view.size.join("×")} view`));
+      if (!rig.ref.payload.sockets.some((s) => s.socketId === g.socketId)) throw new DomainFailure("validation_failed", tx(`Socket ${g.socketId} não existe no rig`, `Socket ${g.socketId} does not exist in the rig`));
     }
     if (input.materialReference) pushSource({ revisionId: input.materialReference.revisionId, fileId: input.materialReference.fileKey, sha256: materialSha!, role: "material" });
     const params: OverlayCoverageParams = {
@@ -296,28 +306,28 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
       toGenerate: 1,
       strips: [],
       cells: [],
-      warnings: base?.payload.rigidViews.some((v) => v.viewId === view.viewId) ? [`A vista ${view.viewId} já existe; a nova substitui na candidata`] : [],
+      warnings: base?.payload.rigidViews.some((v) => v.viewId === view.viewId) ? [tx(`A vista ${view.viewId} já existe; a nova substitui na candidata`, `View ${view.viewId} already exists; the new one replaces it in the candidate`)] : [],
     });
   }
 
   // ------------------------------------------------------------------ cobertura
   const parts = input.parts.length ? input.parts : (base?.payload.parts.map((p) => p.partId) ?? []);
-  if (parts.length === 0) throw new DomainFailure("validation_failed", "Escolha as partes desenháveis da peça (ex.: torso, manga próxima)");
-  for (const p of parts) if (!rig.ref.payload.parts.some((x) => x.partId === p)) throw new DomainFailure("validation_failed", `Parte ${p} não existe no rig`);
-  if (input.clips.length === 0) throw new DomainFailure("validation_failed", "Escolha os movimentos e vistas a entregar");
+  if (parts.length === 0) throw new DomainFailure("validation_failed", tx("Escolha as partes desenháveis da peça (ex.: torso, manga próxima)", "Choose the drawable parts of the piece (e.g. torso, near sleeve)"));
+  for (const p of parts) if (!rig.ref.payload.parts.some((x) => x.partId === p)) throw new DomainFailure("validation_failed", tx(`Parte ${p} não existe no rig`, `Part ${p} does not exist in the rig`));
+  if (input.clips.length === 0) throw new DomainFailure("validation_failed", tx("Escolha os movimentos e vistas a entregar", "Choose the motions and views to deliver"));
 
   const clips = input.clips.map((c) => {
     const rev = getRevision(studio.db, projectId, c.clipRevisionId);
     const asset = getAsset(studio.db, projectId, rev.assetId);
-    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", `${asset.name} não é um clipe`);
-    if (rev.status !== "approved") throw new DomainFailure("source_not_approved", `${asset.name} r${rev.number} precisa estar aprovado: aprove a animação da base antes de produzir coberturas`);
+    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", tx(`${asset.name} não é um clipe`, `${asset.name} is not a clip`));
+    if (rev.status !== "approved") throw new DomainFailure("source_not_approved", tx(`${asset.name} r${rev.number} precisa estar aprovado: aprove a animação da base antes de produzir coberturas`, `${asset.name} r${rev.number} must be approved: approve the base animation before producing coverage`));
     const payload = rev.payload as ClipPayload;
-    if (payload.rigRevisionId !== rig.ref.revisionId) throw new DomainFailure("validation_failed", `${asset.name} usa outro rig`);
+    if (payload.rigRevisionId !== rig.ref.revisionId) throw new DomainFailure("validation_failed", tx(`${asset.name} usa outro rig`, `${asset.name} uses another rig`));
     if (payload.stance && !stances.includes(payload.stance) && !(payload.sharedStances ?? []).some((s) => stances.includes(s))) {
-      throw new DomainFailure("validation_failed", `${asset.name} é da postura ${payload.stance}, que a peça não declara`);
+      throw new DomainFailure("validation_failed", tx(`${asset.name} é da postura ${payload.stance}, que a peça não declara`, `${asset.name} belongs to stance ${payload.stance}, which the piece does not declare`));
     }
     const frameIds = c.frameIds?.length ? c.frameIds : payload.frames.map((f) => f.frameId);
-    for (const f of frameIds) if (!payload.frames.some((x) => x.frameId === f)) throw new DomainFailure("validation_failed", `Frame ${f} não existe em ${asset.name}`);
+    for (const f of frameIds) if (!payload.frames.some((x) => x.frameId === f)) throw new DomainFailure("validation_failed", tx(`Frame ${f} não existe em ${asset.name}`, `Frame ${f} does not exist in ${asset.name}`));
     return { revisionId: rev.id, name: asset.name, number: rev.number, payload, frameIds, revision: rev };
   });
 
@@ -336,7 +346,7 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
 
   // Poses equivalentes (mesmo digest de geometria) que já têm a parte desenhada na peça.
   const reused: ReusedCell[] = [];
-  const warnings: string[] = [];
+  const warnings: TextValue[] = [];
   if (base && gaps.length > 0) {
     const coveredClips = [...new Set(base.payload.parts.flatMap((p) => p.coverage.filter((c) => c.layer).map((c) => c.clipRevisionId)))];
     const digestOf = new Map<string, Record<string, string>>();
@@ -344,7 +354,7 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
       try {
         digestOf.set(id, await clipDigests(studio, projectId, id));
       } catch {
-        warnings.push(`Não foi possível medir o digest do clipe ${id}; sem reaproveitamento por equivalência`);
+        warnings.push(tx(`Não foi possível medir o digest do clipe ${id}; sem reaproveitamento por equivalência`, `Could not measure the digest of clip ${id}; no reuse by equivalence`));
       }
     }
     const existing = base.payload.parts.flatMap((p) =>
@@ -361,7 +371,7 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
   let toGenerate = gaps.filter((g) => !reusedKeys.has(cellKey(g.clipRevisionId, g.frameId, g.partId)));
   if (input.proofPose) {
     const proof = input.proofPose;
-    if (!clips.some((c) => c.revisionId === proof.clipRevisionId && c.frameIds.includes(proof.frameId))) throw new DomainFailure("validation_failed", "A pose de prova precisa estar entre os frames pedidos");
+    if (!clips.some((c) => c.revisionId === proof.clipRevisionId && c.frameIds.includes(proof.frameId))) throw new DomainFailure("validation_failed", tx("A pose de prova precisa estar entre os frames pedidos", "The proof pose must be among the requested frames"));
     for (const g of toGenerate) if (g.clipRevisionId !== proof.clipRevisionId || g.frameId !== proof.frameId) fate.set(cellKey(g.clipRevisionId, g.frameId, g.partId), "later");
     toGenerate = toGenerate.filter((g) => g.clipRevisionId === proof.clipRevisionId && g.frameId === proof.frameId);
   }
@@ -370,7 +380,13 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
   const summaryCells: CoveragePlanSummary["cells"] = clips.flatMap((c) => c.frameIds.flatMap((frameId) => parts.map((partId) => ({ clipRevisionId: c.revisionId, clipName: c.name, frameId, partId, fate: fate.get(cellKey(c.revisionId, frameId, partId))! }))));
   const counts = (f: string) => summaryCells.filter((c) => c.fate === f).length;
   if (toGenerate.length === 0) {
-    throw new DomainFailure("validation_failed", reused.length ? `Nada a gerar: ${reused.length} célula(s) reaproveitam poses equivalentes; aplique o reaproveitamento sem custo` : "Nada a gerar: todas as células pedidas já estão cobertas", {
+    const nothing = reused.length
+      ? tx(
+          `Nada a gerar: ${reused.length} célula(s) reaproveitam poses equivalentes; aplique o reaproveitamento sem custo`,
+          `Nothing to generate: ${reused.length} cell(s) reuse equivalent poses; apply the reuse at no cost`,
+        )
+      : tx("Nada a gerar: todas as células pedidas já estão cobertas", "Nothing to generate: every requested cell is already covered");
+    throw new DomainFailure("validation_failed", nothing, {
       nothingToGenerate: true,
       reused,
       cells: summaryCells,
@@ -426,7 +442,7 @@ export async function buildOverlayCoveragePlan(studio: Studio, projectId: string
     pushSource({ revisionId: clip.revisionId, fileId: null, sha256: canonicalDigest(clip.payload), role: "base" });
   }
   if (input.materialReference) pushSource({ revisionId: input.materialReference.revisionId, fileId: input.materialReference.fileKey, sha256: materialSha!, role: "material" });
-  if (sources.length > 16) throw new DomainFailure("validation_failed", "Clipes demais num plano: divida por movimento ou vista (até 12 clipes por plano)");
+  if (sources.length > 16) throw new DomainFailure("validation_failed", tx("Clipes demais num plano: divida por movimento ou vista (até 12 clipes por plano)", "Too many clips in one plan: split by motion or view (up to 12 clips per plan)"));
 
   const firstStrip = strips[0]!;
   const params: OverlayCoverageParams = {
@@ -536,7 +552,7 @@ export async function coverageTemplate(
     const clip = clipCache.get(c.clipRevisionId)!;
     const cell = clip.payload.logicalSize;
     const frame = clip.payload.frames.find((x) => x.frameId === c.frameId);
-    if (!frame) throw new DomainFailure("validation_failed", `Frame ${c.frameId} não existe em ${clip.name}`);
+    if (!frame) throw new DomainFailure("validation_failed", tx(`Frame ${c.frameId} não existe em ${clip.name}`, `Frame ${c.frameId} does not exist in ${clip.name}`));
     for (const partId of o.parts) {
       const given = o.zones?.find((z) => z.clipRevisionId === c.clipRevisionId && z.frameId === c.frameId && z.partId === partId);
       let rects: Rect[] | null = given ? given.rects.map((r) => clampRect(r, cell)).filter((r): r is Rect => r !== null) : null;
@@ -547,12 +563,19 @@ export async function coverageTemplate(
         rects = estimatedZone(partId, frame, clip.boxes[c.frameId] ?? null, cell, near).map((r) => growRect(r, 0, cell));
         estimated.push(`${clip.name}/${c.frameId}/${partId}`);
       }
-      if (rects.length === 0) throw new DomainFailure("validation_failed", `Zona vazia para ${partId} em ${c.frameId}`);
+      if (rects.length === 0) throw new DomainFailure("validation_failed", tx(`Zona vazia para ${partId} em ${c.frameId}`, `Empty zone for ${partId} in ${c.frameId}`));
       zones.push({ clipRevisionId: c.clipRevisionId, frameId: c.frameId, partId, rects });
     }
     const givenProtect = o.protect?.find((p) => p.clipRevisionId === c.clipRevisionId && p.frameId === c.frameId);
     protect.push({ clipRevisionId: c.clipRevisionId, frameId: c.frameId, rects: givenProtect ? [...givenProtect.rects] : handProtect(frame, cell, gripSockets) });
   }
-  const warnings = estimated.length ? [`Zona estimada (sem desenho anterior) em ${estimated.length} célula(s): revise e amplie no gabarito se a peça for maior (ombreiras, capas)`] : [];
+  const warnings: LocalizedText[] = estimated.length
+    ? [
+        tx(
+          `Zona estimada (sem desenho anterior) em ${estimated.length} célula(s): revise e amplie no gabarito se a peça for maior (ombreiras, capas)`,
+          `Estimated zone (no earlier drawing) in ${estimated.length} cell(s): review it and enlarge it in the template if the piece is bigger (pauldrons, capes)`,
+        ),
+      ]
+    : [];
   return { zones, protect, estimated, warnings };
 }

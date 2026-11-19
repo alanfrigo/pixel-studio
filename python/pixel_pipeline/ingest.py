@@ -14,7 +14,8 @@ from typing import Any
 from PIL import Image, ImageCms, ImageOps, UnidentifiedImageError
 
 from pixel_pipeline import PROTOCOL_VERSION
-from pixel_pipeline.protocol import PipelineError, input_by_role, rgba_sha256, sha256_file
+from pixel_pipeline.i18n import tx
+from pixel_pipeline.protocol import PipelineError, Text, input_by_role, rgba_sha256, sha256_file
 
 Json = dict[str, Any]
 
@@ -24,11 +25,11 @@ EXIF_ORIENTATION = 0x0112
 def _limits(request: Json) -> Json:
     recipe = request.get("recipe") or {}
     if recipe.get("version") != 1:
-        raise PipelineError("invalid_request", "ingest_inspect exige recipe.version = 1")
+        raise PipelineError("invalid_request", tx("ingest_inspect exige recipe.version = 1", "ingest_inspect requires recipe.version = 1"))
     limits = recipe.get("limits") or {}
     required = ("maxBytes", "maxWidth", "maxHeight", "maxPixels", "maxFrames")
     if any(not isinstance(limits.get(k), int) or limits[k] <= 0 for k in required):
-        raise PipelineError("invalid_request", f"Limites obrigatórios: {', '.join(required)}")
+        raise PipelineError("invalid_request", tx(f"Limites obrigatórios: {', '.join(required)}", f"Required limits: {', '.join(required)}"))
     return limits
 
 
@@ -68,32 +69,36 @@ def ingest_inspect(request: Json, workdir: Path) -> Json:
 
     size = source.stat().st_size
     if size > limits["maxBytes"]:
-        raise PipelineError("limit_exceeded", f"Arquivo com {size} bytes excede o limite de {limits['maxBytes']}")
+        raise PipelineError("limit_exceeded", tx(f"Arquivo com {size} bytes excede o limite de {limits['maxBytes']}", f"File of {size} bytes exceeds the {limits['maxBytes']} limit"))
 
     Image.MAX_IMAGE_PIXELS = limits["maxPixels"]
     try:
         image = Image.open(source)
     except UnidentifiedImageError as exc:
-        raise PipelineError("decode_failed", "Formato de imagem não reconhecido") from exc
+        raise PipelineError("decode_failed", tx("Formato de imagem não reconhecido", "Unrecognized image format")) from exc
 
     with image:
         fmt = image.format
         width, height = image.size
         if width > limits["maxWidth"] or height > limits["maxHeight"] or width * height > limits["maxPixels"]:
-            raise PipelineError("limit_exceeded", f"Imagem {width}×{height} excede os limites de dimensão/pixels")
+            raise PipelineError("limit_exceeded", tx(f"Imagem {width}×{height} excede os limites de dimensão/pixels", f"Image {width}×{height} exceeds the dimension/pixel limits"))
         frames = getattr(image, "n_frames", 1)
         if frames > limits["maxFrames"]:
-            raise PipelineError("limit_exceeded", f"Imagem com {frames} quadros excede o limite de {limits['maxFrames']}")
+            raise PipelineError("limit_exceeded", tx(f"Imagem com {frames} quadros excede o limite de {limits['maxFrames']}", f"Image with {frames} frames exceeds the limit of {limits['maxFrames']}"))
         if frames > 1:
             raise PipelineError(
                 "unsupported_input",
-                f"Imagem animada com {frames} quadros: o importador estático aceita um quadro. "
-                "Exporte os quadros como uma tira PNG e importe-a para fatiar.",
+                tx(
+                    f"Imagem animada com {frames} quadros: o importador estático aceita um quadro. "
+                    "Exporte os quadros como uma tira PNG e importe-a para fatiar.",
+                    f"Animated image with {frames} frames: the static importer accepts one frame. "
+                    "Export the frames as a PNG strip and import it to slice.",
+                ),
             )
         try:
             image.load()
         except (OSError, SyntaxError, ValueError) as exc:
-            raise PipelineError("decode_failed", f"Não foi possível decodificar a imagem: {exc}") from exc
+            raise PipelineError("decode_failed", tx(f"Não foi possível decodificar a imagem: {exc}", f"Could not decode the image: {exc}")) from exc
 
         original_mode = image.mode
         orientation = int(image.getexif().get(EXIF_ORIENTATION, 1))
@@ -111,9 +116,9 @@ def ingest_inspect(request: Json, workdir: Path) -> Json:
     has_alpha = sum(alpha_hist[:255]) > 0
     partial_alpha = sum(alpha_hist[1:255]) > 0
 
-    warnings: list[str] = []
+    warnings: list[Text] = []
     if icc and not icc_converted:
-        warnings.append("Perfil ICC ilegível: cores mantidas sem conversão para sRGB")
+        warnings.append(tx("Perfil ICC ilegível: cores mantidas sem conversão para sRGB", "Unreadable ICC profile: colors kept without conversion to sRGB"))
 
     output = {
         "role": "normalized",

@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -12,6 +13,10 @@ import { isSimulatedSceneOperation, type SimulatedSceneJob, simulatedSceneCapabi
 import { isTemporalOperation, type SimulatedTemporalJob, simulatedTemporalCapabilities, simulatedTemporalImages, simulatedTemporalJob } from "../animation/provider-temporal";
 import { genericEquipmentCapabilities, isEquipmentOperation } from "../equipment/provider-caps";
 import { type SimulatedEquipmentJob, simulatedEquipmentJob } from "../equipment/simulated-art";
+import { isDialogueOperation } from "../dialogue/provider-caps";
+import { type SimulatedDialogueJob, simulatedDialogueCapabilities, simulatedDialogueJob } from "../dialogue/simulated-art";
+import { genericUiCapabilities, isUiOperation } from "../ui/provider-caps";
+import { type SimulatedUiJob, simulatedUiJob } from "../ui/simulated-art";
 
 /**
  * Provedor SIMULADO para desenvolvimento e testes (08 §pronto para entregar:
@@ -41,6 +46,10 @@ export interface SimulatedRemoteJob {
   temporal?: SimulatedTemporalJob;
   /** Candidato vestido ou vista rígida simulados (S2). */
   equipment?: SimulatedEquipmentJob;
+  /** Retrato, folha de bocas ou página de glyphs simulados (D1). */
+  dialogue?: SimulatedDialogueJob;
+  /** Template pintado na guia ou folha de estados por imagem + referência (U3), como a rota genérica. */
+  ui?: SimulatedUiJob;
 }
 
 export interface SimulatedState {
@@ -118,11 +127,14 @@ export class SimulatedProvider implements ProviderAdapter {
     if (isSimulatedSceneOperation(operation)) return [...simulatedSceneCapabilities(operation)];
     if (isTemporalOperation(operation)) return simulatedTemporalCapabilities(operation);
     if (isEquipmentOperation(operation)) return genericEquipmentCapabilities(16);
+    if (isDialogueOperation(operation)) return simulatedDialogueCapabilities(operation);
+    // U3: as mesmas capacidades da rota genérica (nada de template ou estados nativos).
+    if (isUiOperation(operation)) return genericUiCapabilities(operation, 16);
     return operation === "generate_asset" ? SIMULATED_CAPABILITIES : [];
   }
 
   estimate(_operation: PlanOperation, parts: number): CostEstimate {
-    return { kind: "known", amount: { amount: parts, unit: "generations" }, basis: `${parts} geração(ões) simulada(s), 1 por imagem` };
+    return { kind: "known", amount: { amount: parts, unit: "generations" }, basis: tx(`${parts} geração(ões) simulada(s), 1 por imagem`, `${parts} simulated generation(s), 1 per image`) };
   }
 
   async submit(request: ProviderSubmitRequest): Promise<SubmitOutcome> {
@@ -148,16 +160,20 @@ export class SimulatedProvider implements ProviderAdapter {
     if (temporal) state.jobs[id].temporal = temporal;
     const equipment = simulatedEquipmentJob(request);
     if (equipment) state.jobs[id].equipment = equipment;
+    const dialogue = simulatedDialogueJob(request);
+    if (dialogue) state.jobs[id].dialogue = dialogue;
+    const ui = simulatedUiJob(request);
+    if (ui) state.jobs[id].ui = ui;
     state.charged += 1;
     this.store.write(state);
-    if (this.options.failAfterAccept) throw new ProviderError("ambiguous", "Conexão perdida depois do envio (simulado)");
+    if (this.options.failAfterAccept) throw new ProviderError("ambiguous", tx("Conexão perdida depois do envio (simulado)", "Connection lost after submission (simulated)"));
     return { kind: "async", remoteId: id };
   }
 
   async poll(remoteId: string): Promise<RemoteStatus> {
     const job = this.store.read().jobs[remoteId];
-    if (!job) return { state: "failed", message: `Job remoto ${remoteId} desconhecido` };
-    if (job.cancelled) return { state: "failed", message: "Cancelado no provedor" };
+    if (!job) return { state: "failed", message: tx(`Job remoto ${remoteId} desconhecido`, `Unknown remote job ${remoteId}`) };
+    if (job.cancelled) return { state: "failed", message: tx("Cancelado no provedor", "Cancelled at the provider") };
     const now = this.now();
     if (now >= job.readyAt) return { state: "succeeded" };
     return { state: "pending", progress: (now - job.createdAt) / Math.max(1, job.readyAt - job.createdAt) };
@@ -165,7 +181,7 @@ export class SimulatedProvider implements ProviderAdapter {
 
   async fetchResult(remoteId: string): Promise<ProviderResult> {
     const job = this.store.read().jobs[remoteId];
-    if (!job) throw new ProviderError("rejected", `Job remoto ${remoteId} desconhecido`);
+    if (!job) throw new ProviderError("rejected", tx(`Job remoto ${remoteId} desconhecido`, `Unknown remote job ${remoteId}`));
     if (job.animation) {
       const { frames, skeleton, poses } = job.animation;
       const images = Array.from({ length: frames }, (_, i) => ({ bytes: simulatedFrame(job.prompt, job.size, i, skeleton, poses?.[i]), mime: "image/png" }));
@@ -173,6 +189,8 @@ export class SimulatedProvider implements ProviderAdapter {
     }
     if (job.world) return { images: [{ bytes: simulatedWorldImage(job), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
     if (job.scene) return { images: simulatedSceneResult(job.scene), cost: { amount: 1, unit: "generations" } };
+    if (job.ui) return { images: [{ bytes: new Uint8Array(Buffer.from(job.ui.png, "base64")), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
+    if (job.dialogue) return { images: [{ bytes: new Uint8Array(Buffer.from(job.dialogue.png, "base64")), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
     if (job.equipment) return { images: [{ bytes: new Uint8Array(Buffer.from(job.equipment.png, "base64")), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
     if (job.temporal) return { images: simulatedTemporalImages(job.temporal, job.prompt).map((bytes) => ({ bytes, mime: "image/png" })), cost: { amount: 1, unit: "generations" } };
     return { images: [{ bytes: simulatedImage(job.prompt, job.size), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };

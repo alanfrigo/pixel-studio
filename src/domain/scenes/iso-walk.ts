@@ -1,4 +1,5 @@
 import { type BasePayload, type Direction, type IsoPiece, type IsoTilesetPayload, type TilemapPayload, type WorldToViewMap } from "@/contracts";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { isoWorldToView } from "../projection";
 import { compareSortKeys, isoMapBounds, isoSortKey, isoSupportScreen } from "../world/iso";
 import { blockedCells } from "../world/map";
@@ -59,15 +60,15 @@ export function cellElevation(world: IsoWorld, cell: readonly [number, number]):
 }
 
 /** Um passo na direção do mundo: bloqueia na borda e nas células do footprint de peças que bloqueiam. */
-export function stepActor(world: IsoWorld, actor: IsoActor, direction: Direction): { actor: IsoActor; moved: boolean; reason: string | null } {
+export function stepActor(world: IsoWorld, actor: IsoActor, direction: Direction): { actor: IsoActor; moved: boolean; reason: LocalizedText | null } {
   const [du, dv] = WORLD_STEP[direction];
   const target: [number, number] = [actor.cell[0] + du, actor.cell[1] + dv];
   const [cols, rows] = world.map.size;
   const turned = { ...actor, facing: direction };
-  if (target[0] < 0 || target[1] < 0 || target[0] >= cols || target[1] >= rows) return { actor: turned, moved: false, reason: "borda do mapa" };
-  if (world.blocked[target[1] * cols + target[0]]) return { actor: turned, moved: false, reason: `célula ${target.join(",")} bloqueada pelo footprint` };
+  if (target[0] < 0 || target[1] < 0 || target[0] >= cols || target[1] >= rows) return { actor: turned, moved: false, reason: tx("borda do mapa", "edge of the map") };
+  if (world.blocked[target[1] * cols + target[0]]) return { actor: turned, moved: false, reason: tx(`célula ${target.join(",")} bloqueada pelo footprint`, `cell ${target.join(",")} blocked by a footprint`) };
   if (du !== 0 && dv !== 0 && (world.blocked[actor.cell[1] * cols + target[0]] || world.blocked[target[1] * cols + actor.cell[0]])) {
-    return { actor: turned, moved: false, reason: "diagonal cortaria um canto bloqueado" };
+    return { actor: turned, moved: false, reason: tx("diagonal cortaria um canto bloqueado", "diagonal would cut a blocked corner") };
   }
   return { actor: { cell: target, facing: direction }, moved: true, reason: null };
 }

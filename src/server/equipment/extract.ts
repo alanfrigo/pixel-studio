@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type ClipPayload, CoverageZone, Id, type OverlayPayload, ProtectZone, Slug } from "@/contracts";
 import { defaultDrawIndex } from "@/domain/equipment/template";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { createAsset, getAsset, getBlob, getProject, getRevision, getUpload, publishRevision, type PublishFile } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import type { Studio } from "../studio";
@@ -43,50 +44,51 @@ export async function extractCoverage(studio: Studio, projectId: string, raw: Ex
   const input = ExtractInput.parse(raw);
   const target = getRevision(studio.db, projectId, input.targetClipRevisionId);
   const targetAsset = getAsset(studio.db, projectId, target.assetId);
-  if (targetAsset.family !== "character" || targetAsset.kind !== "clip") throw new DomainFailure("validation_failed", `${targetAsset.name} não é um clipe`);
-  if (target.status !== "approved") throw new DomainFailure("source_not_approved", `Aprove a animação limpa (${targetAsset.name} r${target.number}) antes de extrair coberturas`);
+  if (targetAsset.family !== "character" || targetAsset.kind !== "clip") throw new DomainFailure("validation_failed", tx(`${targetAsset.name} não é um clipe`, `${targetAsset.name} is not a clip`));
+  if (target.status !== "approved") throw new DomainFailure("source_not_approved", tx(`Aprove a animação limpa (${targetAsset.name} r${target.number}) antes de extrair coberturas`, `Approve the clean animation (${targetAsset.name} r${target.number}) before extracting coverage`));
   const clip = target.payload as ClipPayload;
-  if (!clip.rigRevisionId) throw new DomainFailure("validation_failed", "O clipe alvo não tem rig de equipamento");
+  if (!clip.rigRevisionId) throw new DomainFailure("validation_failed", tx("O clipe alvo não tem rig de equipamento", "The target clip has no equipment rig"));
   const rig = loadRig(studio.db, projectId, clip.rigRevisionId);
   const base = input.overlayRevisionId ? loadOverlay(studio.db, projectId, input.overlayRevisionId) : null;
-  if (base && base.payload.rigRevisionId !== rig.ref.revisionId) throw new DomainFailure("validation_failed", `${base.name} foi feita para outra base`);
+  if (base && base.payload.rigRevisionId !== rig.ref.revisionId) throw new DomainFailure("validation_failed", tx(`${base.name} foi feita para outra base`, `${base.name} was made for another base`));
   const slots = base?.payload.slots ?? input.item?.slots;
   const stances = base?.payload.stances ?? input.item?.stances;
-  if (!slots || !stances) throw new DomainFailure("validation_failed", "Peça nova precisa de nome, slots e posturas");
-  for (const p of input.parts) if (!rig.ref.payload.parts.some((x) => x.partId === p)) throw new DomainFailure("validation_failed", `Parte ${p} não existe no rig`);
+  if (!slots || !stances) throw new DomainFailure("validation_failed", tx("Peça nova precisa de nome, slots e posturas", "A new piece needs a name, slots and stances"));
+  for (const p of input.parts) if (!rig.ref.payload.parts.some((x) => x.partId === p)) throw new DomainFailure("validation_failed", tx(`Parte ${p} não existe no rig`, `Part ${p} does not exist in the rig`));
 
   const frameIds = input.frameIds?.length ? input.frameIds : clip.frames.map((f) => f.frameId);
   const [cw, ch] = clip.logicalSize;
 
   // ---- candidatos por frame ----
   const candidates: { frameId: string; sha256: string }[] = [];
-  let sourceLabel: string;
+  let sourceLabel: LocalizedText;
   if (input.source.kind === "clip") {
     const dressedRev = getRevision(studio.db, projectId, input.source.clipRevisionId);
     const dressed = dressedRev.payload as ClipPayload;
     const dressedName = getAsset(studio.db, projectId, dressedRev.assetId).name;
     if (dressed.logicalSize[0] !== cw || dressed.logicalSize[1] !== ch) {
-      throw new DomainFailure("validation_failed", `O clipe vestido tem célula ${dressed.logicalSize.join("×")}; o alvo tem ${cw}×${ch}`);
+      throw new DomainFailure("validation_failed", tx(`O clipe vestido tem célula ${dressed.logicalSize.join("×")}; o alvo tem ${cw}×${ch}`, `The dressed clip has a ${dressed.logicalSize.join("×")} cell; the target has ${cw}×${ch}`));
     }
     const missing = frameIds.filter((f) => !dressed.frames.some((x) => x.frameId === f));
-    if (missing.length) throw new DomainFailure("validation_failed", `O clipe vestido não tem os frames ${missing.join(", ")} do alvo`);
+    if (missing.length) throw new DomainFailure("validation_failed", tx(`O clipe vestido não tem os frames ${missing.join(", ")} do alvo`, `The dressed clip lacks the target frames ${missing.join(", ")}`));
     const composed = await composeFrames(studio, dressedRev.id, dressed, frameIds);
     candidates.push(...composed);
-    sourceLabel = `clipe vestido ${dressedName} r${dressedRev.number}${dressed.state?.startsWith("outfit_") ? " (transferir roupa)" : ""}`;
+    const outfit = dressed.state?.startsWith("outfit_");
+    sourceLabel = tx(`clipe vestido ${dressedName} r${dressedRev.number}${outfit ? " (transferir roupa)" : ""}`, `dressed clip ${dressedName} r${dressedRev.number}${outfit ? " (outfit transfer)" : ""}`);
   } else {
     for (const f of input.source.frames) {
       if (!frameIds.includes(f.frameId)) continue;
       const upload = getUpload(studio.db, projectId, f.uploadId);
-      if (upload.status !== "ready" || upload.modality !== "raster") throw new DomainFailure("validation_failed", `O upload de ${f.frameId} precisa ser uma imagem já importada`);
+      if (upload.status !== "ready" || upload.modality !== "raster") throw new DomainFailure("validation_failed", tx(`O upload de ${f.frameId} precisa ser uma imagem já importada`, `The upload for ${f.frameId} must be an already imported image`));
       const sha = upload.normalizedSha256 ?? upload.sha256;
       const { width, height } = (getBlob(studio.db, sha)?.metadata ?? {}) as { width?: number; height?: number };
-      if (width !== cw || height !== ch) throw new DomainFailure("validation_failed", `A imagem de ${f.frameId} tem ${width}×${height}; a célula do clipe é ${cw}×${ch} (sem reescala implícita)`);
+      if (width !== cw || height !== ch) throw new DomainFailure("validation_failed", tx(`A imagem de ${f.frameId} tem ${width}×${height}; a célula do clipe é ${cw}×${ch} (sem reescala implícita)`, `The image for ${f.frameId} is ${width}×${height}; the clip cell is ${cw}×${ch} (no implicit rescaling)`));
       candidates.push({ frameId: f.frameId, sha256: sha });
     }
-    sourceLabel = "imagens importadas";
+    sourceLabel = tx("imagens importadas", "imported images");
   }
   const usable = frameIds.filter((f) => candidates.some((c) => c.frameId === f));
-  if (usable.length === 0) throw new DomainFailure("validation_failed", "Nenhum frame do alvo tem candidato");
+  if (usable.length === 0) throw new DomainFailure("validation_failed", tx("Nenhum frame do alvo tem candidato", "No target frame has a candidate"));
 
   // ---- base limpa, gabarito e extração ----
   const baseFrames = await composeFrames(studio, target.id, clip, usable);
@@ -142,11 +144,11 @@ export async function extractCoverage(studio: Studio, projectId: string, raw: Ex
     const preview = run.outputs.find((o) => o.role === "preview" && o.key === f.frameId);
     if (preview) previews[f.frameId] = dataUrl(preview.bytes);
   }
-  if (payload.parts.length === 0) throw new DomainFailure("validation_failed", "Nada da peça foi encontrado dentro das zonas: revise o gabarito ou o candidato", { report: run.report, warnings: run.warnings });
+  if (payload.parts.length === 0) throw new DomainFailure("validation_failed", tx("Nada da peça foi encontrado dentro das zonas: revise o gabarito ou o candidato", "Nothing of the piece was found inside the zones: review the template or the candidate"), { report: run.report, warnings: run.warnings });
 
   let assetId = base?.assetId;
   if (!assetId) {
-    if (!input.item) throw new DomainFailure("validation_failed", "Peça nova precisa de nome");
+    if (!input.item) throw new DomainFailure("validation_failed", tx("Peça nova precisa de nome", "A new piece needs a name"));
     assetId = createAsset(studio.db, studio.clock, { projectId, family: "equipment", kind: "overlay", name: input.item.name }).id;
   }
   const revision = publishRevision(studio.db, studio.clock, {
@@ -163,7 +165,10 @@ export async function extractCoverage(studio: Studio, projectId: string, raw: Ex
       source: sourceLabel,
       sourceRevisionId: input.source.kind === "clip" ? input.source.clipRevisionId : null,
       targetClipRevisionId: target.id,
-      note: "Candidato vestido → diferença contra a base limpa dentro da zona autorizada; mãos e o resto da base protegidos",
+      note: tx(
+        "Candidato vestido → diferença contra a base limpa dentro da zona autorizada; mãos e o resto da base protegidos",
+        "Dressed candidate → difference against the clean base inside the authorized zone; hands and the rest of the base protected",
+      ),
       frames: reportFrames,
       warnings: run.warnings,
       estimatedZones: template.estimated,

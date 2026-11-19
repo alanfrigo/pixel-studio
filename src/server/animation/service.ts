@@ -1,3 +1,4 @@
+import { type LocalizedText, type TextValue, tx } from "@/i18n/locales";
 import { z } from "zod";
 import {
   type BasePayload,
@@ -11,7 +12,7 @@ import {
   type PlanOperation,
 } from "@/contracts";
 import { orientationFor } from "@/domain/animation/directions";
-import { BUILTIN_PRESETS } from "@/domain/animation/presets";
+import { BUILTIN_PRESETS, presetText } from "@/domain/animation/presets";
 import { retimeClip } from "@/domain/animation/timeline";
 import { type AssetView, createAsset, getAsset, getProject, getStyleRevision, listRevisions, publishRevision, type RevisionView } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
@@ -19,7 +20,7 @@ import { mustBlob } from "../jobs/handlers/pipelines/shared";
 import { listProfiles } from "../providers/registry";
 import { jobView, submitJob } from "../services";
 import type { Studio } from "../studio";
-import { chooseRoute, loadBase, loadClip } from "./base";
+import { chooseRoute, failureText, loadBase, loadClip } from "./base";
 import { S3_OPERATIONS } from "./provider-temporal";
 import {
   AnimateObjectPlanInput,
@@ -133,14 +134,14 @@ export function runAnimation(studio: Studio, projectId: string, raw: RunAnimatio
   if (input.oneClick) {
     // Sem prévia: o atalho só envia com custo conhecido dentro do teto ou custo desconhecido aceito na configuração.
     if (planned.costCheck.kind === "unknown" && !input.allowUnknownCost) {
-      throw new DomainFailure("budget_exceeded", "Custo desconhecido nesta rota: aceite explicitamente o custo desconhecido (1 envio) na configuração do preset antes do clique", {
+      throw new DomainFailure("budget_exceeded", tx("Custo desconhecido nesta rota: aceite explicitamente o custo desconhecido (1 envio) na configuração do preset antes do clique", "Unknown cost on this route: explicitly accept the unknown cost (1 submission) in the preset settings before the one-click run"), {
         needsConfiguration: true,
         reason: "unknown_cost",
         estimate: planned.plan.limits.estimate,
       });
     }
     if (planned.costCheck.kind !== "unknown" && planned.costCheck.withinCeiling !== true) {
-      throw new DomainFailure("budget_exceeded", "Configure um teto de custo na mesma unidade da estimativa antes de animar com um clique", {
+      throw new DomainFailure("budget_exceeded", tx("Configure um teto de custo na mesma unidade da estimativa antes de animar com um clique", "Set a cost ceiling in the same unit as the estimate before animating with one click"), {
         needsConfiguration: true,
         reason: "ceiling_missing",
         estimate: planned.plan.limits.estimate,
@@ -188,7 +189,7 @@ export function retimeClipRevision(studio: Studio, projectId: string, raw: z.inp
   try {
     next = retimeClip(payload, input.durationsMs);
   } catch (err) {
-    throw new DomainFailure("validation_failed", err instanceof Error ? err.message : String(err));
+    throw new DomainFailure("validation_failed", failureText(err));
   }
   if (input.playback) next = { ...next, playback: input.playback };
   const before = payload.frames.map((f) => f.durationMs);
@@ -232,7 +233,7 @@ export function saveMotion(studio: Studio, projectId: string, raw: z.input<typeo
   const base = loadBase(studio.db, projectId, input.baseRevisionId);
   const [w, h] = base.payload.logicalSize;
   if (input.motion.generationCell[0] !== w || input.motion.generationCell[1] !== h) {
-    throw new DomainFailure("validation_failed", `As poses são normalizadas na célula da base (${w}×${h}); o movimento declara ${input.motion.generationCell.join("×")}`);
+    throw new DomainFailure("validation_failed", tx(`As poses são normalizadas na célula da base (${w}×${h}); o movimento declara ${input.motion.generationCell.join("×")}`, `Poses are normalized to the base cell (${w}×${h}); the motion declares ${input.motion.generationCell.join("×")}`));
   }
   const asset = motionAssetFor(studio, projectId, base.asset, input.motion.action, input.motion.direction);
   const revision = publishRevision(studio.db, studio.clock, {
@@ -268,24 +269,24 @@ export const ComposeViewsInput = z.strictObject({
 export function composeBaseViews(studio: Studio, projectId: string, raw: z.input<typeof ComposeViewsInput>) {
   const input = ComposeViewsInput.parse(raw);
   const asset = getAsset(studio.db, projectId, input.baseAssetId);
-  if (asset.family !== "character" || asset.kind !== "base") throw new DomainFailure("validation_failed", "Só bases de personagem compõem vistas");
+  if (asset.family !== "character" || asset.kind !== "base") throw new DomainFailure("validation_failed", tx("Só bases de personagem compõem vistas", "Only character bases can compose views"));
   const revisions = new Map(listRevisions(studio.db, projectId, asset.id).map((r) => [r.id, r]));
   const anchor = revisions.get(asset.approvedRevisionId ?? "") ?? revisions.get(input.picks[0]!.revisionId);
-  if (!anchor) throw new DomainFailure("not_found", "Revisão da base não encontrada");
+  if (!anchor) throw new DomainFailure("not_found", tx("Revisão da base não encontrada", "Base revision not found"));
   const anchorPayload = anchor.payload as BasePayload;
   const views: BasePayload["views"] = [];
   const files: { fileKey: string; role: string; idx: number; blob: ReturnType<typeof mustBlob> }[] = [];
   const seen = new Set<string>();
   for (const pick of [...input.picks].sort((a, b) => DIRECTIONS_8.indexOf(a.direction) - DIRECTIONS_8.indexOf(b.direction))) {
-    if (seen.has(pick.direction)) throw new DomainFailure("validation_failed", `Direção ${pick.direction} escolhida duas vezes`);
+    if (seen.has(pick.direction)) throw new DomainFailure("validation_failed", tx(`Direção ${pick.direction} escolhida duas vezes`, `Direction ${pick.direction} was picked twice`));
     seen.add(pick.direction);
     const revision = revisions.get(pick.revisionId);
-    if (!revision) throw new DomainFailure("not_found", `A revisão ${pick.revisionId} não pertence a ${asset.name}`);
-    if (revision.status === "rejected") throw new DomainFailure("validation_failed", `A vista ${pick.direction} vem de uma revisão reprovada`);
+    if (!revision) throw new DomainFailure("not_found", tx(`A revisão ${pick.revisionId} não pertence a ${asset.name}`, `Revision ${pick.revisionId} does not belong to ${asset.name}`));
+    if (revision.status === "rejected") throw new DomainFailure("validation_failed", tx(`A vista ${pick.direction} vem de uma revisão reprovada`, `View ${pick.direction} comes from a rejected revision`));
     const payload = revision.payload as BasePayload;
-    if (payload.logicalSize.join("x") !== anchorPayload.logicalSize.join("x")) throw new DomainFailure("validation_failed", "Vistas de células diferentes não se combinam");
+    if (payload.logicalSize.join("x") !== anchorPayload.logicalSize.join("x")) throw new DomainFailure("validation_failed", tx("Vistas de células diferentes não se combinam", "Views with different cells cannot be combined"));
     const view = payload.views.find((v) => v.direction === pick.direction);
-    if (!view) throw new DomainFailure("not_found", `A revisão r${revision.number} não tem a vista ${pick.direction}`);
+    if (!view) throw new DomainFailure("not_found", tx(`A revisão r${revision.number} não tem a vista ${pick.direction}`, `Revision r${revision.number} has no ${pick.direction} view`));
     const file = revision.files.find((f) => f.fileKey === view.fileId)!;
     // Chaves podem colidir entre revisões: a chave da vista na composição é derivada da direção.
     const fileKey = files.some((f) => f.fileKey === view.fileId) ? `view-${pick.direction.toLowerCase()}` : view.fileId;
@@ -327,8 +328,8 @@ export function animationOverview(studio: Studio, projectId: string) {
   const style = project.activeStyleRevisionId ? getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload : null;
   const projection = style?.camera.projection.kind ?? "top_down";
   const profiles = listProfiles(studio.db).map((p) => {
-    let unavailable: string | null = null;
-    const routes: Record<string, { strategy: string; label: string } | { unavailable: string }> = {};
+    let unavailable: TextValue | null = null;
+    const routes: Record<string, { strategy: string; label: LocalizedText } | { unavailable: TextValue }> = {};
     let estimate = null;
     try {
       studio.providers.assertReady(p.id);
@@ -339,7 +340,7 @@ export function animationOverview(studio: Studio, projectId: string) {
           const r = chooseRoute(adapter, op, want, p.id);
           return { strategy: r.strategy, label: r.label };
         } catch (err) {
-          return { unavailable: err instanceof Error ? err.message : String(err) };
+          return { unavailable: failureText(err) };
         }
       };
       routes.text = tryRoute("animate_text", { mode: "text" });
@@ -348,9 +349,9 @@ export function animationOverview(studio: Studio, projectId: string) {
       routes.rotationIsometric = tryRoute("rotate_views", { mode: "rotation", isometric: true });
       // Cartão S3: estados, objetos, interpolação, trecho, roupa e correção.
       Object.assign(routes, temporalRoutes({ adapter, profileId: p.id }));
-      if (!ANIMATION_OPS.some((op) => adapter.capabilities(op).length > 0)) unavailable = "Perfil sem operações de animação ou vistas";
+      if (!ANIMATION_OPS.some((op) => adapter.capabilities(op).length > 0)) unavailable = tx("Perfil sem operações de animação ou vistas", "Provider profile has no animation or view operations");
     } catch (err) {
-      unavailable = err instanceof Error ? err.message : String(err);
+      unavailable = failureText(err);
     }
     return { id: p.id, name: p.name, transport: p.transport, simulated: p.simulated, unavailable, routes, estimate };
   });
@@ -358,7 +359,8 @@ export function animationOverview(studio: Studio, projectId: string) {
     projectId,
     projection,
     orientation: orientationFor(projection),
-    presets: BUILTIN_PRESETS,
+    // Rótulo e intenção bilíngues ao lado do preset (o preset em si não muda: seu digest é fonte de planos).
+    presets: BUILTIN_PRESETS.map((p) => ({ ...p, text: presetText(p) })),
     bases: revisionsOf(studio, projectId, "character", "base"),
     clips: revisionsOf(studio, projectId, "character", "clip"),
     motions: revisionsOf(studio, projectId, "character", "motion"),

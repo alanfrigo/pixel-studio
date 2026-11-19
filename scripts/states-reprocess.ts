@@ -9,6 +9,7 @@
  */
 import { copyFile, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pick } from "@/i18n/locales";
 import type { GenerationPlan } from "@/contracts";
 import { getRevision } from "@/server/catalog/catalog";
 import { loadConfig, loadDotEnv, REPO_ROOT } from "@/server/config";
@@ -43,7 +44,7 @@ for (const r of report.results) {
   else shas = [sources[0]!, ...details.frames!.map((f) => f.sha256)];
   const cell = (plan.params as { logicalSize: [number, number] }).logicalSize;
   const contact = await pythonWith(env, path.join(work, "contact"), "animation_contact_sheet", shas.map((sha256) => ({ role: "layer", sha256 })), { version: 1, cell, zoom: 4, background: null, columns: shas.length, gap: 8 });
-  if (contact.status === "error") throw new Error(contact.message);
+  if (contact.status === "error") throw new Error(pick(contact.message, "pt-BR"));
   const tag = `${r.scenario}-${slugify(r.model).replaceAll("_", "-")}`;
   await copyFile(contact.outputs[0]!.absolutePath, path.join(dir, `${tag}-folha-v2.png`));
   out.push({ scenario: r.scenario, model: r.model, scale: details.sheet?.scale ?? null, composite: result.processed.composite ?? null, warnings: result.processed.warnings });

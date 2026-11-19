@@ -148,4 +148,4 @@ def test_conteudo_atravessando_a_grade_gera_alerta(pipe: Pipeline) -> None:
     figure(img, 48, 46, 28)
     res = pipe.run("animation_sheet", recipe(["a", "b"], 2, 2), [("candidate", png(img)), ("source", base_view())])
     assert res["status"] == "needs_review"
-    assert any("atravessa a divisão da grade" in w for w in res["warnings"])
+    assert any("atravessa a divisão da grade" in w["pt-BR"] and "crosses the grid divisions" in w["en"] for w in res["warnings"])

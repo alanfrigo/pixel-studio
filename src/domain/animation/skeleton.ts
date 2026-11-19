@@ -1,5 +1,6 @@
 import type { Direction, Joint, JointPose, MotionPayload, Pose, ProjectionKind, Skeleton } from "@/contracts";
 import { skeletonProblems } from "@/contracts";
+import type { LocalizedText } from "@/i18n/locales";
 import type { PoseRecipe } from "./presets";
 
 /**
@@ -327,7 +328,7 @@ export function removePose(poses: readonly Pose[], index: number): Pose[] {
 // ---------------------------------------------------------------------------
 
 /** Troca o parent sem perder a identidade do joint; recusa ciclos e segunda raiz. */
-export function reparent(skeleton: Skeleton, jointId: string, parent: string | null): { skeleton: Skeleton; problems: string[] } {
+export function reparent(skeleton: Skeleton, jointId: string, parent: string | null): { skeleton: Skeleton; problems: LocalizedText[] } {
   const joints = skeleton.joints.map((j) => (j.jointId === jointId ? { ...j, parent } : j));
   const problems = skeletonProblems(joints).map((p) => p.message);
   return problems.length > 0 ? { skeleton, problems } : { skeleton: { ...skeleton, joints }, problems: [] };

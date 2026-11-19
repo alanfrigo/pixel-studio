@@ -3,7 +3,7 @@ import { type AssetFamily, Id, PosInt, RelativePath, Sha256Hex, Slug } from "./c
 import { AudioPayload, ExpressionPayload, FontPayload, PortraitPayload, SpeechPayload } from "./dialogue-audio";
 import { MotionPayload } from "./motion";
 import { BasePayload, ClipPayload, LoadoutPayload, OverlayPayload, RigPayload } from "./sprites";
-import { ButtonPayload, MenuItemPayload, MeterPayload, PanelPayload, ScreenPayload, SlotPayload } from "./ui";
+import { ButtonPayload, MenuItemPayload, MeterPayload, PanelPayload, ScreenPayload, SlotPayload, TemplatePayload } from "./ui";
 import { ItemPayload, VfxPayload } from "./vfx-item";
 import { CornerTilesetPayload, IsoTilesetPayload, MapObjectPayload, SideTilesetPayload, TexturePayload, TilemapPayload } from "./world";
 import { RoomPayload, SceneLayerPayload, ScenePayload } from "./scenes";
@@ -113,6 +113,8 @@ export const UiEntry = z.discriminatedUnion("kind", [
   entry("ui", z.literal("meter"), MeterPayload),
   entry("ui", z.literal("menu_item"), MenuItemPayload),
   entry("ui", z.literal("screen"), ScreenPayload),
+  // Cartão U3: template achatado (as peças viram componentes pelo recorte local revisado).
+  entry("ui", z.literal("template"), TemplatePayload),
 ]);
 
 export const PortraitEntry = z.discriminatedUnion("kind", [
@@ -161,7 +163,7 @@ export const ASSET_KINDS = {
   vfx: VFX_KINDS,
   texture: ["material"],
   tileset: ["corner", "sidescroller", "isometric"],
-  ui: ["button", "panel", "slot", "meter", "menu_item", "screen"],
+  ui: ["button", "panel", "slot", "meter", "menu_item", "screen", "template"],
   portrait: ["portrait", "expression", "speech"],
   font: ["bitmap"],
   audio: ["music", "sfx"],

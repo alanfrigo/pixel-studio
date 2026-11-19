@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type CornerTilesetPayload, MapObjectPayload, RoomPayload, TilemapPayload } from "@/contracts";
+import type { LocalizedText } from "@/i18n/locales";
 import { validateManifest } from "@/domain/manifest/validate";
 import { createImage, encodePng, fillRect } from "@/lib/media/png";
 import { readZip } from "@/lib/zip";
@@ -74,7 +75,7 @@ describe.skipIf(!existsSync(PYTHON))("salas (cartão T2)", { timeout: 60_000 }, 
     expect(a.planned.plan.params).toMatchObject({ guide: { pictureSize: [256, 256], cellPx: [32, 32], gridOrigin: [16, 48] } });
     expect(a.planned.plan.requiredCapabilities).toEqual(["text_to_image", "image_references"]);
     expect(a.planned.plan.prompt.compiled).not.toMatch(/#[0-9a-f]{6}/i);
-    expect((a.planned as unknown as { routeLabel: string }).routeLabel).toMatch(/não é geração nativa de sala/);
+    expect((a.planned as unknown as { routeLabel: LocalizedText }).routeLabel).toMatchObject({ "pt-BR": expect.stringMatching(/não é geração nativa de sala/), en: expect.stringMatching(/not native room generation/) });
     const roomRev = getRevision(studio.db, project.id, a.revisionId);
     const room = RoomPayload.parse(roomRev.payload);
     expect(room).toMatchObject({ route: "generic_image_references", projection: "top_down", picture: { rect: [0, 0, 256, 256] } });
@@ -185,7 +186,7 @@ describe.skipIf(!existsSync(PYTHON))("salas (cartão T2)", { timeout: 60_000 }, 
     const mapped = await mapKit(studio, project.id, { roomRevisionId: forge.revisionId, name: "Kit da forja", origin: [0, 32], cell: [32, 32], keys });
     expect(mapped.complete).toBe(true);
     expect((mapped.tileset.payload as CornerTilesetPayload).terrains.map((t) => t.terrainId)).toEqual(["floor", "wall"]);
-    expect((mapped.tileset.technicalReport as { routeLabel: string }).routeLabel).toMatch(/Kit derivado localmente/);
+    expect((mapped.tileset.technicalReport as { routeLabel: LocalizedText }).routeLabel["pt-BR"]).toMatch(/Kit derivado localmente/);
     const missing = await mapKit(studio, project.id, { roomRevisionId: forge.revisionId, name: "Kit incompleto", origin: [0, 32], cell: [32, 32], keys: keys.slice(0, 15) });
     expect([missing.complete, missing.missing]).toEqual([false, [15]]);
     approve(project.id, mapped.tileset.id);
@@ -204,7 +205,7 @@ describe.skipIf(!existsSync(PYTHON))("salas (cartão T2)", { timeout: 60_000 }, 
     const r = await run(project.id, { operation: "generate_room", providerProfileId: "simulated", theme: "corredor de pedra", projection: "oblique", doors: [{ doorId: "n", cell: [3, 0], side: "N" }] }, asset.id, "room:obl");
     expect(r.error).toBeNull();
     approve(project.id, r.result!.revisionIds[0]!);
-    expect((r.planned as unknown as { restrictions: string[] }).restrictions.join(" ")).toMatch(/Oblíqua/);
+    expect((r.planned as unknown as { restrictions: LocalizedText[] }).restrictions.map((t) => t["pt-BR"]).join(" ")).toMatch(/Oblíqua/);
     const failure = await (async () => {
       try {
         await previewCutout(studio, project.id, { roomRevisionId: r.result!.revisionIds[0]!, maskUploadId: "x" });

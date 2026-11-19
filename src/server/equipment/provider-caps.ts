@@ -1,4 +1,5 @@
 import type { Capability, PlanOperation } from "@/contracts";
+import { tx } from "@/i18n/locales";
 import { readPngInfo } from "@/lib/media/png";
 import type { ProviderSubmitRequest } from "../providers/types";
 
@@ -30,6 +31,12 @@ export function equipmentCanvas(req: Pick<ProviderSubmitRequest, "operation" | "
 }
 
 export const EQUIPMENT_ROUTE_LABELS = {
-  dressed_candidate: "Candidato vestido por imagem + referências, peça extraída localmente com máscara explícita (rota genérica; não é máscara nativa nem overlay modular nativo)",
-  rigid_view: "Vista rígida por texto, recortada e ajustada localmente (empunhaduras marcadas pelo gabarito e revisadas no editor)",
-} as const;
+  dressed_candidate: tx(
+    "Candidato vestido por imagem + referências, peça extraída localmente com máscara explícita (rota genérica; não é máscara nativa nem overlay modular nativo)",
+    "Dressed candidate from image + references, piece extracted locally with an explicit mask (generic route; not a native mask or a native modular overlay)",
+  ),
+  rigid_view: tx(
+    "Vista rígida por texto, recortada e ajustada localmente (empunhaduras marcadas pelo gabarito e revisadas no editor)",
+    "Rigid view from text, cropped and fitted locally (grips marked by the template and reviewed in the editor)",
+  ),
+};

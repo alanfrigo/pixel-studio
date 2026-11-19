@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type CornerTilesetPayload, type IsoTilesetPayload, type SideTilesetPayload, TexturePayload, TilemapPayload } from "@/contracts";
+import { type LocalizedText, pick } from "@/i18n/locales";
 import { validateManifest } from "@/domain/manifest/validate";
 import { asCornerMap, moveObject, paintCornerVertex } from "@/domain/world/map";
 import { createImage, encodePng, fillRect, type RgbaImage, setPixel } from "@/lib/media/png";
@@ -92,9 +93,9 @@ describe.skipIf(!existsSync(PYTHON))("mundo (cartão T1)", () => {
       materialBrief: "pedra úmida com musgo entre as juntas",
       logicalSize: [32, 32],
       repeatAxes: { x: true, y: true },
-    } as never)) as Awaited<ReturnType<typeof buildPlan>> & { routeLabel: string };
+    } as never)) as Awaited<ReturnType<typeof buildPlan>> & { routeLabel: LocalizedText };
     expect(planned.plan.prompt.compiled).not.toMatch(/#[0-9a-f]{6}/i); // cores por nome, nunca hex
-    expect(planned.routeLabel).toMatch(/validada localmente/);
+    expect(planned.routeLabel["pt-BR"]).toMatch(/validada localmente/);
     const { job } = submitJob(studio, project.id, { kind: "generation", request: { plan: planned.plan, planDigest: planned.digest, targetAssetId: asset.id } }, "tex-1");
     await studio.runner().runOnce();
     const done = studio.queue.get(job.id)!;
@@ -131,7 +132,7 @@ describe.skipIf(!existsSync(PYTHON))("mundo (cartão T1)", () => {
     studio = makeTestStudio();
     const project = createProject(studio.db, studio.clock, { name: "Mundo" });
     const { asset, revision, check, routeLabel } = await cornerTileset(project.id);
-    expect(routeLabel).toMatch(/não é geração nativa/);
+    expect(routeLabel["pt-BR"]).toMatch(/não é geração nativa/);
     const payload = revision.payload as CornerTilesetPayload;
     expect(payload.complete).toBe(true);
     expect(payload.tiles.map((t) => t.mask).sort((a, b) => a - b)).toEqual(Array.from({ length: 16 }, (_, i) => i));
@@ -148,9 +149,9 @@ describe.skipIf(!existsSync(PYTHON))("mundo (cartão T1)", () => {
     await studio.runner().runOnce();
     expect(studio.queue.get(job.id)!.error_json).toBeNull();
     const guided = listRevisions(studio.db, project.id, asset.id)[0]!;
-    const tr = guided.technicalReport as { routeLabel: string; composite: { protectedDiffPixels: number }; check: { locked: { passed: boolean }; flagged: unknown[] } };
+    const tr = guided.technicalReport as { routeLabel: LocalizedText; composite: { protectedDiffPixels: number }; check: { locked: { passed: boolean }; flagged: unknown[] } };
     expect(guided.predecessorId).toBe(revision.id);
-    expect(tr.routeLabel).toMatch(/Não é geração nativa de tileset/);
+    expect(tr.routeLabel["pt-BR"]).toMatch(/Não é geração nativa de tileset/);
     expect(tr.composite.protectedDiffPixels).toBe(0);
     expect(tr.check.locked.passed).toBe(true);
     expect((tr.check.locked as unknown as { frameFlagged: string[] }).frameFlagged).toEqual([]); // sem moldura falsa quando o miolo segue o gabarito
@@ -176,7 +177,7 @@ describe.skipIf(!existsSync(PYTHON))("mundo (cartão T1)", () => {
     const payload = revision.payload as SideTilesetPayload;
     expect(payload.complete).toBe(false);
     expect((check.report as { gaps: string[] }).gaps).toEqual(["inner_corner_right"]);
-    expect(check.warnings.join(" ")).toMatch(/inner_corner_right/);
+    expect(check.warnings.map((w) => pick(w, "pt-BR")).join(" ")).toMatch(/inner_corner_right/);
   });
 
   it("quatro losangos e prop alto conservam o apoio (peças locais + árvore importada)", async () => {

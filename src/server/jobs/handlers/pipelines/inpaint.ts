@@ -1,3 +1,4 @@
+import { pick, tx } from "@/i18n/locales";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { type GenerationPlan, parseRevisionPayload } from "@/contracts";
@@ -35,7 +36,7 @@ async function loadInpaintInputs(ctx: HandlerContext, plan: InpaintPlan, adapter
   if (plan.params.mode === "native-mask") {
     const encoding = adapter.maskEncoding ?? "white_edits_black_preserves";
     const encoded = await pythonWith(env, path.join(dir, "mask"), "encode_mask", [{ role: "editMask", sha256: mask.sha256 }], { version: 1, encoding });
-    if (encoded.status === "error") throw new DomainFailure("validation_failed", `Máscara inválida: ${encoded.message}`, { code: encoded.code });
+    if (encoded.status === "error") throw new DomainFailure("validation_failed", tx(`Máscara inválida: ${pick(encoded.message, "pt-BR")}`, `Invalid mask: ${pick(encoded.message, "en")}`), { code: encoded.code });
     return [
       { role: "source", mime: "image/png", bytes: await ctx.blobs.read(source.sha256) },
       { role: encoding === "alpha_zero_edits" ? "remote_mask" : "edit_mask", mime: "image/png", bytes: await read(encoded.outputs[0]!.absolutePath) },
@@ -52,7 +53,7 @@ async function loadInpaintInputs(ctx: HandlerContext, plan: InpaintPlan, adapter
     ],
     { version: 1, scale: guideScale(plan.params.logicalSize), markColor: inpaintMarkColor(style) },
   );
-  if (guide.status === "error") throw new DomainFailure("validation_failed", `Falha ao preparar a guia: ${guide.message}`, { code: guide.code });
+  if (guide.status === "error") throw new DomainFailure("validation_failed", tx(`Falha ao preparar a guia: ${pick(guide.message, "pt-BR")}`, `Failed to prepare the guide: ${pick(guide.message, "en")}`), { code: guide.code });
   const byRole = (role: string) => guide.outputs.find((o) => o.role === role)!;
   return [
     { role: "source", mime: "image/png", bytes: await read(byRole("context").absolutePath) },
@@ -66,7 +67,7 @@ export async function processInpaintCandidate(env: PipelineEnv, plan: Generation
   const [lw, lh] = plan.params.logicalSize;
   const { source, mask } = inpaintSources(plan);
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
-  if (ingest.status === "error") throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+  if (ingest.status === "error") throw new DomainFailure("validation_failed", tx(`Resposta do provedor não é uma imagem utilizável: ${pick(ingest.message, "pt-BR")}`, `Provider response is not a usable image: ${pick(ingest.message, "en")}`), { code: ingest.code });
   let candidate = ingest.outputs.find((o) => o.role === "normalized")!;
   const steps: Record<string, unknown>[] = [];
   const warnings = [...ingest.warnings];
@@ -114,7 +115,7 @@ export async function processInpaintCandidate(env: PipelineEnv, plan: Generation
 function publishInpaint(ctx: HandlerContext, plan: InpaintPlan, asset: AssetView, part: PartRow): string[] {
   const base = getRevision(ctx.db, ctx.job.project_id, plan.params.sourceRevisionId);
   const parsed = parseRevisionPayload(asset.family, asset.kind, base.payload);
-  if (!parsed.success) throw new DomainFailure("internal", "Payload da revisão-fonte não passa no schema");
+  if (!parsed.success) throw new DomainFailure("internal", tx("Payload da revisão-fonte não passa no schema", "Source revision payload does not pass the schema"));
   const referenced = new Set(entryRefs(parsed.entry).files.map((f) => f.fileId));
   const { mask } = inpaintSources(plan);
   return partResults(ctx, part.part_key).map((row) => {
@@ -165,7 +166,7 @@ export const inpaintPipeline: OperationPipeline = {
     if (plan.operation !== "inpaint") throw new Error("inalcançável");
     // O resultado é nova revisão do asset da própria fonte.
     if (getRevision(db, projectId, plan.params.sourceRevisionId).assetId !== asset.id) {
-      throw new DomainFailure("validation_failed", "O inpainting publica no asset da própria fonte");
+      throw new DomainFailure("validation_failed", tx("O inpainting publica no asset da própria fonte", "Inpainting publishes to the source's own asset"));
     }
   },
   loadInputs: (ctx, plan, adapter) => loadInpaintInputs(ctx, plan as InpaintPlan, adapter),

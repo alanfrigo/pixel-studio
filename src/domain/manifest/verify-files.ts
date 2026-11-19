@@ -1,3 +1,4 @@
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { createHash } from "node:crypto";
 import { fileModality, type Manifest } from "@/contracts";
 import { readPngInfo } from "@/lib/media/png";
@@ -14,7 +15,7 @@ export type FileIssueCode = "file_unreadable" | "bytes_mismatch" | "hash_mismatc
 export interface FileIssue {
   code: FileIssueCode;
   fileId: string;
-  message: string;
+  message: LocalizedText;
 }
 
 export function sha256Hex(bytes: Uint8Array): string {
@@ -31,39 +32,39 @@ export async function verifyManifestFiles(
     try {
       bytes = await readFile(file.path);
     } catch {
-      issues.push({ code: "file_unreadable", fileId: file.fileId, message: `Não foi possível ler ${file.path}` });
+      issues.push({ code: "file_unreadable", fileId: file.fileId, message: tx(`Não foi possível ler ${file.path}`, `Could not read ${file.path}`) });
       continue;
     }
     if (bytes.length !== file.bytes) {
-      issues.push({ code: "bytes_mismatch", fileId: file.fileId, message: `${file.path}: ${bytes.length} bytes, manifesto diz ${file.bytes}` });
+      issues.push({ code: "bytes_mismatch", fileId: file.fileId, message: tx(`${file.path}: ${bytes.length} bytes, manifesto diz ${file.bytes}`, `${file.path}: ${bytes.length} bytes, the manifest says ${file.bytes}`) });
     }
     const hash = sha256Hex(bytes);
     if (hash !== file.sha256) {
-      issues.push({ code: "hash_mismatch", fileId: file.fileId, message: `${file.path}: SHA-256 diverge do manifesto` });
+      issues.push({ code: "hash_mismatch", fileId: file.fileId, message: tx(`${file.path}: SHA-256 diverge do manifesto`, `${file.path}: SHA-256 does not match the manifest`) });
     }
     const modality = fileModality(file);
     if (modality === "raster" && "width" in file) {
       const info = readPngInfo(bytes);
       if (!info) {
-        issues.push({ code: "undecodable", fileId: file.fileId, message: `${file.path} não é PNG válido` });
+        issues.push({ code: "undecodable", fileId: file.fileId, message: tx(`${file.path} não é PNG válido`, `${file.path} is not a valid PNG`) });
       } else if (info.width !== file.width || info.height !== file.height) {
         issues.push({
           code: "metadata_mismatch",
           fileId: file.fileId,
-          message: `${file.path}: PNG tem ${info.width}×${info.height}, manifesto diz ${file.width}×${file.height}`,
+          message: tx(`${file.path}: PNG tem ${info.width}×${info.height}, manifesto diz ${file.width}×${file.height}`, `${file.path}: PNG is ${info.width}×${info.height}, the manifest says ${file.width}×${file.height}`),
         });
       }
     } else if (modality === "audio" && "frameCount" in file && file.mime === "audio/wav") {
       const info = readWavInfo(bytes);
       if (!info) {
-        issues.push({ code: "undecodable", fileId: file.fileId, message: `${file.path} não é WAV válido` });
+        issues.push({ code: "undecodable", fileId: file.fileId, message: tx(`${file.path} não é WAV válido`, `${file.path} is not a valid WAV`) });
       } else if (
         info.sampleRate !== file.sampleRate ||
         info.channels !== file.channels ||
         info.frameCount !== file.frameCount ||
         info.durationMs !== file.durationMs
       ) {
-        issues.push({ code: "metadata_mismatch", fileId: file.fileId, message: `${file.path}: metadados de áudio divergem do manifesto` });
+        issues.push({ code: "metadata_mismatch", fileId: file.fileId, message: tx(`${file.path}: metadados de áudio divergem do manifesto`, `${file.path}: audio metadata does not match the manifest`) });
       }
     }
   }

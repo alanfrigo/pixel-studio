@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { GenerationPlan } from "@/contracts";
+import { pick, tx } from "@/i18n/locales";
 import { type AssetView, getAsset, getRevision, getStyleRevision, publishRevision } from "../../../catalog/catalog";
 import { DomainFailure } from "../../../errors";
 import { inpaintMarkColor } from "../../../inpaint";
@@ -26,9 +27,12 @@ const EXPECTED_KIND = { corner: "corner", sidescroller: "sidescroller", isometri
 function guideOf(plan: GenerationPlan) {
   if (plan.operation !== "generate_tileset") throw new Error("inalcançável");
   const guide = plan.params.guide;
-  if (!guide) throw new DomainFailure("capability_missing", "Geração nativa de tileset não está disponível nesta rota; gere a partir de um gabarito aprovado");
+  if (!guide) throw new DomainFailure(
+      "capability_missing",
+      tx("Geração nativa de tileset não está disponível nesta rota; gere a partir de um gabarito aprovado", "Native tileset generation is not available on this route; generate from an approved template"),
+    );
   const base = plan.sources.find((s) => s.role === "base" && s.revisionId === guide.revisionId);
-  if (!base) throw new DomainFailure("validation_failed", "O gabarito precisa estar congelado como primeira fonte do plano");
+  if (!base) throw new DomainFailure("validation_failed", tx("O gabarito precisa estar congelado como primeira fonte do plano", "The template must be frozen as the first source of the plan"));
   return { guide, base };
 }
 
@@ -46,7 +50,11 @@ export async function processTilesetCandidate(env: PipelineEnv, plan: Generation
   const { guide, base } = guideOf(plan);
   const steps: Record<string, unknown>[] = [];
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
-  if (ingest.status === "error") throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+  if (ingest.status === "error") throw new DomainFailure(
+      "validation_failed",
+      tx(`Resposta do provedor não é uma imagem utilizável: ${pick(ingest.message, "pt-BR")}`, `The provider response is not a usable image: ${pick(ingest.message, "en")}`),
+      { code: ingest.code },
+    );
   const warnings = [...ingest.warnings];
   let candidate = ingest.outputs.find((o) => o.role === "normalized")!;
   const [aw, ah] = guide.atlasSize;
@@ -155,10 +163,10 @@ export const worldTilesetPipeline: OperationPipeline = {
     if (plan.operation !== "generate_tileset") throw new Error("inalcançável");
     const { guide } = guideOf(plan);
     const guideRevision = getRevision(db, projectId, guide.revisionId);
-    if (guideRevision.assetId !== asset.id) throw new DomainFailure("validation_failed", "O resultado guiado é publicado no asset do próprio gabarito");
+    if (guideRevision.assetId !== asset.id) throw new DomainFailure("validation_failed", tx("O resultado guiado é publicado no asset do próprio gabarito", "The guided result is published to the template's own asset"));
     const expected = EXPECTED_KIND[plan.params.layout];
     if (asset.family !== "tileset" || asset.kind !== expected) {
-      throw new DomainFailure("validation_failed", `Layout ${plan.params.layout} publica tileset/${expected}; o asset é ${asset.family}/${asset.kind}`);
+      throw new DomainFailure("validation_failed", tx(`Layout ${plan.params.layout} publica tileset/${expected}; o asset é ${asset.family}/${asset.kind}`, `Layout ${plan.params.layout} publishes tileset/${expected}; the asset is ${asset.family}/${asset.kind}`));
     }
     getAsset(db, projectId, asset.id);
   },

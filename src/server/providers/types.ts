@@ -1,3 +1,4 @@
+import type { TextValue } from "@/i18n/locales";
 import type { Capability, CostAmount, CostEstimate, PlanOperation, ProviderTransport } from "@/contracts";
 
 /**
@@ -20,7 +21,7 @@ export interface ProviderSubmitRequest {
 export type RemoteStatus =
   | { state: "pending"; progress?: number }
   | { state: "succeeded" }
-  | { state: "failed"; message: string };
+  | { state: "failed"; message: TextValue };
 
 export interface ProviderImage {
   bytes: Uint8Array;
@@ -66,12 +67,16 @@ export interface ProviderAdapter {
  * aceitação (pode retentar); `ambiguous` = pode ter sido aceito e cobrado.
  */
 export class ProviderError extends Error {
+  /** Texto bilíngue quando a mensagem é nossa; texto cru (como veio do provedor) fica string. `Error.message` é o português. */
+  readonly text: TextValue;
+
   constructor(
     readonly kind: "not_accepted" | "ambiguous" | "auth" | "balance" | "rejected" | "rate_limited" | "unavailable",
-    message: string,
+    message: TextValue,
     readonly retryAfterMs?: number,
   ) {
-    super(message);
+    super(typeof message === "string" ? message : message["pt-BR"]);
+    this.text = message;
     this.name = "ProviderError";
   }
 }

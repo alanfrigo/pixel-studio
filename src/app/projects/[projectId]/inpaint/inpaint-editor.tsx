@@ -6,9 +6,13 @@ import type { GenerationPlan } from "@/contracts";
 import type { AssetView, RevisionView, UploadView } from "@/server/catalog/catalog";
 import type { JobView } from "@/server/jobs/queue";
 import type { ProviderProfileView } from "@/server/providers/registry";
-import { ApiError, apiFetch } from "@/app/client/api";
+import { ApiError, apiFetch, errorMessage } from "@/app/client/api";
 import { estimateText } from "@/app/client/cost";
 import { usePoll } from "@/app/client/use-poll";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { inpaintMessages } from "@/i18n/messages/inpaint";
 import { type PreviewBg, RevisionCompare } from "../revision-compare";
 
 /**
@@ -18,10 +22,7 @@ import { type PreviewBg, RevisionCompare } from "../revision-compare";
  */
 
 type Mode = "native-mask" | "candidate-composite";
-const MODE_LABEL: Record<Mode, string> = {
-  "native-mask": "Inpainting com máscara nativa",
-  "candidate-composite": "Candidato editado + recorte local (sem condicionamento nativo por máscara)",
-};
+const MODES: Mode[] = ["native-mask", "candidate-composite"];
 const OVERLAY: [number, number, number, number] = [255, 0, 200, 110];
 
 interface PlanPreview {
@@ -29,11 +30,12 @@ interface PlanPreview {
   digest: string;
   destination: { name: string; simulated: boolean };
   mask: { editedPixels: number; protectedPixels: number; fullMask: boolean; editRect: number[] | null };
-  modeLabel: string;
-  scope: string;
+  /** Rótulo do modo e alcance: bilíngues (servidor atual) ou texto gravado num idioma só. */
+  modeLabel: TextValue;
+  scope: TextValue;
 }
 
-type Profile = ProviderProfileView & { capabilities: Record<string, string[]>; unavailable: string | null };
+type Profile = ProviderProfileView & { capabilities: Record<string, string[]>; unavailable: TextValue | null };
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
@@ -41,18 +43,22 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 /** PNG preto/branco opaco: 255 edita, 0 protege (convenção interna, sem cinza nem alfa). */
-async function maskPng(mask: Uint8Array, w: number, h: number): Promise<Uint8Array> {
+async function maskPng(mask: Uint8Array, w: number, h: number, failed: string): Promise<Uint8Array> {
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
   const data = new ImageData(w, h);
   for (let i = 0; i < mask.length; i++) data.data.set([mask[i]!, mask[i]!, mask[i]!, 255], i * 4);
   canvas.getContext("2d")!.putImageData(data, 0, 0);
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Falha ao gerar PNG"))), "image/png"));
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(failed))), "image/png"));
   return new Uint8Array(await blob.arrayBuffer());
 }
 
 export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { projectId: string; assetId: string; revisionId: string; fileKey: string }) {
+  const locale = useLocale();
+  const text = useText();
+  const m = useMessages(inpaintMessages);
+  const c = useMessages(commonMessages);
   const base = `/projects/${projectId}`;
   const { data } = usePoll(
     async () => {
@@ -163,31 +169,31 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
 
   /** Envia a máscara como upload (uma vez por conteúdo) e espera a normalização. */
   async function uploadMask(): Promise<string> {
-    const png = await maskPng(maskRef.current!, w, h);
+    const png = await maskPng(maskRef.current!, w, h, m.pngFailed);
     const digest = await sha256Hex(png);
     if (uploaded.current?.digest === digest) return uploaded.current.uploadId;
     const form = new FormData();
     form.append("file", new Blob([png as BlobPart], { type: "image/png" }), `mascara-${digest.slice(0, 8)}.png`);
     const res = await fetch(`/api/v1${base}/uploads`, { method: "POST", body: form });
     const body = (await res.json()) as { upload?: UploadView; message?: string };
-    if (!res.ok || !body.upload) throw new Error(body.message ?? "Falha ao enviar a máscara");
+    if (!res.ok || !body.upload) throw new Error(body.message ?? m.maskUploadFailed);
     for (let i = 0; i < 60; i++) {
       const { upload } = await apiFetch<{ upload: UploadView }>(`${base}/uploads/${body.upload.id}`);
       if (upload.status === "ready") {
         uploaded.current = { digest, uploadId: upload.id };
         return upload.id;
       }
-      if (upload.status === "rejected") throw new Error("A máscara não pôde ser importada");
+      if (upload.status === "rejected") throw new Error(m.maskRejected);
       await new Promise((r) => setTimeout(r, 400));
     }
-    throw new Error("A importação da máscara demorou demais");
+    throw new Error(m.maskTimeout);
   }
 
   async function loadPlan() {
     setMessage(null);
     setBusy(true);
     try {
-      if (!profile || !effectiveMode) throw new Error("Nenhum perfil com inpainting disponível");
+      if (!profile || !effectiveMode) throw new Error(m.noProfileAvailable);
       const maskUploadId = await uploadMask();
       const p = await apiFetch<PlanPreview>(`${base}/generation-plans`, {
         method: "POST",
@@ -214,15 +220,15 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
         json: { kind: "generation", request: { plan: p.plan, planDigest: p.digest, targetAssetId: assetId } },
       });
       setJobId(res.job.id);
-      setMessage(res.created ? `Job ${res.job.id} enfileirado.` : `Mesmo pedido: job ${res.job.id} já existe (nenhum envio duplicado).`);
+      setMessage(res.created ? m.queued(res.job.id) : m.duplicate(res.job.id));
     } catch (err) {
       setMessage(err instanceof ApiError ? `${err.message} (${err.code})` : String(err));
     }
   }
 
-  if (!data) return <p className="muted">Carregando…</p>;
-  if (!source || !file) return <p className="error">Revisão ou arquivo não encontrado neste asset.</p>;
-  if (source.status !== "approved") return <p className="error">O inpainting parte de uma revisão aprovada; aprove r{source.number} antes.</p>;
+  if (!data) return <p className="muted">{c.loading}</p>;
+  if (!source || !file) return <p className="error">{m.notFound}</p>;
+  if (source.status !== "approved") return <p className="error">{m.needsApproved(source.number)}</p>;
 
   return (
     <>
@@ -231,17 +237,17 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
       </h1>
       <div className="grid2">
         <section>
-          <h2>Máscara</h2>
+          <h2>{m.mask}</h2>
           <div className="row">
             <label>
-              Ferramenta
+              {m.tool}
               <select value={tool} onChange={(e) => setTool(e.target.value as "paint" | "erase")}>
-                <option value="paint">pintar (editar)</option>
-                <option value="erase">apagar (proteger)</option>
+                <option value="paint">{m.paint}</option>
+                <option value="erase">{m.erase}</option>
               </select>
             </label>
             <label>
-              Pincel
+              {m.brush}
               <select value={brush} onChange={(e) => setBrush(Number(e.target.value))}>
                 {[1, 2, 4, 8, 16].map((b) => (
                   <option key={b} value={b}>
@@ -251,16 +257,16 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
               </select>
             </label>
             <button type="button" className="secondary" onClick={() => fill(0)}>
-              Limpar
+              {m.clear}
             </button>
             <button type="button" className="secondary" onClick={() => fill(255)}>
-              Tudo
+              {m.all}
             </button>
             <button type="button" className="secondary" onClick={() => fill("invert")}>
-              Inverter
+              {m.invert}
             </button>
             <label style={{ flexDirection: "row", alignItems: "center", gap: 4, color: "inherit" }}>
-              <input type="checkbox" checked={showOverlay} onChange={(e) => setShowOverlay(e.target.checked)} /> sobreposição
+              <input type="checkbox" checked={showOverlay} onChange={(e) => setShowOverlay(e.target.checked)} /> {m.overlay}
             </label>
           </div>
           <canvas
@@ -279,34 +285,34 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
             onPointerMove={(e) => e.buttons === 1 && paintTo(e)}
             onPointerUp={() => (lastRef.current = null)}
           />
-          <p className="small muted">Rosa: região que o modelo pode refazer. Fora dela, cada pixel sai idêntico à fonte.</p>
+          <p className="small muted">{m.maskHint}</p>
         </section>
         <section>
-          <h2>Pedido</h2>
+          <h2>{m.request}</h2>
           <label>
-            O que deve existir na região
-            <textarea value={instruction} maxLength={1000} onChange={(e) => (setInstruction(e.target.value), setPreview(null))} placeholder="ex.: reconstruir a margem do lago com juncos" />
+            {m.instruction}
+            <textarea value={instruction} maxLength={1000} onChange={(e) => (setInstruction(e.target.value), setPreview(null))} placeholder={m.instructionPlaceholder} />
           </label>
           <div className="row">
             <label>
-              Perfil
+              {m.profile}
               <select value={profile?.id ?? ""} onChange={(e) => (setProfileId(e.target.value), setMode(""), setPreview(null))}>
-                {data.profiles.length === 0 && <option value="">Nenhum perfil com inpainting</option>}
+                {data.profiles.length === 0 && <option value="">{m.noProfile}</option>}
                 {data.profiles.map((p) => (
                   <option key={p.id} value={p.id} disabled={Boolean(p.unavailable)}>
                     {p.name}
-                    {p.unavailable ? " (indisponível)" : ""}
+                    {p.unavailable ? m.unavailableSuffix : ""}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Modo
+              {m.modeLabel}
               <select value={effectiveMode ?? ""} onChange={(e) => (setMode(e.target.value as Mode), setPreview(null))}>
-                {(Object.keys(MODE_LABEL) as Mode[]).map((m) => (
-                  <option key={m} value={m} disabled={!caps.includes(m === "native-mask" ? "native_mask" : "image_edit")}>
-                    {MODE_LABEL[m]}
-                    {!caps.includes(m === "native-mask" ? "native_mask" : "image_edit") ? " — indisponível neste perfil" : ""}
+                {MODES.map((option) => (
+                  <option key={option} value={option} disabled={!caps.includes(option === "native-mask" ? "native_mask" : "image_edit")}>
+                    {m.mode[option]}
+                    {!caps.includes(option === "native-mask" ? "native_mask" : "image_edit") ? m.modeUnavailable : ""}
                   </option>
                 ))}
               </select>
@@ -314,20 +320,20 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
           </div>
           <div className="row" style={{ marginTop: 8 }}>
             <button type="button" className="secondary" disabled={busy || !instruction.trim()} onClick={loadPlan}>
-              Prévia do plano
+              {m.planPreview}
             </button>
             <button type="button" disabled={busy || !instruction.trim()} onClick={run}>
-              Executar
+              {m.run}
             </button>
           </div>
           {message && <p className="small">{message}</p>}
           {preview && (
             <div className="small">
               <p>
-                <strong>{preview.modeLabel}</strong> · destino {preview.destination.name}
-                {preview.destination.simulated ? " (simulado, nada sai do computador)" : ""} · estimativa {estimateText(preview.plan)}
+                <strong>{text(preview.modeLabel)}</strong> · {m.destination(preview.destination.name)}
+                {preview.destination.simulated ? m.simulated : ""} · {m.estimate(estimateText(preview.plan, locale))}
               </p>
-              <p>{preview.scope}</p>
+              <p>{text(preview.scope)}</p>
               <pre>{preview.plan.prompt.compiled}</pre>
             </div>
           )}
@@ -339,6 +345,10 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
 }
 
 function InpaintResult({ projectId, assetId, source, fileKey, jobId }: { projectId: string; assetId: string; source: RevisionView; fileKey: string; jobId: string }) {
+  const locale = useLocale();
+  const text = useText();
+  const m = useMessages(inpaintMessages);
+  const c = useMessages(commonMessages);
   const base = `/projects/${projectId}`;
   const [bg, setBg] = useState<PreviewBg>("checker");
   const { data } = usePoll(
@@ -355,10 +365,10 @@ function InpaintResult({ projectId, assetId, source, fileKey, jobId }: { project
   if (job.state !== "succeeded" || !revision) {
     return (
       <section>
-        <h2>Resultado</h2>
+        <h2>{m.result}</h2>
         <p className="small">
-          Job {job.id}: <span className={`badge state-${job.state}`}>{job.state}</span> {job.stage ? `· etapa ${job.stage}` : ""}
-          {job.error ? <span className="error"> · {(job.error as { message?: string }).message}</span> : null}
+          Job {job.id}: <span className={`badge state-${job.state}`}>{labelOf(c.jobState, job.state)}</span> {job.stage ? `· ${c.stage(job.stage)}` : ""}
+          {job.error ? <span className="error"> · {errorMessage(job.error, locale)}</span> : null}
         </p>
       </section>
     );
@@ -368,38 +378,38 @@ function InpaintResult({ projectId, assetId, source, fileKey, jobId }: { project
     return f ? `/api/v1/projects/${projectId}/media/${f.id}` : null;
   };
   const sourceFile = source.files.find((f) => f.fileKey === fileKey)!;
-  const report = revision.technicalReport as { modeLabel: string; composite: { editedPixels: number; protectedPixels: number; protectedDiffPixels: number; candidateAgreement: number | null }; warnings: string[] };
+  const report = revision.technicalReport as { modeLabel: TextValue; composite: { editedPixels: number; protectedPixels: number; protectedDiffPixels: number; candidateAgreement: number | null }; warnings: TextValue[] };
   return (
     <section>
-      <h2>Resultado · r{revision.number} (candidata)</h2>
+      <h2>{m.resultTitle(revision.number)}</h2>
       <p className="small">
-        {report.modeLabel} · {report.composite.editedPixels} pixel(s) editados · {report.composite.protectedPixels} protegidos ·{" "}
-        <strong>{report.composite.protectedDiffPixels} diferença(s) fora da máscara</strong>
-        {report.composite.candidateAgreement !== null ? ` · o candidato coincide com a fonte em ${(report.composite.candidateAgreement * 100).toFixed(0)}% da área protegida` : ""}
+        {text(report.modeLabel)} · {m.edited(report.composite.editedPixels)} · {m.protectedPixels(report.composite.protectedPixels)} ·{" "}
+        <strong>{m.outsideDiff(report.composite.protectedDiffPixels)}</strong>
+        {report.composite.candidateAgreement !== null ? m.agreement(new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(report.composite.candidateAgreement * 100)) : ""}
       </p>
       {report.warnings.length > 0 && (
         <ul className="small">
           {report.warnings.map((wn, i) => (
             <li key={i} className="error">
-              {wn}
+              {text(wn)}
             </li>
           ))}
         </ul>
       )}
       <div className="row">
         <label>
-          Fundo
+          {m.background}
           <select value={bg} onChange={(e) => setBg(e.target.value as PreviewBg)}>
-            <option value="checker">quadriculado</option>
-            <option value="dark">escuro</option>
-            <option value="light">claro</option>
+            <option value="checker">{m.bg.checker}</option>
+            <option value="dark">{m.bg.dark}</option>
+            <option value="light">{m.bg.light}</option>
           </select>
         </label>
       </div>
       <div className="row" style={{ alignItems: "flex-start" }}>
         {[
-          ["Candidato (na grade da fonte)", media("inpaint-candidate")],
-          ["Máscara", media("inpaint-mask")],
+          [m.candidate, media("inpaint-candidate")],
+          [m.mask, media("inpaint-mask")],
         ].map(([label, url]) =>
           url ? (
             <figure key={label} style={{ margin: 0 }}>
@@ -411,13 +421,15 @@ function InpaintResult({ projectId, assetId, source, fileKey, jobId }: { project
         )}
       </div>
       <RevisionCompare
-        a={{ label: `Fonte r${source.number}`, src: `/api/v1/projects/${projectId}/media/${sourceFile.id}` }}
-        b={{ label: `Resultado r${revision.number}`, src: media(fileKey)! }}
+        a={{ label: m.source(source.number), src: `/api/v1/projects/${projectId}/media/${sourceFile.id}` }}
+        b={{ label: m.resultRev(revision.number), src: media(fileKey)! }}
         zoom={2}
         bg={bg}
       />
       <p className="small">
-        Aprove ou reprove a revisão na <Link href={`/projects/${projectId}`}>biblioteca do projeto</Link>.
+        {m.reviewBefore}
+        <Link href={`/projects/${projectId}`}>{m.reviewLink}</Link>
+        {m.reviewAfter}
       </p>
     </section>
   );

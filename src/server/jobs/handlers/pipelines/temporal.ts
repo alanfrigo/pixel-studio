@@ -1,3 +1,4 @@
+import { pick, tx, type TextValue } from "@/i18n/locales";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { type BasePayload, type ClipPayload, DIRECTIONS_8, type Direction, type FrameLayout, type GenerationPlan, type ReferenceSheet } from "@/contracts";
@@ -66,7 +67,7 @@ async function composeLayouts(
   const used = [...new Set(layouts.flatMap((l) => l.layers.map((x) => x.source)))].sort((a, b) => a - b);
   const inputs = used.map((ordinal) => {
     const source = plan.sources[ordinal];
-    if (!source) throw new DomainFailure("validation_failed", `Camada cita a fonte ${ordinal}, ausente no plano`);
+    if (!source) throw new DomainFailure("validation_failed", tx(`Camada cita a fonte ${ordinal}, ausente no plano`, `Layer cites source ${ordinal}, which is missing from the plan`));
     return { role: "layer", sha256: source.sha256 };
   });
   const out = await pythonWith(env, dir, "compose_frames", inputs, {
@@ -76,7 +77,7 @@ async function composeLayouts(
     sheet,
     emitFrames: true,
   });
-  if (out.status === "error") throw new DomainFailure("validation_failed", `Falha ao recompor os quadros: ${out.message}`, { code: out.code });
+  if (out.status === "error") throw new DomainFailure("validation_failed", tx(`Falha ao recompor os quadros: ${pick(out.message, "pt-BR")}`, `Failed to recompose the frames: ${pick(out.message, "en")}`), { code: out.code });
   const report = out.report as { frames: { key: string; contentBox: number[] | null; rgbaSha256: string }[] };
   const frames = [];
   for (const o of out.outputs.filter((x) => x.role === "frame")) {
@@ -105,13 +106,13 @@ interface Fitted {
   rgbaSha256?: string;
   receivedSize: [number, number];
   steps: Record<string, unknown>[];
-  warnings: string[];
+  warnings: TextValue[];
 }
 
 /** Imagem nativa → célula exata: tamanho igual, padding transparente aparado (há provedores que acolchoam a tela) ou fator inteiro. */
 async function fitCell(env: PipelineEnv, sha256: string, dir: string, cell: [number, number]): Promise<Fitted> {
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
-  if (ingest.status === "error") throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+  if (ingest.status === "error") throw new DomainFailure("validation_failed", tx(`Resposta do provedor não é uma imagem utilizável: ${pick(ingest.message, "pt-BR")}`, `Provider response is not a usable image: ${pick(ingest.message, "en")}`), { code: ingest.code });
   let out = ingest.outputs.find((o) => o.role === "normalized")!;
   const steps: Record<string, unknown>[] = [];
   const warnings = [...ingest.warnings];
@@ -126,13 +127,13 @@ async function fitCell(env: PipelineEnv, sha256: string, dir: string, cell: [num
     if (trim.status !== "error") {
       out = trim.outputs.find((o) => o.role === "fitted")!;
       steps.push({ operation: "canvas_fit", ...trim.report });
-      warnings.push(`Tela recebida ${ingest.report.size} com borda transparente aparada para a célula ${cw}×${ch}`);
+      warnings.push(tx(`Tela recebida ${ingest.report.size} com borda transparente aparada para a célula ${cw}×${ch}`, `Received canvas ${ingest.report.size} had its transparent border trimmed to the ${cw}×${ch} cell`));
     }
   }
   if (out.width !== cw || out.height !== ch) {
     const current = await env.blobs.putFile(out.absolutePath);
     const fit = await python(env, path.join(dir, "fit"), "fit_logical", current.sha256, { version: 1, targetSize: cell, exactAspect: true, alphaThreshold: 128 });
-    if (fit.status === "error") throw new DomainFailure("validation_failed", `Imagem fora da célula ${cw}×${ch}: ${fit.message}`, { code: fit.code });
+    if (fit.status === "error") throw new DomainFailure("validation_failed", tx(`Imagem fora da célula ${cw}×${ch}: ${pick(fit.message, "pt-BR")}`, `Image does not fit the ${cw}×${ch} cell: ${pick(fit.message, "en")}`), { code: fit.code });
     out = fit.outputs.find((o) => o.role === "fitted")!;
     steps.push({ operation: "fit_logical", ...fit.report });
     warnings.push(...fit.warnings);
@@ -170,7 +171,7 @@ async function sheetToFrames(
   opts: { mode: "match"; originals: string[] } | { mode: "seat"; baseSha: string; keepHorizontal: boolean },
 ): Promise<ProcessResult & { frames: FrameOut[] }> {
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
-  if (ingest.status === "error") throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+  if (ingest.status === "error") throw new DomainFailure("validation_failed", tx(`Resposta do provedor não é uma imagem utilizável: ${pick(ingest.message, "pt-BR")}`, `Provider response is not a usable image: ${pick(ingest.message, "en")}`), { code: ingest.code });
   let out = ingest.outputs.find((o) => o.role === "normalized")!;
   const warnings = [...ingest.warnings];
   const steps: Record<string, unknown>[] = [];
@@ -178,7 +179,7 @@ async function sheetToFrames(
   const step = async (name: "unzoom" | "remove_background_flood", recipe: Record<string, unknown>, role: string) => {
     const current = await env.blobs.putFile(out.absolutePath);
     const result = await python(env, path.join(dir, name), name, current.sha256, recipe);
-    if (result.status === "error") throw new DomainFailure("validation_failed", `Etapa ${name} falhou: ${result.message}`, { code: result.code });
+    if (result.status === "error") throw new DomainFailure("validation_failed", tx(`Etapa ${name} falhou: ${pick(result.message, "pt-BR")}`, `Step ${name} failed: ${pick(result.message, "en")}`), { code: result.code });
     out = result.outputs.find((o) => o.role === role)!;
     warnings.push(...result.warnings);
     steps.push({ operation: name, ...result.report });
@@ -214,7 +215,7 @@ async function sheetToFrames(
           // Objeto/estado: a escala comum vem da largura, não da altura que a ação muda.
           scaleBy: "width",
         });
-  if (sliced.status === "error") throw new DomainFailure("validation_failed", `A folha não pôde ser fatiada: ${sliced.message}`, { code: sliced.code });
+  if (sliced.status === "error") throw new DomainFailure("validation_failed", tx(`A folha não pôde ser fatiada: ${pick(sliced.message, "pt-BR")}`, `The sheet could not be sliced: ${pick(sliced.message, "en")}`), { code: sliced.code });
   warnings.push(...sliced.warnings);
   steps.push({ operation: opts.mode === "match" ? "sheet_match" : "animation_sheet", ...sliced.report });
   const strip = sliced.outputs.find((o) => o.role === "strip")!;
@@ -253,7 +254,7 @@ function rawFiles(ctx: HandlerContext, part: PartRow, prefix = "raw") {
   return partResults(ctx, part.part_key).map((row) => ({ fileKey: `${prefix}-${row.idx}`, role: "raw", idx: row.idx, blob: mustBlob(ctx.db, row.blob_sha256) }));
 }
 
-function partWarnings(ctx: HandlerContext, part: PartRow): string[] {
+function partWarnings(ctx: HandlerContext, part: PartRow): TextValue[] {
   return processedRows(ctx, part).flatMap(({ processed }) => processed.warnings);
 }
 
@@ -264,7 +265,7 @@ function partSteps(ctx: HandlerContext, part: PartRow) {
 /** Arquivos citados pelo payload de origem, com as MESMAS chaves e blobs (nada do que não mudou é regravado). */
 function keptFiles(revision: RevisionView, family: "character", kind: "clip" | "base", payload: unknown) {
   const parsed = parseRevisionPayload(family, kind, payload);
-  if (!parsed.success) throw new DomainFailure("internal", "Payload de origem não passa no schema");
+  if (!parsed.success) throw new DomainFailure("internal", tx("Payload de origem não passa no schema", "Source payload does not match the schema"));
   const referenced = new Set(entryRefs(parsed.entry).files.map((f) => f.fileId));
   return revision.files.filter((f) => referenced.has(f.fileKey));
 }
@@ -294,10 +295,10 @@ function stateLayouts(plan: Plan<"create_state">): FrameLayout[] {
 export const statePipeline: OperationPipeline = {
   validateTarget({ db, projectId, plan, asset }) {
     if (plan.operation !== "create_state") throw new Error("inalcançável");
-    if (asset.family !== "character" || asset.kind !== "base") throw new DomainFailure("validation_failed", "O estado publica num asset de base (character/base) próprio do estado");
-    if (asset.id === plan.params.identityAssetId) throw new DomainFailure("validation_failed", "O estado nunca substitui a base de origem: ele tem asset próprio");
+    if (asset.family !== "character" || asset.kind !== "base") throw new DomainFailure("validation_failed", tx("O estado publica num asset de base (character/base) próprio do estado", "The state publishes to its own base asset (character/base)"));
+    if (asset.id === plan.params.identityAssetId) throw new DomainFailure("validation_failed", tx("O estado nunca substitui a base de origem: ele tem asset próprio", "A state never replaces the source base: it has its own asset"));
     if (plan.params.existingStateRevisionId && getRevision(db, projectId, plan.params.existingStateRevisionId).assetId !== asset.id) {
-      throw new DomainFailure("validation_failed", "A lacuna é preenchida no asset do próprio estado");
+      throw new DomainFailure("validation_failed", tx("A lacuna é preenchida no asset do próprio estado", "The gap is filled in the state's own asset"));
     }
   },
   // Só rota genérica: a folha de referência com as vistas pedidas vai ao modelo e volta casada com cada original.
@@ -314,7 +315,7 @@ export const statePipeline: OperationPipeline = {
     const p = plan as Plan<"create_state">;
     const frames = partFrames(ctx, p, part);
     if (frames.length !== p.params.directions.length) {
-      throw new DomainFailure("validation_failed", `O provedor devolveu ${frames.length} vista(s) para ${p.params.directions.length} direção(ões) pedidas. Respostas brutas guardadas no job.`);
+      throw new DomainFailure("validation_failed", tx(`O provedor devolveu ${frames.length} vista(s) para ${p.params.directions.length} direção(ões) pedidas. Respostas brutas guardadas no job.`, `The provider returned ${frames.length} view(s) for ${p.params.directions.length} requested direction(s). Raw responses are kept in the job.`));
     }
     const sourceId = p.params.predecessorStateRevisionId ?? p.params.baseRevisionId;
     const source = loadBase(ctx.db, ctx.job.project_id, sourceId, { approved: false });
@@ -367,7 +368,7 @@ export const statePipeline: OperationPipeline = {
         newViews: fresh.map((f) => f.direction),
         keptViews: kept.map((k) => ({ direction: k.view.direction, fileKey: k.file.fileKey, sha256: k.file.sha256 })),
         // Matriz de direções: o que a fonte tem e o estado ainda não cobre fica como lacuna explícita.
-        gaps: sourceDirections.filter((d) => !covered.includes(d)).map((direction) => ({ direction, reason: "não gerada neste estado" })),
+        gaps: sourceDirections.filter((d) => !covered.includes(d)).map((direction) => ({ direction, reason: tx("não gerada neste estado", "not generated in this state") })),
         remoteId: part.remote_id,
         frames: partSteps(ctx, part),
         warnings: partWarnings(ctx, part),
@@ -383,7 +384,7 @@ export const statePipeline: OperationPipeline = {
 
 export const objectAnimationPipeline: OperationPipeline = {
   validateTarget({ asset }) {
-    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", `A animação de objeto publica num clipe (character/clip); o alvo é ${asset.family}/${asset.kind}`);
+    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", tx(`A animação de objeto publica num clipe (character/clip); o alvo é ${asset.family}/${asset.kind}`, `Object animation publishes to a clip (character/clip); the target is ${asset.family}/${asset.kind}`));
   },
   // Só rota genérica: a vista (e a pose final, se houver) vão ampliadas; o modelo devolve a folha dos quadros gerados.
   async loadInputs(ctx, plan) {
@@ -413,7 +414,7 @@ export const objectAnimationPipeline: OperationPipeline = {
     // Só os gerados vêm do modelo; a referência entra como quadro 0 com os pixels exatos da vista aprovada.
     const frames: FrameOut[] = [...(keep ? [{ frameId: "ref", sha256: view.sha256, rgbaSha256: null }] : []), ...partFrames(ctx, p, part)];
     if (frames.length !== expected) {
-      throw new DomainFailure("validation_failed", `A folha trouxe ${frames.length - (keep ? 1 : 0)} quadro(s) gerado(s); o plano pede ${generated.length}. Respostas brutas guardadas no job.`, {
+      throw new DomainFailure("validation_failed", tx(`A folha trouxe ${frames.length - (keep ? 1 : 0)} quadro(s) gerado(s); o plano pede ${generated.length}. Respostas brutas guardadas no job.`, `The sheet brought ${frames.length - (keep ? 1 : 0)} generated frame(s); the plan asks for ${generated.length}. Raw responses are kept in the job.`), {
         received: frames.length,
         expected,
         keepFirstFrame: keep,
@@ -455,7 +456,7 @@ export const objectAnimationPipeline: OperationPipeline = {
         objectAssetId: object.asset.id,
         objectRevisionId: object.revision.id,
         keepFirstFrame: keep,
-        keepFirstFrameSemantics: keep ? "Quadro 0 (ref) é a vista aprovada copiada localmente; a folha trouxe só os gerados" : "Só os quadros gerados: a referência não se repete no clipe",
+        keepFirstFrameSemantics: keep ? tx("Quadro 0 (ref) é a vista aprovada copiada localmente; a folha trouxe só os gerados", "Frame 0 (ref) is the approved view copied locally; the sheet brought only the generated ones") : tx("Só os quadros gerados: a referência não se repete no clipe", "Only the generated frames: the reference is not repeated in the clip"),
         frameCount: generated.length,
         expectedFrames: expected,
         receivedImages: partResults(ctx, part.part_key).length,
@@ -482,9 +483,9 @@ async function endpointFrames(env: PipelineEnv, p: Plan<"interpolate_frames">, d
 export const interpolationPipeline: OperationPipeline = {
   validateTarget({ db, projectId, plan, asset }) {
     if (plan.operation !== "interpolate_frames") throw new Error("inalcançável");
-    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", "Os intermediários publicam num clipe (character/clip)");
+    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", tx("Os intermediários publicam num clipe (character/clip)", "In-betweens publish to a clip (character/clip)"));
     const t = plan.params.target;
-    if (t.kind === "insert" && getRevision(db, projectId, t.clipRevisionId).assetId !== asset.id) throw new DomainFailure("validation_failed", "Os intermediários entram no próprio clipe dos keyframes");
+    if (t.kind === "insert" && getRevision(db, projectId, t.clipRevisionId).assetId !== asset.id) throw new DomainFailure("validation_failed", tx("Os intermediários entram no próprio clipe dos keyframes", "In-betweens go into the keyframes' own clip"));
   },
   async loadInputs(ctx, plan) {
     const p = plan as Plan<"interpolate_frames">;
@@ -524,7 +525,7 @@ export const interpolationPipeline: OperationPipeline = {
     // Sem duplicar os extremos: um "intermediário" idêntico a um keyframe é descartado e relatado.
     const duplicates = all.filter((f) => f.rgbaSha256 && endpoints.has(f.rgbaSha256)).map((f) => f.frameId);
     const frames = all.filter((f) => !(f.rgbaSha256 && endpoints.has(f.rgbaSha256)));
-    if (frames.length === 0) throw new DomainFailure("validation_failed", "O provedor não devolveu nenhum intermediário novo (só cópias dos extremos)");
+    if (frames.length === 0) throw new DomainFailure("validation_failed", tx("O provedor não devolveu nenhum intermediário novo (só cópias dos extremos)", "The provider returned no new in-between (only copies of the ends)"));
     const durations = distributeDurations(p.params.transitionMs, frames.length);
     const [w, h] = p.params.logicalSize;
     const t = p.params.target;
@@ -534,14 +535,14 @@ export const interpolationPipeline: OperationPipeline = {
       strategy: sheetOf(p) ? "reference_sheet" : "native",
       routeLabel: sheetOf(p) ? TEMPORAL_ROUTE_LABELS.interpolate_sheet : TEMPORAL_ROUTE_LABELS.interpolate_native,
       countRequested: p.params.count,
-      countDecidedBy: p.params.count === null ? "rota nativa" : "plano (rota genérica)",
+      countDecidedBy: p.params.count === null ? tx("rota nativa", "native route") : tx("plano (rota genérica)", "plan (generic route)"),
       receivedImages: partResults(ctx, part.part_key).length,
       droppedEndpointCopies: duplicates,
       transitionMs: p.params.transitionMs,
       durationsMs: durations,
       remoteId: part.remote_id,
       frames: partSteps(ctx, part),
-      warnings: [...partWarnings(ctx, part), ...(duplicates.length ? [`${duplicates.length} imagem(ns) idêntica(s) a um keyframe descartada(s): os extremos não se repetem`] : [])],
+      warnings: [...partWarnings(ctx, part), ...(duplicates.length ? [tx(`${duplicates.length} imagem(ns) idêntica(s) a um keyframe descartada(s): os extremos não se repetem`, `${duplicates.length} image(s) identical to a keyframe discarded: the ends are not repeated`)] : [])],
     };
     if (t.kind === "insert") {
       const clip = loadClip(ctx.db, ctx.job.project_id, t.clipRevisionId);
@@ -643,7 +644,7 @@ async function sameLayoutProcess(env: PipelineEnv, p: Plan<"edit_animation"> | P
 function orderedFrames(ctx: HandlerContext, p: Plan<"edit_animation"> | Plan<"transfer_outfit">, part: PartRow): FrameOut[] {
   const frames = partFrames(ctx, p, part);
   if (frames.length !== p.params.frameIds.length) {
-    throw new DomainFailure("validation_failed", `O provedor devolveu ${frames.length} quadro(s); o trecho tem ${p.params.frameIds.length}. Respostas brutas guardadas no job.`, {
+    throw new DomainFailure("validation_failed", tx(`O provedor devolveu ${frames.length} quadro(s); o trecho tem ${p.params.frameIds.length}. Respostas brutas guardadas no job.`, `The provider returned ${frames.length} frame(s); the segment has ${p.params.frameIds.length}. Raw responses are kept in the job.`), {
       received: frames.length,
       expected: p.params.frameIds.length,
     });
@@ -654,7 +655,7 @@ function orderedFrames(ctx: HandlerContext, p: Plan<"edit_animation"> | Plan<"tr
 export const editAnimationPipeline: OperationPipeline = {
   validateTarget({ db, projectId, plan, asset }) {
     if (plan.operation !== "edit_animation") throw new Error("inalcançável");
-    if (getRevision(db, projectId, plan.params.clipRevisionId).assetId !== asset.id) throw new DomainFailure("validation_failed", "O trecho editado publica no próprio clipe");
+    if (getRevision(db, projectId, plan.params.clipRevisionId).assetId !== asset.id) throw new DomainFailure("validation_failed", tx("O trecho editado publica no próprio clipe", "The edited segment publishes to its own clip"));
   },
   loadInputs: (ctx, plan) => frameInputs(ctx, plan as Plan<"edit_animation">, path.join(ctx.workDir, "edit-inputs")),
   process: (env, plan, sha256, dir) => sameLayoutProcess(env, plan as Plan<"edit_animation">, sha256, dir),
@@ -703,8 +704,8 @@ export const editAnimationPipeline: OperationPipeline = {
 export const outfitPipeline: OperationPipeline = {
   validateTarget({ db, projectId, plan, asset }) {
     if (plan.operation !== "transfer_outfit") throw new Error("inalcançável");
-    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", "A roupa transferida publica um clipe candidato vestido (character/clip), não um overlay");
-    if (getRevision(db, projectId, plan.params.clipRevisionId).assetId === asset.id) throw new DomainFailure("validation_failed", "O clipe vestido tem asset próprio: nunca substitui o clipe da base limpa");
+    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", tx("A roupa transferida publica um clipe candidato vestido (character/clip), não um overlay", "The transferred outfit publishes a dressed candidate clip (character/clip), not an overlay"));
+    if (getRevision(db, projectId, plan.params.clipRevisionId).assetId === asset.id) throw new DomainFailure("validation_failed", tx("O clipe vestido tem asset próprio: nunca substitui o clipe da base limpa", "The dressed clip has its own asset: it never replaces the clean base clip"));
   },
   async loadInputs(ctx, plan) {
     const p = plan as Plan<"transfer_outfit">;
@@ -752,7 +753,7 @@ export const outfitPipeline: OperationPipeline = {
         dressedCandidate: true,
         modularOverlay: false,
         replacesCleanBase: false,
-        note: "Clipe candidato vestido: não é overlay modular nem substitui a base limpa; a cobertura modular é extraída pelo fluxo de equipamentos",
+        note: tx("Clipe candidato vestido: não é overlay modular nem substitui a base limpa; a cobertura modular é extraída pelo fluxo de equipamentos", "Dressed candidate clip: not a modular overlay and does not replace the clean base; modular coverage is extracted by the equipment flow"),
         sourceClipRevisionId: clip.revision.id,
         outfit: p.params.outfit,
         frameIds: p.params.frameIds,
@@ -783,7 +784,7 @@ async function correctionMask(env: PipelineEnv, p: Plan<"correct_frame">): Promi
 export const correctFramePipeline: OperationPipeline = {
   validateTarget({ db, projectId, plan, asset }) {
     if (plan.operation !== "correct_frame") throw new Error("inalcançável");
-    if (getRevision(db, projectId, plan.params.clipRevisionId).assetId !== asset.id) throw new DomainFailure("validation_failed", "A correção publica no próprio clipe");
+    if (getRevision(db, projectId, plan.params.clipRevisionId).assetId !== asset.id) throw new DomainFailure("validation_failed", tx("A correção publica no próprio clipe", "The correction publishes to its own clip"));
   },
   async loadInputs(ctx, plan, adapter: ProviderAdapter) {
     const p = plan as Plan<"correct_frame">;
@@ -796,8 +797,8 @@ export const correctFramePipeline: OperationPipeline = {
     if (p.params.mode === "native-mask") {
       const encoding = adapter.maskEncoding ?? "white_edits_black_preserves";
       const encoded = await pythonWith(env, path.join(dir, "mask"), "encode_mask", [{ role: "editMask", sha256: mask.sha256 }], { version: 1, encoding });
-      if (encoded.status === "error") throw new DomainFailure("validation_failed", `Máscara inválida: ${encoded.message}`, { code: encoded.code });
-      if ((encoded.report as { editedPixels: number }).editedPixels === 0) throw new DomainFailure("validation_failed", "Máscara vazia: nenhuma região a corrigir. Nada foi enviado.", { emptyMask: true });
+      if (encoded.status === "error") throw new DomainFailure("validation_failed", tx(`Máscara inválida: ${pick(encoded.message, "pt-BR")}`, `Invalid mask: ${pick(encoded.message, "en")}`), { code: encoded.code });
+      if ((encoded.report as { editedPixels: number }).editedPixels === 0) throw new DomainFailure("validation_failed", tx("Máscara vazia: nenhuma região a corrigir. Nada foi enviado.", "Empty mask: no region to correct. Nothing was sent."), { emptyMask: true });
       return [
         { role: "source", mime: "image/png", bytes: await bytesOf(env, target.sha256) },
         { role: encoding === "alpha_zero_edits" ? "remote_mask" : "edit_mask", mime: "image/png", bytes: await read(encoded.outputs[0]!.absolutePath) },
@@ -811,8 +812,8 @@ export const correctFramePipeline: OperationPipeline = {
       markColor: correctionMarkColor({ style }, sheet.backgroundKey),
       ...(sheet.backgroundKey ? { flattenOnto: sheet.backgroundKey } : {}),
     });
-    if (guide.status === "error") throw new DomainFailure("validation_failed", `Falha ao preparar a guia: ${guide.message}`, { code: guide.code });
-    if ((guide.report as { editedPixels: number }).editedPixels === 0) throw new DomainFailure("validation_failed", "Máscara vazia: nenhuma região a corrigir. Nada foi enviado.", { emptyMask: true });
+    if (guide.status === "error") throw new DomainFailure("validation_failed", tx(`Falha ao preparar a guia: ${pick(guide.message, "pt-BR")}`, `Failed to prepare the guide: ${pick(guide.message, "en")}`), { code: guide.code });
+    if ((guide.report as { editedPixels: number }).editedPixels === 0) throw new DomainFailure("validation_failed", tx("Máscara vazia: nenhuma região a corrigir. Nada foi enviado.", "Empty mask: no region to correct. Nothing was sent."), { emptyMask: true });
     const byRole = (role: string) => guide.outputs.find((o) => o.role === role)!;
     const neighbors = [];
     for (const [i, layout] of p.params.frames.slice(1).entries()) {
@@ -829,7 +830,7 @@ export const correctFramePipeline: OperationPipeline = {
     const sheet = sheetOf(p);
     let candidate: StoredBlob;
     let steps: Record<string, unknown>[];
-    let warnings: string[];
+    let warnings: TextValue[];
     let receivedSize: [number, number] | undefined;
     if (!sheet) {
       const fitted = await fitCell(env, sha256, dir, p.params.logicalSize);

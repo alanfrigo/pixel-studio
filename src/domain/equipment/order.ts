@@ -1,4 +1,5 @@
 import type { ClipPayload, Insets, LayerRef, Offset, PixelIndex, Rect, RigPayload } from "@/contracts";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { deviationPx, gripInCell, overflow, overflows, rigidOrigin } from "./attach";
 import type { ClipFrame, OverlayRef } from "./types";
 
@@ -27,7 +28,7 @@ export interface StackGrip {
 export interface StackLayer {
   key: string;
   ref: LayerRef;
-  label: string;
+  label: LocalizedText;
   drawIndex: number;
   /** Arquivo da revisão dona da camada (clipe para a base; peça para as demais). */
   ownerRevisionId: string;
@@ -54,7 +55,7 @@ export interface StackIssue {
   overlayRevisionId: string;
   overlayName: string;
   layerKey: string;
-  message: string;
+  message: LocalizedText;
   overflow?: Insets;
   socketId?: string;
   deviation?: number;
@@ -68,7 +69,7 @@ export interface FrameStack {
   /** Partes/vistas explicitamente vazias neste frame. */
   empty: { overlayRevisionId: string; partId: string }[];
   issues: StackIssue[];
-  override: { present: boolean; applied: boolean; problems: string[] };
+  override: { present: boolean; applied: boolean; problems: LocalizedText[] };
   sockets: ClipFrame["sockets"];
 }
 
@@ -111,7 +112,7 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
     layers.push({
       key,
       ref: { kind: "base", partId: l.partId },
-      label: `Base · ${l.partId}`,
+      label: tx(`Base · ${l.partId}`, `Base · ${l.partId}`),
       drawIndex: i,
       ownerRevisionId: input.clipRevisionId,
       fileId: l.fileId,
@@ -142,7 +143,7 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
       const layer: StackLayer = {
         key: layerKey(ref),
         ref,
-        label: `${ov.name} · ${part.partId}`,
+        label: tx(`${ov.name} · ${part.partId}`, `${ov.name} · ${part.partId}`),
         drawIndex: cellRef.drawIndex,
         ownerRevisionId: ov.revisionId,
         fileId: cellRef.layer.fileId,
@@ -179,7 +180,7 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
         overlayName: ov.name,
         layerKey: layerKey(ref),
         socketId: placement.anchorSocketId,
-        message: `O frame ${frame.frameId} não marca o socket ${placement.anchorSocketId} que ancora ${ov.name}`,
+        message: tx(`O frame ${frame.frameId} não marca o socket ${placement.anchorSocketId} que ancora ${ov.name}`, `Frame ${frame.frameId} does not mark socket ${placement.anchorSocketId}, which anchors ${ov.name}`),
       });
       continue;
     }
@@ -203,7 +204,7 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
     const layer: StackLayer = {
       key: layerKey(ref),
       ref,
-      label: `${ov.name} · ${view.viewId}${mirrored ? " (espelhada)" : ""}`,
+      label: tx(`${ov.name} · ${view.viewId}${mirrored ? " (espelhada)" : ""}`, `${ov.name} · ${view.viewId}${mirrored ? " (mirrored)" : ""}`),
       drawIndex: placement.drawIndex,
       ownerRevisionId: ov.revisionId,
       fileId: view.fileId,
@@ -227,7 +228,7 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
           overlayName: ov.name,
           layerKey: layer.key,
           socketId: g.socketId,
-          message: `${ov.name} tem empunhadura para ${g.socketId}, mas o frame ${frame.frameId} não marca esse socket`,
+          message: tx(`${ov.name} tem empunhadura para ${g.socketId}, mas o frame ${frame.frameId} não marca esse socket`, `${ov.name} has a grip for ${g.socketId}, but frame ${frame.frameId} does not mark that socket`),
         });
       } else if (g.exceeds) {
         issues.push({
@@ -237,7 +238,10 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
           layerKey: layer.key,
           socketId: g.socketId,
           deviation: g.deviation!,
-          message: `Segunda mão (${g.socketId}) a ${g.deviation} px da empunhadura de ${ov.name} no frame ${frame.frameId}; tolerância do rig ${tolerance} px`,
+          message: tx(
+            `Segunda mão (${g.socketId}) a ${g.deviation} px da empunhadura de ${ov.name} no frame ${frame.frameId}; tolerância do rig ${tolerance} px`,
+            `Second hand (${g.socketId}) is ${g.deviation} px from the grip of ${ov.name} in frame ${frame.frameId}; rig tolerance ${tolerance} px`,
+          ),
         });
       }
     }
@@ -245,7 +249,7 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
 
   // Ordem padrão: drawIndex com desempate estável pela ordem de inserção acima.
   const ordered = layers.map((l, i) => ({ l, i })).sort((a, b) => a.l.drawIndex - b.l.drawIndex || a.i - b.i).map((x) => x.l);
-  const override = { present: Boolean(input.override?.length), applied: false, problems: [] as string[] };
+  const override = { present: Boolean(input.override?.length), applied: false, problems: [] as LocalizedText[] };
   let final = ordered;
   if (input.override?.length) {
     const byKey = new Map(ordered.map((l) => [l.key, l]));
@@ -253,9 +257,9 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
     const unknown = keys.filter((k) => !byKey.has(k));
     const missing = ordered.filter((l) => !keys.includes(l.key)).map((l) => l.key);
     const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
-    if (unknown.length) override.problems.push(`Override cita camadas que não estão no frame: ${unknown.join(", ")}`);
-    if (missing.length) override.problems.push(`Override não posiciona: ${missing.join(", ")}`);
-    if (dup.length) override.problems.push(`Override repete: ${dup.join(", ")}`);
+    if (unknown.length) override.problems.push(tx(`Override cita camadas que não estão no frame: ${unknown.join(", ")}`, `Override names layers that are not in the frame: ${unknown.join(", ")}`));
+    if (missing.length) override.problems.push(tx(`Override não posiciona: ${missing.join(", ")}`, `Override does not place: ${missing.join(", ")}`));
+    if (dup.length) override.problems.push(tx(`Override repete: ${dup.join(", ")}`, `Override repeats: ${dup.join(", ")}`));
     if (override.problems.length === 0) {
       final = keys.map((k) => byKey.get(k)!);
       override.applied = true;
@@ -267,13 +271,18 @@ export function buildFrameStack(input: FrameStackInput): FrameStack {
 function pushClipped(issues: StackIssue[], ov: Pick<OverlayRef, "revisionId" | "name">, layer: StackLayer, cell: readonly [number, number]) {
   const o = overflow(layer.offset as Offset, layer.size, [cell[0], cell[1]]);
   if (!overflows(o)) return;
-  const sides = (["left", "right", "top", "bottom"] as const).filter((s) => o[s] > 0).map((s) => `${s === "left" ? "esquerda" : s === "right" ? "direita" : s === "top" ? "topo" : "base"} ${o[s]} px`);
+  const sides = (["left", "right", "top", "bottom"] as const).filter((s) => o[s] > 0);
+  const sidesPt = sides.map((s) => `${s === "left" ? "esquerda" : s === "right" ? "direita" : s === "top" ? "topo" : "base"} ${o[s]} px`);
+  const sidesEn = sides.map((s) => `${s} ${o[s]} px`);
   issues.push({
     kind: "clipped_outline",
     overlayRevisionId: ov.revisionId,
     overlayName: ov.name,
     layerKey: layer.key,
     overflow: o,
-    message: `Contorno cortado: ${layer.label} passa da célula ${cell[0]}×${cell[1]} (${sides.join(", ")})`,
+    message: tx(
+      `Contorno cortado: ${layer.label["pt-BR"]} passa da célula ${cell[0]}×${cell[1]} (${sidesPt.join(", ")})`,
+      `Clipped outline: ${layer.label.en} goes past the ${cell[0]}×${cell[1]} cell (${sidesEn.join(", ")})`,
+    ),
   });
 }

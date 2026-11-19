@@ -3,6 +3,9 @@
 import { useState } from "react";
 import { apiFetch } from "@/app/client/api";
 import { usePoll } from "@/app/client/use-poll";
+import { useMessages } from "@/i18n/client";
+import { commonMessages } from "@/i18n/messages/common";
+import { scenesMessages } from "@/i18n/messages/scenes";
 import { FurniturePanel } from "./furniture-panel";
 import { IsoPanel } from "./iso-panel";
 import { KitPanel } from "./kit-panel";
@@ -13,15 +16,7 @@ import { ScenePanel } from "./scene-panel";
 import type { Profile, ScenesCatalog } from "./scenes-client";
 
 export type ScenesTab = "scene" | "parallax" | "rooms" | "furniture" | "kit" | "iso" | "objects";
-const TABS: [ScenesTab, string][] = [
-  ["scene", "Cena ilustrada"],
-  ["parallax", "Paralaxe"],
-  ["rooms", "Salas"],
-  ["furniture", "Móveis e áreas ocultas"],
-  ["kit", "Kit → mapa"],
-  ["iso", "Isométrico com personagem"],
-  ["objects", "Props"],
-];
+const TABS: ScenesTab[] = ["scene", "parallax", "rooms", "furniture", "kit", "iso", "objects"];
 
 /**
  * Cenas, salas e móveis (06 §cenas, salas e texturas como saídas próprias).
@@ -30,6 +25,8 @@ const TABS: [ScenesTab, string][] = [
  * Tudo publica revisões candidatas, aprovadas pelo fluxo existente.
  */
 export function ScenesStudio({ projectId, initialTab }: { projectId: string; initialTab: ScenesTab }) {
+  const m = useMessages(scenesMessages).studio;
+  const c = useMessages(commonMessages);
   const [tab, setTab] = useState<ScenesTab>(initialTab);
   const { data, error, refresh } = usePoll(
     async () => {
@@ -40,20 +37,20 @@ export function ScenesStudio({ projectId, initialTab }: { projectId: string; ini
   );
   return (
     <>
-      <h1>Cenas, salas e móveis</h1>
+      <h1>{m.title}</h1>
       <div className="row" role="tablist" style={{ marginBottom: 12 }}>
-        {TABS.map(([id, label]) => (
+        {TABS.map((id) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "" : "secondary"} onClick={() => setTab(id)}>
-            {label}
+            {m.tabs[id]}
           </button>
         ))}
         <button type="button" className="secondary" onClick={refresh}>
-          Recarregar
+          {m.reload}
         </button>
       </div>
       {error && <p className="error">{error}</p>}
       {!data ? (
-        <p className="muted">Carregando…</p>
+        <p className="muted">{c.loading}</p>
       ) : tab === "scene" ? (
         <ScenePanel projectId={projectId} catalog={data.catalog} profiles={data.profiles} refresh={refresh} />
       ) : tab === "parallax" ? (

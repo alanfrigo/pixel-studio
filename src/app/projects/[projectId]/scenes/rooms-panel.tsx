@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import { ROOM_MAX_COLS, ROOM_MAX_ROWS, type RoomPayload } from "@/contracts";
 import { floorPlanProblems, fullFloorPlan } from "@/domain/scenes/room";
 import { apiFetch } from "@/app/client/api";
+import { useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { scenesMessages } from "@/i18n/messages/scenes";
 import { createAsset, errorText, fileOf, flatRevisions, mediaUrl, PIXEL, type Profile, type ScenesCatalog, scenesApi, SIDES, type Side } from "./scenes-client";
 import { Message, PlanRunner, RevisionCard } from "./shared";
 
@@ -22,11 +25,13 @@ interface Door {
 }
 
 export function RoomsPanel({ projectId, catalog, profiles, refresh }: { projectId: string; catalog: ScenesCatalog; profiles: Profile[]; refresh: () => void }) {
+  const { rooms: m, shared: sm } = useMessages(scenesMessages);
+  const text = useText();
   const usable = profiles.filter((p) => (p.capabilities.generate_room?.length ?? 0) > 0 && !p.unavailable);
   const [profileId, setProfileId] = useState("");
   const profile = usable.find((p) => p.id === profileId) ?? usable[0];
-  const [name, setName] = useState("Biblioteca");
-  const [theme, setTheme] = useState("biblioteca de um castelo, estantes de livros e uma mesa de leitura");
+  const [name, setName] = useState(m.defaultName);
+  const [theme, setTheme] = useState(m.defaultTheme);
   const [projection, setProjection] = useState<Projection>("top_down");
   const [tileSize, setTileSize] = useState(32);
   const [plan, setPlan] = useState(fullFloorPlan());
@@ -55,28 +60,28 @@ export function RoomsPanel({ projectId, catalog, profiles, refresh }: { projectI
   return (
     <>
       <section>
-        <h2>Planta e portas</h2>
+        <h2>{m.planTitle}</h2>
         <div className="row small">
           <button type="button" className={mode === "floor" ? "" : "secondary"} onClick={() => setMode("floor")}>
-            Piso/rocha
+            {m.floorMode}
           </button>
           <button type="button" className={mode === "door" ? "" : "secondary"} onClick={() => setMode("door")}>
-            Portas
+            {m.doorMode}
           </button>
           {mode === "door" && (
             <label>
-              Lado
+              {m.side}
               <select value={doorSide} onChange={(e) => setDoorSide(e.target.value as Side)}>
                 {SIDES.map((s) => (
                   <option key={s} value={s}>
-                    {s} {s === "N" ? "(porta na parede do fundo)" : s === "S" ? "(passagem embaixo)" : "(passagem lateral de 2 células: clique na de cima)"}
+                    {s} {s === "N" ? m.sideHint.N : s === "S" ? m.sideHint.S : m.sideHint.lateral}
                   </option>
                 ))}
               </select>
             </label>
           )}
           <button type="button" className="secondary" onClick={() => (setPlan(fullFloorPlan()), setDoors([]))}>
-            Recomeçar
+            {m.restart}
           </button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${ROOM_MAX_COLS}, 40px)`, gap: 2, margin: "8px 0" }}>
@@ -100,23 +105,24 @@ export function RoomsPanel({ projectId, catalog, profiles, refresh }: { projectI
         <div className="small">
           {doors.map((d) => (
             <span key={d.doorId} className="badge">
-              {d.doorId}: {d.side} em {d.cell.join(",")}
+              {m.doorAt(d.doorId, d.side, d.cell.join(","))}
             </span>
           ))}
         </div>
-        {problems.map((p) => (
-          <p key={p.path + p.message} className="error small">
-            {p.message}
+        {problems.map((p, i) => (
+          <p key={i} className="error small">
+            {/* Mensagens da validação de domínio: texto simples ou bilíngue. */}
+            {text(p.message as TextValue)}
           </p>
         ))}
       </section>
       <section>
-        <h2>Gerar sala</h2>
+        <h2>{m.generateTitle}</h2>
         <div className="row">
           <label>
-            Perfil
+            {sm.profile}
             <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-              <option value="">{usable[0] ? `${usable[0].name} (padrão)` : "—"}</option>
+              <option value="">{usable[0] ? sm.defaultProfile(usable[0].name) : "—"}</option>
               {usable.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -125,15 +131,17 @@ export function RoomsPanel({ projectId, catalog, profiles, refresh }: { projectI
             </select>
           </label>
           <label>
-            Nome
+            {sm.name}
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label>
-            Vista
+            {sm.view}
             <select value={projection} onChange={(e) => setProjection(e.target.value as Projection)}>
-              <option value="top_down">top-down</option>
-              <option value="isometric">isométrica</option>
-              <option value="oblique">oblíqua</option>
+              {(["top_down", "isometric", "oblique"] as const).map((v) => (
+                <option key={v} value={v}>
+                  {sm.projections[v]}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -147,27 +155,27 @@ export function RoomsPanel({ projectId, catalog, profiles, refresh }: { projectI
             </select>
           </label>
           <label>
-            Sala de estilo (mesma vista/escala)
+            {m.styleRoom}
             <select value={styleRoom} onChange={(e) => setStyleRoom(e.target.value)}>
               <option value="">—</option>
               {styleOptions.map(({ asset, revision }) => (
                 <option key={revision.id} value={revision.id}>
-                  {asset.name} r{revision.number} (referência visual)
+                  {asset.name} r{revision.number} {m.visualReference}
                 </option>
               ))}
             </select>
           </label>
         </div>
-        <p className="small muted">A planta vai como guia raster: o modelo pinta por cima e a grade declarada é a da guia. Móveis saem depois pelo recorte local revisado.</p>
-        {projection === "oblique" && <p className="small muted">⚠ Oblíqua: só paredes, portas e piso; sem móveis a extrair.</p>}
-        {projection === "top_down" && tileSize !== 32 && <p className="small muted">Top-down: a imagem usa células de 32 px; o tile_size {tileSize} fica declarado como escala da sala.</p>}
+        <p className="small muted">{m.guideHint}</p>
+        {projection === "oblique" && <p className="small muted">{m.obliqueHint}</p>}
+        {projection === "top_down" && tileSize !== 32 && <p className="small muted">{m.topDownHint(tileSize)}</p>}
         <label>
-          Tema
+          {m.theme}
           <input value={theme} onChange={(e) => setTheme(e.target.value)} style={{ width: "100%" }} />
         </label>
         <PlanRunner
           projectId={projectId}
-          label="Sala"
+          label={m.runLabel}
           disabled={!usable.length || problems.length > 0}
           body={() => ({ operation: "generate_room", providerProfileId: profile?.id, theme, projection, tileSize, floorPlan: plan, doors, styleRoomRevisionId: styleRoom || null })}
           target={async () => (await createAsset(projectId, "room", name)).id}
@@ -175,9 +183,9 @@ export function RoomsPanel({ projectId, catalog, profiles, refresh }: { projectI
         />
       </section>
       <section>
-        <h2>Salas</h2>
+        <h2>{m.listTitle}</h2>
         <div className="row" style={{ alignItems: "flex-start" }}>
-          {rooms.length === 0 && <p className="muted small">Nenhuma sala ainda.</p>}
+          {rooms.length === 0 && <p className="muted small">{m.empty}</p>}
           {rooms.map(({ asset, revision }) => (
             <RoomCard key={revision.id} projectId={projectId} asset={asset} revision={revision} refresh={refresh} />
           ))}
@@ -189,6 +197,7 @@ export function RoomsPanel({ projectId, catalog, profiles, refresh }: { projectI
 }
 
 function RoomCard({ projectId, asset, revision, refresh }: { projectId: string; asset: Parameters<typeof RevisionCard>[0]["asset"]; revision: Parameters<typeof RevisionCard>[0]["revision"]; refresh: () => void }) {
+  const m = useMessages(scenesMessages).rooms;
   const p = revision.payload as RoomPayload;
   const [composite, setComposite] = useState<string | null>(null);
   const [grid, setGrid] = useState(false);
@@ -205,7 +214,7 @@ function RoomCard({ projectId, asset, revision, refresh }: { projectId: string; 
   }
   async function saveGrid() {
     try {
-      await apiFetch(scenesApi(projectId, "/rooms/edit"), { method: "POST", json: { baseRevisionId: revision.id, gridOrigin: origin, note: "Grade revisada sobre a pintura" } });
+      await apiFetch(scenesApi(projectId, "/rooms/edit"), { method: "POST", json: { baseRevisionId: revision.id, gridOrigin: origin, note: m.gridNote } });
       refresh();
     } catch (err) {
       setMessage(errorText(err));
@@ -226,25 +235,25 @@ function RoomCard({ projectId, asset, revision, refresh }: { projectId: string; 
         )}
       </div>
       <div>
-        <span className="badge">{p.projection}</span> <span className="badge">tile {p.tileSize}</span>{" "}
-        <span className="badge">{p.route === "imported" ? "importada" : "guia raster"}</span>{" "}
-        {p.furniture.length > 0 && <span className="badge">{p.furniture.length} móvel(is)</span>} {p.connections.length > 0 && <span className="badge">{p.connections.length} ligação(ões)</span>}
+        <span className="badge">{p.projection}</span> <span className="badge">{m.tile(p.tileSize)}</span>{" "}
+        <span className="badge">{p.route === "imported" ? m.imported : m.rasterGuide}</span>{" "}
+        {p.furniture.length > 0 && <span className="badge">{m.furnitureCount(p.furniture.length)}</span>} {p.connections.length > 0 && <span className="badge">{m.connections(p.connections.length)}</span>}
       </div>
-      <div className="muted">Portas: {p.doors.map((d) => `${d.doorId} (${d.side})`).join(", ")}</div>
+      <div className="muted">{m.doors(p.doors.map((d) => `${d.doorId} (${d.side})`).join(", "))}</div>
       <div className="row">
         <button type="button" className="secondary" onClick={preview}>
-          Montar com móveis
+          {m.assemble}
         </button>
         <button type="button" className="secondary" onClick={() => setGrid((g) => !g)}>
-          {grid ? "Ocultar grade" : "Ver grade"}
+          {grid ? m.hideGrid : m.showGrid}
         </button>
       </div>
       {grid && p.projection !== "isometric" && (
         <div className="row">
-          origem x <input type="number" value={origin[0]} style={{ width: 50 }} onChange={(e) => setOrigin([Number(e.target.value), origin[1]])} /> y{" "}
+          {m.originX} <input type="number" value={origin[0]} style={{ width: 50 }} onChange={(e) => setOrigin([Number(e.target.value), origin[1]])} /> y{" "}
           <input type="number" value={origin[1]} style={{ width: 50 }} onChange={(e) => setOrigin([origin[0], Number(e.target.value)])} />
           <button type="button" onClick={saveGrid} disabled={origin[0] === p.gridOrigin[0] && origin[1] === p.gridOrigin[1]}>
-            Gravar grade
+            {m.saveGrid}
           </button>
         </div>
       )}
@@ -254,12 +263,14 @@ function RoomCard({ projectId, asset, revision, refresh }: { projectId: string; 
 }
 
 function LinkRooms({ projectId, catalog, refresh }: { projectId: string; catalog: ScenesCatalog; refresh: () => void }) {
+  const m = useMessages(scenesMessages).rooms;
+  const text = useText();
   const rooms = flatRevisions(catalog.rooms, (r) => r.status === "approved");
   const [a, setA] = useState("");
   const [b, setB] = useState("");
   const [aDoor, setADoor] = useState("");
   const [bDoor, setBDoor] = useState("");
-  const [result, setResult] = useState<{ link: { ok: boolean; problems: string[]; offsetPx: [number, number] | null; method: string | null }; preview: string | null } | null>(null);
+  const [result, setResult] = useState<{ link: { ok: boolean; problems: TextValue[]; offsetPx: [number, number] | null; method: string | null }; preview: string | null } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const doorsOf = (id: string) => ((rooms.find((r) => r.revision.id === id)?.revision.payload as RoomPayload | undefined)?.doors ?? []).map((d) => d.doorId);
   async function check() {
@@ -272,8 +283,8 @@ function LinkRooms({ projectId, catalog, refresh }: { projectId: string; catalog
   async function save() {
     try {
       const room = rooms.find((r) => r.revision.id === b)!.revision.payload as RoomPayload;
-      await apiFetch(scenesApi(projectId, "/rooms/edit"), { method: "POST", json: { baseRevisionId: b, connections: [...room.connections.filter((c) => c.doorId !== bDoor), { doorId: bDoor, toRoomRevisionId: a, toDoorId: aDoor }], note: "Porta ligada à outra sala do edifício" } });
-      setMessage("Ligação gravada como nova revisão candidata da sala B.");
+      await apiFetch(scenesApi(projectId, "/rooms/edit"), { method: "POST", json: { baseRevisionId: b, connections: [...room.connections.filter((c) => c.doorId !== bDoor), { doorId: bDoor, toRoomRevisionId: a, toDoorId: aDoor }], note: m.linkNote } });
+      setMessage(m.linkSaved);
       refresh();
     } catch (err) {
       setMessage(errorText(err));
@@ -281,15 +292,15 @@ function LinkRooms({ projectId, catalog, refresh }: { projectId: string; catalog
   }
   return (
     <section>
-      <h2>Duas salas de um edifício</h2>
+      <h2>{m.linkTitle}</h2>
       <div className="row">
         {(
           [
-            ["Sala A", a, setA, aDoor, setADoor],
-            ["Sala B", b, setB, bDoor, setBDoor],
+            ["a", m.roomA, a, setA, aDoor, setADoor],
+            ["b", m.roomB, b, setB, bDoor, setBDoor],
           ] as const
-        ).map(([label, value, set, door, setDoor]) => (
-          <label key={label}>
+        ).map(([key, label, value, set, door, setDoor]) => (
+          <label key={key}>
             {label}
             <select value={value} onChange={(e) => (set(e.target.value), setDoor(""), setResult(null))}>
               <option value="">—</option>
@@ -300,7 +311,7 @@ function LinkRooms({ projectId, catalog, refresh }: { projectId: string; catalog
               ))}
             </select>
             <select value={door} onChange={(e) => setDoor(e.target.value)}>
-              <option value="">porta</option>
+              <option value="">{m.doorOption}</option>
               {doorsOf(value).map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -310,27 +321,27 @@ function LinkRooms({ projectId, catalog, refresh }: { projectId: string; catalog
           </label>
         ))}
         <button type="button" onClick={check} disabled={!a || !b || !aDoor || !bDoor}>
-          Conferir e ver juntas
+          {m.checkLink}
         </button>
       </div>
       {result && (
         <div className="small">
           {result.link.ok ? (
             <p>
-              Portas ligadas ({result.link.method === "anchors" ? "âncoras" : "grade"}); B em {result.link.offsetPx?.join(", ")} px de A.{" "}
+              {m.linked(result.link.method === "anchors" ? m.methods.anchors : m.methods.grid, result.link.offsetPx?.join(", ") ?? "")}{" "}
               <button type="button" onClick={save}>
-                Gravar ligação em B
+                {m.saveLink}
               </button>
             </p>
           ) : (
-            result.link.problems.map((p) => (
-              <p key={p} className="error">
-                {p}
+            result.link.problems.map((p, i) => (
+              <p key={i} className="error">
+                {text(p)}
               </p>
             ))
           )}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {result.preview && <img src={result.preview} alt="Duas salas juntas" className="pixel bg-checker" style={{ ...PIXEL, maxWidth: "100%" }} />}
+          {result.preview && <img src={result.preview} alt={m.togetherAlt} className="pixel bg-checker" style={{ ...PIXEL, maxWidth: "100%" }} />}
         </div>
       )}
       <Message text={message} />

@@ -281,7 +281,7 @@ describe.skipIf(!existsSync(PYTHON))("animação (cartão S1)", () => {
     approve(project.id, saved.revision.id);
     const plan = (motionRevisionId: string) => ({ operation: "animate_skeleton" as const, providerProfileId: "simulated", baseRevisionId: base.id, motionRevisionId, actionText: "recua ao ser atingido", playback: "once" as const });
     const a = buildAnimateSkeletonPlan(studio, project.id, plan(saved.revision.id));
-    expect(a.route.label).toMatch(/Esqueleto enviado como dados/);
+    expect(a.route.label["pt-BR"]).toMatch(/Esqueleto enviado como dados/);
     expect(a.plan.requiredCapabilities).toEqual(["skeleton_keypoints"]);
     const runA = runAnimation(studio, project.id, { plan: plan(saved.revision.id) });
 
@@ -357,7 +357,7 @@ describe.skipIf(!existsSync(PYTHON))("animação (cartão S1)", () => {
     respond = () => ({ status: 200, body: { data: [{ b64_json: b64(fakeSheet()) }], usage: { cost: 0.0123 } } });
     const text = buildAnimateTextPlan(studio, project.id, { operation: "animate_text", providerProfileId: "or", baseRevisionId: base.id, direction: "S", actionText: "pulando no lugar", durationsMs: [90, 90, 90, 90], playback: "loop" });
     expect(text.route.strategy).toBe("reference_sheet");
-    expect(text.route.label).toMatch(/Folha de quadros por imagem/);
+    expect(text.route.label["pt-BR"]).toMatch(/Folha de quadros por imagem/);
     expect(text.plan.requiredCapabilities).toEqual(["image_references"]);
     expect(text.plan.prompt.compiled).not.toMatch(/#[0-9a-f]{6}/i);
     // Esqueleto nessa rota vira guia em imagem, nunca "esqueleto".
@@ -365,7 +365,7 @@ describe.skipIf(!existsSync(PYTHON))("animação (cartão S1)", () => {
     const saved = saveMotion(studio, project.id, { baseRevisionId: base.id, motion: { ...motion, poses: [...motion.poses, { ...motion.poses[0]!, poseId: "settle" }] } });
     approve(project.id, saved.revision.id);
     const skel = buildAnimateSkeletonPlan(studio, project.id, { operation: "animate_skeleton", providerProfileId: "or", baseRevisionId: base.id, motionRevisionId: saved.revision.id, actionText: "recua", playback: "once" });
-    expect(skel.route.label).toMatch(/Guia de poses em imagem.*não é esqueleto estruturado/);
+    expect(skel.route.label["pt-BR"]).toMatch(/Guia de poses em imagem.*não é esqueleto estruturado/);
     expect(skel.plan.requiredCapabilities).not.toContain("skeleton_keypoints");
 
     const run = runAnimation(studio, project.id, { plan: { operation: "animate_text", providerProfileId: "or", baseRevisionId: base.id, direction: "S", actionText: "pulando no lugar", durationsMs: [90, 90, 90, 90], playback: "loop" } });

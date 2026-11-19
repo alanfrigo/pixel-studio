@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { checkUnique, DurationMs, Id, Int, NormalizedCoord, Size, Slug } from "./common";
 import { Direction, ProjectionKind } from "./projection";
 
@@ -57,25 +58,25 @@ export const Skeleton = z
   .superRefine((skeleton, ctx) => {
     checkUnique(ctx, skeleton.joints, (j) => j.jointId, "Joint", ["joints"]);
     for (const problem of skeletonProblems(skeleton.joints)) {
-      ctx.addIssue({ code: "custom", message: problem.message, path: ["joints", problem.index] });
+      ctx.addIssue({ code: "custom", message: problem.message["pt-BR"], path: ["joints", problem.index] });
     }
   });
 export type Skeleton = z.infer<typeof Skeleton>;
 
 /** Exatamente uma raiz, parents existentes e hierarquia sem ciclos. */
-export function skeletonProblems(joints: readonly Joint[]): { index: number; message: string }[] {
-  const problems: { index: number; message: string }[] = [];
+export function skeletonProblems(joints: readonly Joint[]): { index: number; message: LocalizedText }[] {
+  const problems: { index: number; message: LocalizedText }[] = [];
   const byId = new Map(joints.map((j) => [j.jointId, j]));
   const roots = joints.filter((j) => j.parent === null);
   if (roots.length !== 1) {
-    problems.push({ index: 0, message: `Esqueleto deve ter exatamente uma raiz (encontradas ${roots.length})` });
+    problems.push({ index: 0, message: tx(`Esqueleto deve ter exatamente uma raiz (encontradas ${roots.length})`, `The skeleton must have exactly one root (found ${roots.length})`) });
   }
   joints.forEach((joint, index) => {
     if (joint.parent !== null && !byId.has(joint.parent)) {
-      problems.push({ index, message: `Parent inexistente: ${joint.parent}` });
+      problems.push({ index, message: tx(`Parent inexistente: ${joint.parent}`, `Parent does not exist: ${joint.parent}`) });
     }
     if (joint.parent === joint.jointId) {
-      problems.push({ index, message: "Joint não pode ser parent de si mesmo" });
+      problems.push({ index, message: tx("Joint não pode ser parent de si mesmo", "A joint cannot be its own parent") });
     }
   });
   // Detecta ciclos subindo pelos parents.
@@ -84,7 +85,7 @@ export function skeletonProblems(joints: readonly Joint[]): { index: number; mes
     let current: Joint | undefined = joint;
     while (current && current.parent !== null) {
       if (visited.has(current.jointId)) {
-        problems.push({ index, message: `Ciclo na hierarquia a partir de ${joint.jointId}` });
+        problems.push({ index, message: tx(`Ciclo na hierarquia a partir de ${joint.jointId}`, `Cycle in the hierarchy starting at ${joint.jointId}`) });
         break;
       }
       visited.add(current.jointId);

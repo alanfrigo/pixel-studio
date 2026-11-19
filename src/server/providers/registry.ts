@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import path from "node:path";
 import type { StudioConfig } from "../config";
 import type { Db } from "../db/connection";
@@ -65,7 +66,7 @@ export function listProfiles(db: Db): ProviderProfileView[] {
 
 export function getProfileRow(db: Db, id: string): ProviderProfileRow {
   const row = db.get<ProviderProfileRow>("SELECT * FROM provider_profiles WHERE id = :id", { id });
-  if (!row) throw new DomainFailure("not_found", `Perfil de provedor ${id} não encontrado`);
+  if (!row) throw new DomainFailure("not_found", tx(`Perfil de provedor ${id} não encontrado`, `Provider profile ${id} not found`));
   return row;
 }
 
@@ -92,7 +93,7 @@ export class ProviderRegistry {
     const row = getProfileRow(this.db, profileId);
     if (row.transport === "simulated") {
       if (!this.config.simulatedProvider) {
-        throw new DomainFailure("capability_missing", "O provedor simulado está desabilitado nesta instalação");
+        throw new DomainFailure("capability_missing", tx("O provedor simulado está desabilitado nesta instalação", "The simulated provider is disabled in this installation"));
       }
       const cfg = JSON.parse(row.config_json) as { delayMs?: number; idempotent?: boolean };
       return new SimulatedProvider(new FileSimulatedStore(path.join(this.config.paths.dev, "simulated-provider.json")), {
@@ -110,7 +111,7 @@ export class ProviderRegistry {
       case "codex_cli":
         return new CodexCliAdapter(profile, config);
       default:
-        throw new DomainFailure("capability_missing", `Transporte desconhecido: ${row.transport}`, { profileId });
+        throw new DomainFailure("capability_missing", tx(`Transporte desconhecido: ${row.transport}`, `Unknown transport: ${row.transport}`), { profileId });
     }
   }
 
@@ -119,7 +120,7 @@ export class ProviderRegistry {
     if (this.overrides.has(profileId)) return;
     const row = getProfileRow(this.db, profileId);
     if (row.transport !== "simulated" && row.secret_ref && !process.env[row.secret_ref]) {
-      throw new DomainFailure("capability_missing", `Credencial ausente: defina a variável de ambiente ${row.secret_ref} no servidor`, { profileId });
+      throw new DomainFailure("capability_missing", tx(`Credencial ausente: defina a variável de ambiente ${row.secret_ref} no servidor`, `Missing credential: set the ${row.secret_ref} environment variable on the server`), { profileId });
     }
     if (row.transport === "codex_cli") CodexCliAdapter.assertInstalled(JSON.parse(row.config_json) as unknown, profileId);
   }

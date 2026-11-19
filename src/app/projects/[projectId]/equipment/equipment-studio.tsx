@@ -3,6 +3,9 @@
 import { useState } from "react";
 import { apiFetch } from "@/app/client/api";
 import { usePoll } from "@/app/client/use-poll";
+import { useLocale, useMessages } from "@/i18n/client";
+import { commonMessages } from "@/i18n/messages/common";
+import { equipmentMessages } from "@/i18n/messages/equipment";
 import { CreatePiece } from "./create-piece";
 import { type CoveragePrefill, LoadoutWorkspace } from "./loadout-workspace";
 import { PiecesPanel } from "./pieces-panel";
@@ -18,6 +21,9 @@ import { errorText, mediaUrl, type Overview } from "./shared";
 type Tab = "loadouts" | "pieces" | "create";
 
 export function EquipmentStudio({ projectId }: { projectId: string }) {
+  const locale = useLocale();
+  const c = useMessages(commonMessages);
+  const m = useMessages(equipmentMessages).studio;
   const { data, error, refresh } = usePoll(() => apiFetch<Overview>(`/projects/${projectId}/equipment`), {
     active: (d) => d.jobs.some((j) => j.state === "queued" || j.state === "running"),
     fastMs: 1500,
@@ -30,7 +36,7 @@ export function EquipmentStudio({ projectId }: { projectId: string }) {
   const [seeding, setSeeding] = useState(false);
 
   if (error && !data) return <p className="error">{error}</p>;
-  if (!data) return <p className="muted">Carregando…</p>;
+  if (!data) return <p className="muted">{c.loading}</p>;
   const rig = data.rigs.find((r) => r.revisionId === rigId) ?? data.rigs.find((r) => data.loadouts.some((g) => g.revisions.some((x) => x.rigRevisionId === r.revisionId))) ?? data.rigs[0] ?? null;
 
   async function seed() {
@@ -38,10 +44,10 @@ export function EquipmentStudio({ projectId }: { projectId: string }) {
     setMessage(null);
     try {
       await apiFetch(`/projects/${projectId}/equipment/demo`, { method: "POST" });
-      setMessage("Demonstração do guerreiro semeada: base limpa em 4 vistas, ataques de 4 e 6 frames, cota, espada curta, escudo, espada longa e os conjuntos A e B aprovados. Nenhuma chamada a provedor.");
+      setMessage(m.seeded);
       refresh();
     } catch (err) {
-      setMessage(errorText(err));
+      setMessage(errorText(err, locale));
     } finally {
       setSeeding(false);
     }
@@ -49,16 +55,16 @@ export function EquipmentStudio({ projectId }: { projectId: string }) {
 
   return (
     <>
-      <h1>Equipamentos e conjuntos</h1>
+      <h1>{m.title}</h1>
       <section>
         <div className="row">
           {data.rigs.length > 0 && rig && (
             <label>
-              Base / rig
+              {m.rig}
               <select value={rig.revisionId} onChange={(e) => setRigId(e.target.value)}>
                 {data.rigs.map((r) => (
                   <option key={r.revisionId} value={r.revisionId}>
-                    {r.base?.name ?? "base"} · {r.name} r{r.number}
+                    {r.base?.name ?? m.baseFallback} · {r.name} r{r.number}
                   </option>
                 ))}
               </select>
@@ -69,37 +75,37 @@ export function EquipmentStudio({ projectId }: { projectId: string }) {
               {rig.base.views.map((v) =>
                 v.mediaId ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img key={v.direction} className="pixel" alt={`Vista ${v.direction}`} title={`Vista ${v.direction}`} src={mediaUrl(projectId, v.mediaId)} width={48} height={48} />
+                  <img key={v.direction} className="pixel" alt={m.view(v.direction)} title={m.view(v.direction)} src={mediaUrl(projectId, v.mediaId)} width={48} height={48} />
                 ) : null,
               )}
             </span>
           )}
           {rig && (
             <span className="small muted">
-              célula {rig.cell.join("×")} · slots {rig.slots.map((s) => s.slotId).join(", ")} · sockets {rig.sockets.map((s) => s.socketId).join(", ")} · posturas {rig.stances.join(", ")} · tolerância {rig.tolerancePx} px
+              {m.rigInfo(
+                rig.cell.join("×"),
+                rig.slots.map((s) => s.slotId).join(", "),
+                rig.sockets.map((s) => s.socketId).join(", "),
+                rig.stances.join(", "),
+                rig.tolerancePx,
+              )}
             </span>
           )}
           {!data.demo.seeded && (
             <button type="button" className="secondary" disabled={seeding} onClick={seed}>
-              {seeding ? "Semeando…" : "Semear demonstração do guerreiro"}
+              {seeding ? m.seeding : m.seed}
             </button>
           )}
         </div>
         {message && <p className="small">{message}</p>}
-        {!rig && <p className="small">Nenhum rig de equipamento aprovado neste projeto. Semeie a demonstração ou importe/aprove um rig (character/rig) com slots, sockets e partes.</p>}
+        {!rig && <p className="small">{m.noRig}</p>}
       </section>
       {rig && (
         <>
           <nav className="row anim-tabs">
-            {(
-              [
-                ["loadouts", "Conjuntos"],
-                ["pieces", "Peças"],
-                ["create", "Criar peça"],
-              ] as const
-            ).map(([t, label]) => (
+            {(["loadouts", "pieces", "create"] as const).map((t) => (
               <button key={t} type="button" className={tab === t ? "" : "secondary"} onClick={() => setTab(t)}>
-                {label}
+                {m.tabs[t]}
               </button>
             ))}
           </nav>

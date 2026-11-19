@@ -601,3 +601,22 @@ a.button.secondary {
   gap: 4px;
   font-size: 12px;
 }
+
+/*
+ * Seletor de idioma (i18n): faixa própria acima do <main>, alinhada à direita
+ * da mesma coluna. Fica no fluxo para nunca cobrir títulos, abas ou editores.
+ */
+.locale-switch {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 8px 16px 0;
+  display: flex;
+  justify-content: flex-end;
+}
+.locale-switch select {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+.locale-switch + main {
+  padding-top: 4px;
+}

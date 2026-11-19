@@ -1,3 +1,4 @@
+import { type LocalizedText, tx } from "@/i18n/locales";
 import type { AssetFamily, GenerationPlan } from "@/contracts";
 
 /**
@@ -44,7 +45,7 @@ export type PlanIssueCode =
 
 export interface PlanIssue {
   code: PlanIssueCode;
-  message: string;
+  message: LocalizedText;
   path: (string | number)[];
   revisionId?: string;
 }
@@ -109,19 +110,19 @@ export function validatePlanReferences(plan: GenerationPlan, lookup: PlanLookup)
   const resolve = (revisionId: string, path: (string | number)[], opts: { approved: boolean; family?: ParamRef["family"] }) => {
     const rev = lookup.revision(revisionId);
     if (!rev) {
-      issues.push({ code: "not_found", message: `Revisão inexistente: ${revisionId}`, path, revisionId });
+      issues.push({ code: "not_found", message: tx(`Revisão inexistente: ${revisionId}`, `Revision does not exist: ${revisionId}`), path, revisionId });
       return undefined;
     }
     if (rev.projectId !== plan.projectId) {
       // Mesma resposta de "não encontrado" para o cliente (404), código distinto para diagnóstico.
-      issues.push({ code: "cross_project_reference", message: `Revisão ${revisionId} pertence a outro projeto`, path, revisionId });
+      issues.push({ code: "cross_project_reference", message: tx(`Revisão ${revisionId} pertence a outro projeto`, `Revision ${revisionId} belongs to another project`), path, revisionId });
       return undefined;
     }
     if (opts.family && rev.family !== opts.family) {
-      issues.push({ code: "wrong_reference_kind", message: `${revisionId} é ${rev.family}; esperado ${opts.family}`, path, revisionId });
+      issues.push({ code: "wrong_reference_kind", message: tx(`${revisionId} é ${rev.family}; esperado ${opts.family}`, `${revisionId} is ${rev.family}; expected ${opts.family}`), path, revisionId });
     }
     if (opts.approved && rev.status !== "approved") {
-      issues.push({ code: "source_not_approved", message: `Revisão ${revisionId} não está aprovada (${rev.status})`, path, revisionId });
+      issues.push({ code: "source_not_approved", message: tx(`Revisão ${revisionId} não está aprovada (${rev.status})`, `Revision ${revisionId} is not approved (${rev.status})`), path, revisionId });
     }
     return rev;
   };
@@ -133,11 +134,11 @@ export function validatePlanReferences(plan: GenerationPlan, lookup: PlanLookup)
     if (source.role === "edit_mask") {
       const upload = source.fileId === null ? undefined : lookup.upload(source.fileId);
       if (!upload) {
-        issues.push({ code: "not_found", message: `Máscara inexistente: ${source.fileId}`, path });
+        issues.push({ code: "not_found", message: tx(`Máscara inexistente: ${source.fileId}`, `Mask does not exist: ${source.fileId}`), path });
       } else if (upload.projectId !== plan.projectId) {
-        issues.push({ code: "cross_project_reference", message: `Máscara ${source.fileId} pertence a outro projeto`, path });
+        issues.push({ code: "cross_project_reference", message: tx(`Máscara ${source.fileId} pertence a outro projeto`, `Mask ${source.fileId} belongs to another project`), path });
       } else if (upload.sha256 !== source.sha256) {
-        issues.push({ code: "source_file_mismatch", message: `Hash congelado da máscara diverge do upload`, path });
+        issues.push({ code: "source_file_mismatch", message: tx(`Hash congelado da máscara diverge do upload`, `Frozen mask hash does not match the upload`), path });
       }
       return;
     }
@@ -145,15 +146,15 @@ export function validatePlanReferences(plan: GenerationPlan, lookup: PlanLookup)
     if (!rev) return;
     if (source.fileId === null) {
       if (rev.payloadDigest !== source.sha256) {
-        issues.push({ code: "source_file_mismatch", message: `Digest congelado de ${source.revisionId} diverge do payload`, path, revisionId: source.revisionId });
+        issues.push({ code: "source_file_mismatch", message: tx(`Digest congelado de ${source.revisionId} diverge do payload`, `Frozen digest of ${source.revisionId} does not match the payload`), path, revisionId: source.revisionId });
       }
       return;
     }
     const file = rev.files[source.fileId];
     if (!file) {
-      issues.push({ code: "source_file_mismatch", message: `${source.fileId} não pertence a ${source.revisionId}`, path, revisionId: source.revisionId });
+      issues.push({ code: "source_file_mismatch", message: tx(`${source.fileId} não pertence a ${source.revisionId}`, `${source.fileId} does not belong to ${source.revisionId}`), path, revisionId: source.revisionId });
     } else if (file.sha256 !== source.sha256) {
-      issues.push({ code: "source_file_mismatch", message: `Hash congelado de ${source.fileId} diverge da revisão`, path, revisionId: source.revisionId });
+      issues.push({ code: "source_file_mismatch", message: tx(`Hash congelado de ${source.fileId} diverge da revisão`, `Frozen hash of ${source.fileId} does not match the revision`), path, revisionId: source.revisionId });
     }
   });
 
@@ -167,13 +168,13 @@ export function validatePlanReferences(plan: GenerationPlan, lookup: PlanLookup)
     if (source && mask && (source.width !== mask.width || source.height !== mask.height)) {
       issues.push({
         code: "mask_size_mismatch",
-        message: `Máscara ${mask.width}×${mask.height} difere da fonte ${source.width}×${source.height}`,
+        message: tx(`Máscara ${mask.width}×${mask.height} difere da fonte ${source.width}×${source.height}`, `Mask ${mask.width}×${mask.height} differs from the source ${source.width}×${source.height}`),
         path: ["params", "editMaskFileId"],
       });
     }
     const [w, h] = plan.params.logicalSize;
     if (source && (source.width !== w || source.height !== h)) {
-      issues.push({ code: "mask_size_mismatch", message: `Tamanho lógico ${w}×${h} difere da fonte`, path: ["params", "logicalSize"] });
+      issues.push({ code: "mask_size_mismatch", message: tx(`Tamanho lógico ${w}×${h} difere da fonte`, `Logical size ${w}×${h} differs from the source`), path: ["params", "logicalSize"] });
     }
   }
 

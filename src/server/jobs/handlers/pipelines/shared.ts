@@ -1,3 +1,5 @@
+import { tx } from "@/i18n/locales";
+import type { TextValue } from "@/i18n/locales";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type BlobRecord, getBlob } from "../../../catalog/catalog";
@@ -22,7 +24,7 @@ export interface ProcessedPart {
   fit?: Record<string, unknown> | null;
   /** Etapas locais aplicadas (grade, remoção da cor-chave, ajuste), com seus relatórios. */
   steps?: Record<string, unknown>[];
-  warnings: string[];
+  warnings: TextValue[];
   /** Inpainting: candidato na grade da fonte (antes da proteção) e relatório da composição. */
   candidateSha256?: string;
   composite?: Record<string, unknown>;
@@ -85,6 +87,6 @@ export async function pythonWith(env: PipelineEnv, dir: string, operation: strin
 
 export function mustBlob(db: Db, sha256: string): BlobRecord {
   const blob = getBlob(db, sha256);
-  if (!blob) throw new DomainFailure("internal", `Blob ${sha256} sem registro`);
+  if (!blob) throw new DomainFailure("internal", tx(`Blob ${sha256} sem registro`, `Blob ${sha256} has no record`));
   return blob;
 }

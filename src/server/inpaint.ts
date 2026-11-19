@@ -1,3 +1,4 @@
+import { pick, tx } from "@/i18n/locales";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
@@ -38,8 +39,8 @@ export const InpaintPlanInput = z.strictObject({
 export type InpaintPlanInput = z.input<typeof InpaintPlanInput>;
 
 export const INPAINT_MODE_LABEL = {
-  "native-mask": "Inpainting com máscara nativa",
-  "candidate-composite": "Candidato editado + recorte local; sem condicionamento nativo por máscara",
+  "native-mask": tx("Inpainting com máscara nativa", "Inpainting with a native mask"),
+  "candidate-composite": tx("Candidato editado + recorte local; sem condicionamento nativo por máscara", "Edited candidate + local crop; no native mask conditioning"),
 } as const;
 
 export interface MaskReport {
@@ -118,7 +119,7 @@ async function inspectMask(studio: Studio, source: { sha256: string }, mask: { s
       },
       { python: studio.config.python, workDir: dir, timeoutMs: studio.config.pythonTimeoutMs, signal: AbortSignal.timeout(studio.config.pythonTimeoutMs) },
     );
-    if (result.status === "error") throw new DomainFailure("validation_failed", `Máscara inválida: ${result.message}`, { code: result.code });
+    if (result.status === "error") throw new DomainFailure("validation_failed", tx(`Máscara inválida: ${pick(result.message, "pt-BR")}`, `Invalid mask: ${pick(result.message, "en")}`), { code: result.code });
     return result.report as unknown as MaskReport;
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
@@ -128,7 +129,7 @@ async function inspectMask(studio: Studio, source: { sha256: string }, mask: { s
 export async function buildInpaintPlan(studio: Studio, projectId: string, raw: InpaintPlanInput) {
   const input = InpaintPlanInput.parse(raw);
   const project = getProject(studio.db, projectId);
-  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", "Projeto sem estilo ativo");
+  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", tx("Projeto sem estilo ativo", "Project has no active style"));
   const style = getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload;
   studio.providers.assertReady(input.providerProfileId);
   const adapter = studio.providers.adapterFor(input.providerProfileId);
@@ -138,25 +139,25 @@ export async function buildInpaintPlan(studio: Studio, projectId: string, raw: I
     throw new DomainFailure(
       "capability_missing",
       input.mode === "native-mask"
-        ? `O perfil ${input.providerProfileId} não recebe máscara nativa${offered.includes("image_edit") ? '; ele aceita o modo "candidato editado + recorte local", que é outro modo e precisa ser escolhido explicitamente' : ""}`
-        : `O perfil ${input.providerProfileId} não edita a partir da imagem de origem (precisa aceitar a fonte e a guia como referências)`,
+        ? tx(`O perfil ${input.providerProfileId} não recebe máscara nativa${offered.includes("image_edit") ? '; ele aceita o modo "candidato editado + recorte local", que é outro modo e precisa ser escolhido explicitamente' : ""}`, `Provider profile ${input.providerProfileId} does not take a native mask${offered.includes("image_edit") ? '; it accepts the "edited candidate + local crop" mode, which is a different mode and must be chosen explicitly' : ""}`)
+        : tx(`O perfil ${input.providerProfileId} não edita a partir da imagem de origem (precisa aceitar a fonte e a guia como referências)`, `Provider profile ${input.providerProfileId} does not edit from the source image (it must accept the source and the guide as references)`),
       { missing: required.filter((c) => !offered.includes(c)), offered },
     );
   }
 
   const revision = getRevision(studio.db, projectId, input.sourceRevisionId);
-  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", `A fonte r${revision.number} precisa estar aprovada antes do inpainting`);
+  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", tx(`A fonte r${revision.number} precisa estar aprovada antes do inpainting`, `Source r${revision.number} must be approved before inpainting`));
   const file = revision.files.find((f) => f.fileKey === input.sourceFileKey);
   const { width: w, height: h } = (file?.metadata ?? {}) as { width?: number; height?: number };
-  if (!file || !file.mime.startsWith("image/") || !w || !h) throw new DomainFailure("not_found", `A revisão não tem a imagem ${input.sourceFileKey}`);
+  if (!file || !file.mime.startsWith("image/") || !w || !h) throw new DomainFailure("not_found", tx(`A revisão não tem a imagem ${input.sourceFileKey}`, `The revision has no image ${input.sourceFileKey}`));
   const upload = getUpload(studio.db, projectId, input.maskUploadId);
-  if (upload.status !== "ready" || upload.modality !== "raster") throw new DomainFailure("validation_failed", "A máscara precisa ser uma imagem já importada");
+  if (upload.status !== "ready" || upload.modality !== "raster") throw new DomainFailure("validation_failed", tx("A máscara precisa ser uma imagem já importada", "The mask must be an already imported image"));
   const mask = { sha256: upload.normalizedSha256 ?? upload.sha256 };
 
   const report = await inspectMask(studio, file, mask);
   if (report.emptyMask) {
     // Nada a reconstruir: zero envios e zero cobrança.
-    throw new DomainFailure("validation_failed", "Máscara vazia: nenhuma região a editar. Nada foi enviado.", { emptyMask: true });
+    throw new DomainFailure("validation_failed", tx("Máscara vazia: nenhuma região a editar. Nada foi enviado.", "Empty mask: no region to edit. Nothing was sent."), { emptyMask: true });
   }
 
   const language = input.language ?? (style.briefLanguage === "en" ? "en" : "pt-BR");
@@ -198,7 +199,7 @@ export async function buildInpaintPlan(studio: Studio, projectId: string, raw: I
     mask: report,
     modeLabel: INPAINT_MODE_LABEL[input.mode],
     scope: report.fullMask
-      ? "Máscara cheia: regeneração integral condicionada à fonte, sem pixels protegidos."
-      : `${report.editedPixels} pixel(s) editáveis; ${report.protectedPixels} protegido(s) saem idênticos à fonte.`,
+      ? tx("Máscara cheia: regeneração integral condicionada à fonte, sem pixels protegidos.", "Full mask: complete regeneration conditioned on the source, with no protected pixels.")
+      : tx(`${report.editedPixels} pixel(s) editáveis; ${report.protectedPixels} protegido(s) saem idênticos à fonte.`, `${report.editedPixels} editable pixel(s); ${report.protectedPixels} protected pixel(s) come out identical to the source.`),
   };
 }

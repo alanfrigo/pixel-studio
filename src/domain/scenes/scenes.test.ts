@@ -21,7 +21,7 @@ describe("planta e portas (cartão T2)", () => {
   });
 
   it("aponta porta fora da parede, passagem lateral de uma célula, canto interno colado e piso em ilhas", () => {
-    const msgs = (plan = fullFloorPlan(), doors: Parameters<typeof floorPlanProblems>[1]) => floorPlanProblems(plan, doors).map((p) => p.message);
+    const msgs = (plan = fullFloorPlan(), doors: Parameters<typeof floorPlanProblems>[1]) => floorPlanProblems(plan, doors).map((p) => p.message["pt-BR"]);
     expect(msgs(undefined, [{ doorId: "meio", cell: [3, 3], side: "N" }])[0]).toMatch(/não é parede/);
     expect(msgs(undefined, [{ doorId: "w", cell: [0, 5], side: "W" }])[0]).toMatch(/duas células/);
     // L: porta E na coluna 3 (linhas 0–1) com canto interno logo abaixo (linha 2 se estende à direita).
@@ -30,6 +30,8 @@ describe("planta e portas (cartão T2)", () => {
     islands.cells = islands.cells.map((_, i) => i % 7 !== 3);
     expect(msgs(islands, [{ doorId: "w", cell: [0, 0], side: "W" }]).join(" ")).toMatch(/uma peça só/);
     expect(msgs(undefined, [])[0]).toMatch(/1 a 8 portas/);
+    // Mesma mensagem em inglês para o editor no outro idioma.
+    expect(floorPlanProblems(fullFloorPlan(), [{ doorId: "meio", cell: [3, 3], side: "N" }])[0]!.message.en).toBe("meio: the N side of 3,3 is not a wall");
   });
 
   it("duas salas: portas opostas ligam com mesma vista e escala; lados e escalas diferentes são recusados", () => {
@@ -38,8 +40,8 @@ describe("planta e portas (cartão T2)", () => {
     const a = room([{ doorId: "leste", cell: [6, 2], side: "E", anchorPx: null, triggerPx: null, arrivePx: null }]);
     const b = room([{ doorId: "oeste", cell: [0, 2], side: "W", anchorPx: null, triggerPx: null, arrivePx: null }]);
     expect(linkDoors(a, "leste", b, "oeste")).toMatchObject({ ok: true, offsetPx: [256, 0], method: "grid" });
-    expect(linkDoors(a, "leste", a, "leste").problems[0]).toMatch(/Lados não se encontram/);
-    expect(linkDoors(a, "leste", room(b.doors, 16), "oeste").problems[0]).toMatch(/Escalas diferentes/);
+    expect(linkDoors(a, "leste", a, "leste").problems[0]?.["pt-BR"]).toMatch(/Lados não se encontram/);
+    expect(linkDoors(a, "leste", room(b.doors, 16), "oeste").problems[0]?.en).toMatch(/Different scales/);
     // Âncoras nas portas (top-down): B = A + âncoraA − âncoraB.
     const withAnchors = (r: typeof a, anchor: [number, number]) => ({ ...r, doors: r.doors.map((d) => ({ ...d, anchorPx: anchor })) });
     expect(linkDoors(withAnchors(a, [240, 128]), "leste", withAnchors(b, [16, 128]), "oeste")).toMatchObject({ ok: true, offsetPx: [224, 0], method: "anchors" });
@@ -50,8 +52,8 @@ describe("planta e portas (cartão T2)", () => {
     const room = { projection: "top_down" as const, cellPx: [32, 32] as [number, number], gridOrigin: [16, 48] as [number, number], floorPlan: L_PLAN };
     expect(roomCellAt(room, [128, 120])).toEqual([3, 2]);
     expect(furnitureProblems(room, [128, 120], { footprintCells: [1, 1] })).toEqual([]);
-    expect(furnitureProblems(room, [200, 70], { footprintCells: [1, 1] })[0]).toMatch(/fora do piso/);
-    expect(furnitureProblems(room, [140, 64], { footprintCells: [2, 1] }).join(" ")).toMatch(/Footprint sai do piso/);
+    expect(furnitureProblems(room, [200, 70], { footprintCells: [1, 1] })[0]?.["pt-BR"]).toMatch(/fora do piso/);
+    expect(furnitureProblems(room, [140, 64], { footprintCells: [2, 1] }).map((p) => p["pt-BR"]).join(" ")).toMatch(/Footprint sai do piso/);
   });
 });
 
@@ -132,7 +134,7 @@ describe("isométrico com personagem: direções, apoio, colisão e oclusão", (
   it("colisão pelo footprint do prop, apoio seguindo a elevação do piso e personagem atrás/à frente do prop alto", () => {
     const world = isoWorld(map, tileset);
     const start = { cell: [2, 3] as [number, number], facing: "E" as const };
-    expect(stepActor(world, start, "E")).toMatchObject({ moved: false, reason: expect.stringMatching(/footprint/) });
+    expect(stepActor(world, start, "E")).toMatchObject({ moved: false, reason: { "pt-BR": expect.stringMatching(/footprint/), en: expect.stringMatching(/footprint/) } });
     // (2,2) fica logo atrás do tronco na tela (i−j igual, i+j menor); (4,4) logo à frente.
     const behind = isoDrawList(world, { cell: [2, 2], facing: "SE" }, { size: [16, 32], pivot: [8, 30] });
     expect(occludersOf(behind.items)).toEqual(["arvore-1"]); // atrás da copa
@@ -143,7 +145,7 @@ describe("isométrico com personagem: direções, apoio, colisão e oclusão", (
     expect(raised.elevation).toBe(1);
     // Uma linha de losango abaixo (+16 px) e um degrau acima (−8 px): o apoio acompanha o piso.
     expect(raised.actorSupport[1] - flat.actorSupport[1]).toBe(16 - 8);
-    expect(stepActor(world, { cell: [0, 0], facing: "N" }, "N")).toMatchObject({ moved: false, reason: "borda do mapa" });
+    expect(stepActor(world, { cell: [0, 0], facing: "N" }, "N")).toMatchObject({ moved: false, reason: { "pt-BR": "borda do mapa", en: "edge of the map" } });
   });
 });
 

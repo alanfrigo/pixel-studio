@@ -222,7 +222,8 @@ describe("pilha do frame: ordem, vazio explícito e override", () => {
     expect(swapped.layers.map((l) => l.key).slice(2, 4)).toEqual(["base:arm_near", "rigid:sword"]);
     const stale = buildFrameStack({ rig: rigPayload, clipRevisionId: osh.revisionId, clip: osh.payload, frameIndex: 2, overlays: [mail()], override: [{ kind: "base", partId: "body" }] });
     expect(stale.override.applied).toBe(false);
-    expect(stale.override.problems[0]).toMatch(/não posiciona/);
+    expect(stale.override.problems[0]!["pt-BR"]).toMatch(/não posiciona/);
+    expect(stale.override.problems[0]!.en).toMatch(/does not place/);
   });
 
   it("segunda mão acima da tolerância sinaliza desvio; contorno cortado mostra os limites", () => {
@@ -284,12 +285,12 @@ describe("resolvedor do conjunto e matriz de cobertura", () => {
     expect(r.pendencies[0]).toMatchObject({ kind: "incompatible_rig", action: { kind: "create_coverage" } });
     expect(r.ready).toBe(false);
     const conflict = resolveLoadout({ rig, overlays: [mail(), shield, longSword], clips });
-    expect(conflict.pendencies.filter((p) => p.kind === "slot_conflict").map((p) => p.action.label)).toEqual(["Substituir Escudo por Espada longa"]);
+    expect(conflict.pendencies.filter((p) => p.kind === "slot_conflict").map((p) => p.action.label)).toEqual([{ "pt-BR": "Substituir Escudo por Espada longa", en: "Replace Escudo with Espada longa" }]);
   });
 
   it("clipe faltante produz pendência Criar variante só naquela combinação", () => {
     const r = resolveLoadout({ rig, overlays: [mail(), longSword], clips: clips.filter((c) => c.revisionId !== "th-e") });
-    expect(r.combos.find((c) => c.direction === "E")).toMatchObject({ status: "no_clip", pendencies: [expect.objectContaining({ kind: "missing_clip", action: { kind: "create_variant", label: "Criar variante" } })] });
+    expect(r.combos.find((c) => c.direction === "E")).toMatchObject({ status: "no_clip", pendencies: [expect.objectContaining({ kind: "missing_clip", action: { kind: "create_variant", label: { "pt-BR": "Criar variante", en: "Create variant" } } })] });
     expect(r.combos.find((c) => c.direction === "S")!.status).toBe("ready");
   });
 });

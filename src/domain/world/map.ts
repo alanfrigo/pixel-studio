@@ -1,4 +1,5 @@
 import type { CornerTilesetPayload, IsoPiece, MapObjectPayload, MapPlacement, TilemapPayload } from "@/contracts";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { type Bit, cellsTouchingVertex, cornerMask, chooseVariant, resolveCornerMap, vertexIndex } from "./corner";
 import { isoMapBounds, isoSupportScreen } from "./iso";
 import { resolveSideMap } from "./side";
@@ -222,7 +223,8 @@ export interface PassageResult {
   /** Passos do menor caminho em células (4-vizinhança), quando conectado. */
   steps: number | null;
   path: Cell[];
-  reason?: string;
+  /** Motivo da passagem não verificada ou interrompida (bilíngue). */
+  reason?: LocalizedText;
 }
 
 export function checkPassages(map: TilemapPayload, ctx: PassageContext): { supported: boolean; results: PassageResult[]; blocked: boolean[] | null } {
@@ -231,7 +233,7 @@ export function checkPassages(map: TilemapPayload, ctx: PassageContext): { suppo
     return {
       supported: false,
       blocked: null,
-      results: map.passages.map((p) => ({ ...p, connected: false, steps: null, path: [], reason: "Passagem lateral exige física de pulo; não verificada" })),
+      results: map.passages.map((p) => ({ ...p, connected: false, steps: null, path: [], reason: tx("Passagem lateral exige física de pulo; não verificada", "Side-view passage needs jump physics; not checked") })),
     };
   }
   const [cols, rows] = map.size;
@@ -241,7 +243,7 @@ export function checkPassages(map: TilemapPayload, ctx: PassageContext): { suppo
     const b = byId.get(p.to)!;
     const start = a.cell[1] * cols + a.cell[0];
     const goal = b.cell[1] * cols + b.cell[0];
-    if (blocked[start] || blocked[goal]) return { ...p, connected: false, steps: null, path: [], reason: `Entrada ${blocked[start] ? a.name : b.name} está numa célula bloqueada` };
+    if (blocked[start] || blocked[goal]) return { ...p, connected: false, steps: null, path: [], reason: tx(`Entrada ${blocked[start] ? a.name : b.name} está numa célula bloqueada`, `Entrance ${blocked[start] ? a.name : b.name} is on a blocked cell`) };
     const prev = new Map<number, number>([[start, -1]]);
     const queue = [start];
     while (queue.length) {
@@ -262,7 +264,7 @@ export function checkPassages(map: TilemapPayload, ctx: PassageContext): { suppo
         queue.push(n);
       }
     }
-    if (!prev.has(goal)) return { ...p, connected: false, steps: null, path: [], reason: "Sem caminho entre as entradas" };
+    if (!prev.has(goal)) return { ...p, connected: false, steps: null, path: [], reason: tx("Sem caminho entre as entradas", "No path between the entrances") };
     const path: Cell[] = [];
     for (let c = goal; c !== -1; c = prev.get(c)!) path.unshift([c % cols, Math.floor(c / cols)]);
     return { ...p, connected: true, steps: path.length - 1, path };

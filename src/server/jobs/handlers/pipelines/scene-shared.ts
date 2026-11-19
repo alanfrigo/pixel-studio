@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { pick, tx } from "@/i18n/locales";
 import { DomainFailure } from "../../../errors";
 import { type PipelineEnv, type ProcessedPart, python, pythonWith } from "./shared";
 import type { ProcessResult } from "./types";
@@ -17,14 +18,18 @@ import type { ProcessResult } from "./types";
  */
 export async function normalizeCanvas(env: PipelineEnv, sha256: string, dir: string, o: { size: [number, number]; key: string | null; alphaThreshold: number | null }): Promise<ProcessResult> {
   const ingest = await python(env, path.join(dir, "ingest"), "ingest_inspect", sha256, { version: 1, limits: env.config.rasterLimits });
-  if (ingest.status === "error") throw new DomainFailure("validation_failed", `Resposta do provedor não é uma imagem utilizável: ${ingest.message}`, { code: ingest.code });
+  if (ingest.status === "error") throw new DomainFailure(
+      "validation_failed",
+      tx(`Resposta do provedor não é uma imagem utilizável: ${pick(ingest.message, "pt-BR")}`, `The provider response is not a usable image: ${pick(ingest.message, "en")}`),
+      { code: ingest.code },
+    );
   let out = ingest.outputs.find((x) => x.role === "normalized")!;
   const warnings = [...ingest.warnings];
   const steps: Record<string, unknown>[] = [];
   const step = async (name: "unzoom" | "remove_background_flood", recipe: Record<string, unknown>, role: string) => {
     const current = await env.blobs.putFile(out.absolutePath);
     const result = await python(env, path.join(dir, name), name, current.sha256, recipe);
-    if (result.status === "error") throw new DomainFailure("validation_failed", `Etapa ${name} falhou: ${result.message}`, { code: result.code });
+    if (result.status === "error") throw new DomainFailure("validation_failed", tx(`Etapa ${name} falhou: ${pick(result.message, "pt-BR")}`, `Step ${name} failed: ${pick(result.message, "en")}`), { code: result.code });
     out = result.outputs.find((x) => x.role === role)!;
     warnings.push(...result.warnings);
     steps.push({ operation: name, ...result.report });
@@ -64,6 +69,6 @@ export async function normalizeCanvas(env: PipelineEnv, sha256: string, dir: str
 /** Saída de uma operação Python lida em bytes (para guardar como blob extra). */
 export async function outputBytes(result: { outputs: { role: string; key?: string; absolutePath: string; width?: number; height?: number }[] }, role: string, key?: string) {
   const out = result.outputs.find((x) => x.role === role && (key === undefined || x.key === key));
-  if (!out) throw new DomainFailure("internal", `Processador não devolveu ${role}`);
+  if (!out) throw new DomainFailure("internal", tx(`Processador não devolveu ${role}`, `The processor did not return ${role}`));
   return { bytes: new Uint8Array(await readFile(out.absolutePath)), width: out.width ?? 0, height: out.height ?? 0 };
 }

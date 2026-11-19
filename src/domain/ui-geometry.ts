@@ -95,3 +95,59 @@ export function anchoredRect(parent: Rect, anchors: Anchors, offsets: Anchors): 
   const bottom = Math.round(py + anchors.bottom * ph + offsets.bottom);
   return [left, top, Math.max(0, right - left), Math.max(0, bottom - top)];
 }
+
+// ---------------------------------------------------------------------------
+// Cartão U3: folha de estados e guias iniciais de recorte
+// ---------------------------------------------------------------------------
+
+export interface StateSheetLayout {
+  columns: number;
+  rows: number;
+  gapPx: number;
+  sheetSize: [number, number];
+  /** Células em ordem de leitura: 0 = estado-base, depois os estados pedidos. */
+  cells: [number, number, number, number][];
+}
+
+/**
+ * Grade de `count` células `cell` com espaçamento inteiro (também na borda),
+ * escolhendo as colunas que deixam a folha mais perto de quadrada: modelos de
+ * imagem trabalham com proporções limitadas (uma tira 8:1 não seria pintada).
+ */
+export function stateSheetLayout(cell: [number, number], count: number, gapPx?: number): StateSheetLayout {
+  const gap = gapPx ?? Math.max(2, Math.ceil(Math.min(cell[0], cell[1]) / 2));
+  let best: StateSheetLayout | null = null;
+  let bestScore = Infinity;
+  for (let columns = 1; columns <= count; columns++) {
+    const rows = Math.ceil(count / columns);
+    if (rows > 8 || columns > 8) continue;
+    const sheetSize: [number, number] = [gap + columns * (cell[0] + gap), gap + rows * (cell[1] + gap)];
+    // Proporção perto de 1:1, depois menos células sobrando.
+    const score = Math.abs(Math.log(sheetSize[0] / sheetSize[1])) + 0.01 * (columns * rows - count);
+    if (score < bestScore) {
+      bestScore = score;
+      const cells: [number, number, number, number][] = Array.from({ length: count }, (_, k) => [gap + (k % columns) * (cell[0] + gap), gap + Math.floor(k / columns) * (cell[1] + gap), cell[0], cell[1]]);
+      best = { columns, rows, gapPx: gap, sheetSize, cells };
+    }
+  }
+  if (!best) throw new RangeError(`Folha não comporta ${count} células`);
+  return best;
+}
+
+/** Células de uma folha já declarada no plano (mesma regra de `stateSheetLayout`). */
+export function stateSheetCells(sheet: { cell: [number, number]; columns: number; gapPx: number }, count: number): [number, number, number, number][] {
+  const { cell, columns, gapPx: gap } = sheet;
+  return Array.from({ length: count }, (_, k) => [gap + (k % columns) * (cell[0] + gap), gap + Math.floor(k / columns) * (cell[1] + gap), cell[0], cell[1]]);
+}
+
+/** Guias iniciais de nine-slice e área da legenda para uma peça recortada (o artista ajusta no editor). */
+export function suggestedGuides(size: [number, number]): { nineSlice: Insets; contentPadding: Insets } {
+  const [w, h] = size;
+  const side = (n: number) => Math.max(1, Math.min(4, Math.floor((n - 1) / 3)));
+  const sx = side(w);
+  const sy = side(h);
+  // Padding = corte + respiro, sem fechar a área útil: na vertical sobra ao menos uma linha de legenda (7 px).
+  const px = Math.max(0, Math.min(sx + 2, Math.floor((w - 1) / 2)));
+  const py = Math.max(0, Math.min(sy + 1, Math.floor((h - 7) / 2)));
+  return { nineSlice: { left: sx, right: sx, top: sy, bottom: sy }, contentPadding: { left: px, right: px, top: py, bottom: py } };
+}

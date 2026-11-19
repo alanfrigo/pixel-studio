@@ -1,3 +1,4 @@
+import { type TextValue, tx } from "@/i18n/locales";
 import { z } from "zod";
 import { type Capability, CostAmount, type CostEstimate, type PlanOperation } from "@/contracts";
 import { DomainFailure } from "../errors";
@@ -71,12 +72,12 @@ function join(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
 }
 
-function unknownCost(reason: string): CostEstimate {
+function unknownCost(reason: TextValue): CostEstimate {
   return { kind: "unknown", reason };
 }
 
 function noPolling(): never {
-  throw new ProviderError("rejected", "Este transporte responde de forma síncrona; não há job remoto a consultar");
+  throw new ProviderError("rejected", tx("Este transporte responde de forma síncrona; não há job remoto a consultar", "This transport responds synchronously; there is no remote job to poll"));
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +97,7 @@ export class OpenAIImagesAdapter implements ProviderAdapter {
     config: unknown,
   ) {
     this.config = OpenAIImagesConfig.parse(config ?? {});
-    if (!profile.model) throw new DomainFailure("validation_failed", "Perfil OpenAI Images exige o ID do modelo");
+    if (!profile.model) throw new DomainFailure("validation_failed", tx("Perfil OpenAI Images exige o ID do modelo", "An OpenAI Images profile requires the model ID"));
     checkBaseUrl(profile.baseUrl);
   }
 
@@ -119,8 +120,8 @@ export class OpenAIImagesAdapter implements ProviderAdapter {
   estimate(_operation: PlanOperation, parts: number): CostEstimate {
     const price = this.config.pricePerImage;
     return price
-      ? { kind: "known", amount: { amount: price.amount * parts, unit: price.unit }, basis: `${parts} imagem(ns) × preço informado no perfil` }
-      : unknownCost("A API informa uso em tokens, sem preço; cadastre o preço por imagem no perfil para estimar");
+      ? { kind: "known", amount: { amount: price.amount * parts, unit: price.unit }, basis: tx(`${parts} imagem(ns) × preço informado no perfil`, `${parts} image(s) × price set in the profile`) }
+      : unknownCost(tx("A API informa uso em tokens, sem preço; cadastre o preço por imagem no perfil para estimar", "The API reports usage in tokens, without a price; set the per-image price in the profile to get an estimate"));
   }
 
   async submit(req: ProviderSubmitRequest, signal: AbortSignal): Promise<SubmitOutcome> {
@@ -146,7 +147,7 @@ export class OpenAIImagesAdapter implements ProviderAdapter {
     } else if (req.operation === "generate_asset" || req.operation === "inpaint") {
       const images = req.operation === "inpaint" ? req.references.filter((r) => r.role === "source") : req.references;
       if (images.length === 0 || images.length > Math.max(1, this.config.maxReferences)) {
-        throw new DomainFailure("capability_missing", `O perfil aceita até ${this.config.maxReferences} imagens de entrada`);
+        throw new DomainFailure("capability_missing", tx(`O perfil aceita até ${this.config.maxReferences} imagens de entrada`, `The provider profile accepts up to ${this.config.maxReferences} input images`));
       }
       const form = new FormData();
       // A ordem das partes é a ordem das referências; a primeira é a base.
@@ -154,7 +155,7 @@ export class OpenAIImagesAdapter implements ProviderAdapter {
       if (req.operation === "inpaint") {
         // Máscara já codificada para este transporte: alfa 0 = área editável (alfa = 255 − E).
         const mask = req.references.find((r) => r.role === "remote_mask");
-        if (!mask) throw new DomainFailure("validation_failed", "Inpainting OpenAI exige a máscara codificada como alfa (papel remote_mask)");
+        if (!mask) throw new DomainFailure("validation_failed", tx("Inpainting OpenAI exige a máscara codificada como alfa (papel remote_mask)", "OpenAI inpainting requires the mask encoded as alpha (remote_mask role)"));
         form.append("mask", new Blob([Buffer.from(mask.bytes)], { type: "image/png" }), "mask.png");
       }
       form.append("prompt", req.prompt);
@@ -162,7 +163,7 @@ export class OpenAIImagesAdapter implements ProviderAdapter {
       form.append("n", "1");
       res = await providerFetch(join(this.profile.baseUrl, "images/edits"), { ...common, method: "POST", headers: auth, body: form });
     } else {
-      throw new DomainFailure("capability_missing", `Operação ${req.operation} não suportada pela API OpenAI Images`);
+      throw new DomainFailure("capability_missing", tx(`Operação ${req.operation} não suportada pela API OpenAI Images`, `Operation ${req.operation} is not supported by the OpenAI Images API`));
     }
     failOnStatus(res, { billingCodes: OPENAI_BILLING_CODES });
     const body = res.json<{ data?: { b64_json?: string; url?: string }[] }>();
@@ -171,7 +172,7 @@ export class OpenAIImagesAdapter implements ProviderAdapter {
       if (item.b64_json) images.push(decodeImage(item.b64_json));
       else if (item.url) images.push(await this.download(item.url, signal));
     }
-    if (images.length === 0) throw new ProviderError("rejected", "A resposta não trouxe imagem (possível recusa ou resposta só com texto)");
+    if (images.length === 0) throw new ProviderError("rejected", tx("A resposta não trouxe imagem (possível recusa ou resposta só com texto)", "The response contained no image (possible refusal or a text-only response)"));
     const price = this.config.pricePerImage;
     return { kind: "sync", images, cost: price ? { amount: price.amount * images.length, unit: price.unit } : null };
   }
@@ -182,10 +183,10 @@ export class OpenAIImagesAdapter implements ProviderAdapter {
     try {
       target = checkBaseUrl(url); // https, ou http só em loopback
     } catch {
-      throw new ProviderError("rejected", `URL de resultado insegura: ${url.slice(0, 80)}`);
+      throw new ProviderError("rejected", tx(`URL de resultado insegura: ${url.slice(0, 80)}`, `Unsafe result URL: ${url.slice(0, 80)}`));
     }
     if (!this.config.allowedDownloadHosts.includes(target.host)) {
-      throw new ProviderError("rejected", `Resposta aponta para host não autorizado para download: ${target.host}`);
+      throw new ProviderError("rejected", tx(`Resposta aponta para host não autorizado para download: ${target.host}`, `Response points to a host not allowed for download: ${target.host}`));
     }
     const res = await providerFetch(url, { allowedHost: target.host, signal, timeoutMs: this.config.timeoutMs });
     failOnStatus(res);
@@ -218,7 +219,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
   ) {
     this.config = OpenRouterConfig.parse(config ?? {});
     this.route = { maxReferences: this.config.maxReferences, transparent: this.config.transparent };
-    if (!profile.model) throw new DomainFailure("validation_failed", "Perfil OpenRouter exige o ID do modelo");
+    if (!profile.model) throw new DomainFailure("validation_failed", tx("Perfil OpenRouter exige o ID do modelo", "An OpenRouter profile requires the model ID"));
     checkBaseUrl(profile.baseUrl);
   }
 
@@ -233,16 +234,16 @@ export class OpenRouterAdapter implements ProviderAdapter {
   estimate(_operation: PlanOperation, parts: number): CostEstimate {
     const price = this.config.pricePerImageUsd;
     return price !== undefined
-      ? { kind: "known", amount: { amount: Math.round(price * parts * 1e6) / 1e6, unit: "USD" }, basis: `${parts} imagem(ns) × US$ ${price} (catálogo da rota)` }
-      : unknownCost("Preço da rota não registrado no perfil; o custo real vem em usage.cost");
+      ? { kind: "known", amount: { amount: Math.round(price * parts * 1e6) / 1e6, unit: "USD" }, basis: tx(`${parts} imagem(ns) × US$ ${price} (catálogo da rota)`, `${parts} image(s) × US$ ${price} (route catalog)`) }
+      : unknownCost(tx("Preço da rota não registrado no perfil; o custo real vem em usage.cost", "Route price is not set in the profile; the actual cost comes in usage.cost"));
   }
 
   async submit(req: ProviderSubmitRequest, signal: AbortSignal): Promise<SubmitOutcome> {
     if (!genericSupports(req.operation)) {
-      throw new DomainFailure("capability_missing", `Operação ${req.operation} não suportada pelo OpenRouter`);
+      throw new DomainFailure("capability_missing", tx(`Operação ${req.operation} não suportada pelo OpenRouter`, `Operation ${req.operation} is not supported by OpenRouter`));
     }
     if (req.references.length > this.config.maxReferences) {
-      throw new DomainFailure("capability_missing", `A rota aceita até ${this.config.maxReferences} referências; o pedido tem ${req.references.length}`);
+      throw new DomainFailure("capability_missing", tx(`A rota aceita até ${this.config.maxReferences} referências; o pedido tem ${req.references.length}`, `The route accepts up to ${this.config.maxReferences} references; the request has ${req.references.length}`));
     }
     const alpha = genericWantsAlpha(req, this.route);
     // Proporção do canvas fixado pelo plano (folha, fonte do candidato, atlas, cena, tira); senão a do perfil.
@@ -273,7 +274,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
     failOnStatus(res);
     const body = res.json<{ data?: { b64_json?: string }[]; usage?: { cost?: number | null } }>();
     const images = (body.data ?? []).filter((d) => d.b64_json).map((d) => decodeImage(d.b64_json!));
-    if (images.length === 0) throw new ProviderError("rejected", "A resposta não trouxe imagem");
+    if (images.length === 0) throw new ProviderError("rejected", tx("A resposta não trouxe imagem", "The response contained no image"));
     const cost = typeof body.usage?.cost === "number" ? { amount: body.usage.cost, unit: "USD" } : null;
     return { kind: "sync", images, cost };
   }

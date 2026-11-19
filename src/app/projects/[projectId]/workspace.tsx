@@ -8,9 +8,15 @@ import type { AssetView, ProjectView, RevisionView, UploadView } from "@/server/
 import type { ExportView } from "@/server/export/exports";
 import type { JobView } from "@/server/jobs/queue";
 import type { ProviderProfileView } from "@/server/providers/registry";
-import { ApiError, apiFetch, formatBytes, newKey } from "@/app/client/api";
-import { estimateText } from "@/app/client/cost";
+import { ApiError, apiFetch, errorMessage, formatBytes, newKey } from "@/app/client/api";
+import { costText, estimateText } from "@/app/client/cost";
 import { usePoll } from "@/app/client/use-poll";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { workspaceMessages } from "@/i18n/messages/workspace";
+import { dialogueMessages } from "@/i18n/messages/dialogue";
+import { uiKitMessages } from "@/i18n/messages/ui-kit";
 import { type PreviewBg, RevisionCompare } from "./revision-compare";
 import { StylePanel } from "./style-panel";
 
@@ -29,6 +35,10 @@ interface Snapshot {
 const ACTIVE = new Set(["queued", "running"]);
 
 export function Workspace({ projectId }: { projectId: string }) {
+  const nav = useMessages(workspaceMessages).nav;
+  const dialogueNav = useMessages(dialogueMessages).nav;
+  const uiKitNav = useMessages(uiKitMessages).nav;
+  const c = useMessages(commonMessages);
   const base = `/projects/${projectId}`;
   const { data, error, refresh } = usePoll<Snapshot>(
     async () => {
@@ -54,19 +64,23 @@ export function Workspace({ projectId }: { projectId: string }) {
   );
 
   if (error && !data) return <p className="error">{error}</p>;
-  if (!data) return <p className="muted">Carregando…</p>;
+  if (!data) return <p className="muted">{c.loading}</p>;
 
   return (
     <>
       <h1>{data.project.name}</h1>
-      <nav className="row small" aria-label="Ferramentas do projeto">
-        <Link href={`/projects/${projectId}/animation`}>Animação, estados e edição temporal</Link>
+      <nav className="row small" aria-label={nav.label}>
+        <Link href={`/projects/${projectId}/animation`}>{nav.animation}</Link>
         <span className="muted">·</span>
-        <Link href={`/projects/${projectId}/equipment`}>Equipamentos e conjuntos</Link>
+        <Link href={`/projects/${projectId}/equipment`}>{nav.equipment}</Link>
         <span className="muted">·</span>
-        <Link href={`/projects/${projectId}/world`}>Mundo: texturas, tiles e mapas</Link>
+        <Link href={`/projects/${projectId}/world`}>{nav.world}</Link>
         <span className="muted">·</span>
-        <Link href={`/projects/${projectId}/scenes`}>Cenas, salas e móveis</Link>
+        <Link href={`/projects/${projectId}/scenes`}>{nav.scenes}</Link>
+        <span className="muted">·</span>
+        <Link href={`/projects/${projectId}/dialogue`}>{dialogueNav}</Link>
+        <span className="muted">·</span>
+        <Link href={`/projects/${projectId}/ui`}>{uiKitNav.link}</Link>
       </nav>
       <div className="grid2">
         <GeneratePanel projectId={projectId} library={data.assets} defaultLanguage={data.briefLanguage} onChange={refresh} />
@@ -91,39 +105,8 @@ interface PlanPreview {
   destination: { profileId: string; name: string; transport: string; simulated: boolean };
 }
 
-/** Papéis das ligações entre revisões, como aparecem na origem de cada revisão. */
-const EDGE_ROLE: Record<string, string> = {
-  source: "origem",
-  reference: "referência",
-  component: "componente",
-  font: "fonte",
-  clip: "clipe",
-  rig: "esqueleto",
-  overlay: "sobreposição",
-  base: "base",
-  motion: "movimento",
-  audio: "áudio",
-  vfx: "efeito",
-  identity: "identidade",
-  style: "estilo",
-  palette: "paleta",
-  silhouette: "silhueta",
-  material: "material",
-  pose: "pose",
-  equipment: "equipamento",
-  composition: "composição",
-};
-
-const ROLES: [ReferenceRole, string][] = [
-  ["identity", "identidade"],
-  ["style", "estilo"],
-  ["palette", "paleta"],
-  ["silhouette", "silhueta"],
-  ["material", "material"],
-  ["pose", "pose"],
-  ["equipment", "equipamento"],
-  ["composition", "composição"],
-];
+/** Papéis de referência na ordem do seletor (rótulos em `workspaceMessages.referenceRole`). */
+const ROLES: ReferenceRole[] = ["identity", "style", "palette", "silhouette", "material", "pose", "equipment", "composition"];
 
 interface RefChoice {
   revisionId: string;
@@ -145,15 +128,18 @@ function GeneratePanel({
   defaultLanguage: "pt-BR" | "en";
   onChange: () => void;
 }) {
+  const locale = useLocale();
+  const m = useMessages(workspaceMessages).generate;
+  const roleLabel = useMessages(workspaceMessages).referenceRole;
   const base = `/projects/${projectId}`;
   const assets = library.map((l) => l.asset);
   const { data: providers } = usePoll(
-    () => apiFetch<{ profiles: (ProviderProfileView & { capabilities: Record<string, string[]>; unavailable: string | null })[] }>("/settings/providers"),
+    () => apiFetch<{ profiles: (ProviderProfileView & { capabilities: Record<string, string[]>; unavailable: TextValue | null })[] }>("/settings/providers"),
     { active: () => false, slowMs: 60_000 },
   );
   const [target, setTarget] = useState<string>("new");
-  const [name, setName] = useState("Poção verde");
-  const [brief, setBrief] = useState("poção verde em frasco de vidro, rolha de cortiça");
+  const [name, setName] = useState(m.defaultName);
+  const [brief, setBrief] = useState(m.defaultBrief);
   const [size, setSize] = useState(16);
   const [variants, setVariants] = useState(2);
   const [profileId, setProfileId] = useState("simulated");
@@ -214,7 +200,7 @@ function GeneratePanel({
         headers: { "idempotency-key": `${current.key}:${assetId}` },
         json: { kind: "generation", request: { plan: p.plan, planDigest: p.digest, targetAssetId: assetId } },
       });
-      setMessage(res.created ? `Job ${res.job.id} enfileirado.` : `Mesmo pedido: job ${res.job.id} já existe (nenhum envio duplicado).`);
+      setMessage(res.created ? m.queued(res.job.id) : m.duplicate(res.job.id));
       onChange();
     } catch (err) {
       setMessage(err instanceof ApiError ? `${err.message} (${err.code})` : String(err));
@@ -225,12 +211,12 @@ function GeneratePanel({
 
   return (
     <section>
-      <h2>Gerar ícone</h2>
+      <h2>{m.title}</h2>
       <form onSubmit={(e) => e.preventDefault()}>
         <label>
-          Asset
+          {m.asset}
           <select value={target} onChange={(e) => (setTarget(e.target.value), (intent.current = null))}>
-            <option value="new">Novo asset…</option>
+            <option value="new">{m.newAsset}</option>
             {itemAssets.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -240,12 +226,12 @@ function GeneratePanel({
         </label>
         {target === "new" && (
           <label>
-            Nome
+            {m.name}
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
           </label>
         )}
         <label>
-          Tamanho
+          {m.size}
           <select value={size} onChange={(e) => (setSize(Number(e.target.value)), invalidate())}>
             {[16, 24, 32, 48, 64].map((n) => (
               <option key={n} value={n}>
@@ -255,14 +241,14 @@ function GeneratePanel({
           </select>
         </label>
         <label>
-          Idioma do prompt
+          {m.promptLanguage}
           <select value={language ?? defaultLanguage} onChange={(e) => (setLanguage(e.target.value as "pt-BR" | "en"), invalidate())}>
             <option value="pt-BR">pt-BR</option>
             <option value="en">en</option>
           </select>
         </label>
         <label>
-          Variantes
+          {m.variants}
           <select value={variants} onChange={(e) => (setVariants(Number(e.target.value)), invalidate())}>
             {[1, 2, 3, 4].map((n) => (
               <option key={n}>{n}</option>
@@ -270,58 +256,58 @@ function GeneratePanel({
           </select>
         </label>
         <label>
-          Provedor
+          {m.provider}
           <select value={profileId} onChange={(e) => (setProfileId(e.target.value), invalidate())}>
             {providers?.profiles.map((p) => (
               <option key={p.id} value={p.id} disabled={Boolean(p.unavailable)}>
                 {p.name}
-                {p.unavailable ? " (indisponível)" : ""}
+                {p.unavailable ? m.unavailableSuffix : ""}
               </option>
             ))}
           </select>
         </label>
         <label style={{ flexBasis: "100%" }}>
-          Descrição
+          {m.brief}
           <textarea value={brief} onChange={(e) => (setBrief(e.target.value), invalidate())} maxLength={2000} />
         </label>
         <div style={{ flexBasis: "100%" }}>
-          <div className="small muted">Referências, na ordem em que o modelo as recebe (Imagem 1, 2…)</div>
+          <div className="small muted">{m.referencesHint}</div>
           <ol className="list">
             {refs.map((r, i) => (
               <li key={`${r.revisionId}|${r.fileKey}|${i}`} className="row">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img className="pixel" alt="" src={`/api/v1/projects/${projectId}/media/${r.fileId}`} style={{ maxWidth: 48, maxHeight: 48 }} />
                 <span className="small">
-                  <strong>Imagem {i + 1}</strong> · {r.label}
+                  <strong>{m.image(i + 1)}</strong> · {r.label}
                 </span>
-                <select aria-label={`Papel da imagem ${i + 1}`} value={r.role} onChange={(e) => updateRefs(refs.map((x, j) => (j === i ? { ...x, role: e.target.value as ReferenceRole } : x)))}>
-                  {ROLES.map(([value, label]) => (
+                <select aria-label={m.imageRole(i + 1)} value={r.role} onChange={(e) => updateRefs(refs.map((x, j) => (j === i ? { ...x, role: e.target.value as ReferenceRole } : x)))}>
+                  {ROLES.map((value) => (
                     <option key={value} value={value}>
-                      {label}
+                      {roleLabel[value]}
                     </option>
                   ))}
                 </select>
                 <input
-                  aria-label={`Instrução da imagem ${i + 1}`}
-                  placeholder="ex.: só o formato do frasco"
+                  aria-label={m.imageInstruction(i + 1)}
+                  placeholder={m.instructionPlaceholder}
                   value={r.instruction}
                   maxLength={300}
                   onChange={(e) => updateRefs(refs.map((x, j) => (j === i ? { ...x, instruction: e.target.value } : x)))}
                 />
-                <button type="button" className="secondary" aria-label="Subir" disabled={i === 0} onClick={() => moveRef(i, -1)}>
+                <button type="button" className="secondary" aria-label={m.moveUp} disabled={i === 0} onClick={() => moveRef(i, -1)}>
                   ↑
                 </button>
-                <button type="button" className="secondary" aria-label="Descer" disabled={i === refs.length - 1} onClick={() => moveRef(i, 1)}>
+                <button type="button" className="secondary" aria-label={m.moveDown} disabled={i === refs.length - 1} onClick={() => moveRef(i, 1)}>
                   ↓
                 </button>
-                <button type="button" className="secondary" aria-label="Remover" onClick={() => updateRefs(refs.filter((_, j) => j !== i))}>
+                <button type="button" className="secondary" aria-label={m.remove} onClick={() => updateRefs(refs.filter((_, j) => j !== i))}>
                   ×
                 </button>
               </li>
             ))}
           </ol>
           <select
-            aria-label="Adicionar referência"
+            aria-label={m.addReference}
             value=""
             disabled={refOptions.length === 0}
             onChange={(e) => {
@@ -329,7 +315,7 @@ function GeneratePanel({
               if (o) updateRefs([...refs, { revisionId: o.revisionId, fileKey: o.fileKey, fileId: o.fileId, label: o.label, role: refs.length === 0 ? "identity" : "style", instruction: "" }]);
             }}
           >
-            <option value="">{refOptions.length ? "+ adicionar referência aprovada…" : "Nenhuma revisão aprovada para usar como referência"}</option>
+            <option value="">{refOptions.length ? m.addApprovedReference : m.noApprovedReference}</option>
             {refOptions.map((o) => (
               <option key={o.key} value={o.key}>
                 {o.label}
@@ -338,26 +324,26 @@ function GeneratePanel({
           </select>
         </div>
         <button type="button" className="secondary" onClick={() => loadPreview().catch((e) => setMessage(String(e.message ?? e)))}>
-          Prévia do plano
+          {m.planPreview}
         </button>
         <button type="button" onClick={() => generate(false)}>
-          Gerar
+          {m.generate}
         </button>
         <button type="button" className="secondary" onClick={() => generate(true)}>
-          Nova variação
+          {m.newVariation}
         </button>
       </form>
       {message && <p className="small">{message}</p>}
       {preview && (
         <div className="small">
           <p>
-            Destino: <strong>{preview.destination.name}</strong>
-            {preview.destination.simulated && " — nada sai do computador"} · partes: {preview.plan.parts.length} · estimativa: {estimateText(preview.plan)}
+            {m.destination} <strong>{preview.destination.name}</strong>
+            {preview.destination.simulated && m.staysLocal} · {m.parts(preview.plan.parts.length)} · {m.estimate(estimateText(preview.plan, locale))}
           </p>
           <pre>{preview.plan.prompt.compiled}</pre>
           <p className="muted">
-            Plano {preview.digest.slice(0, 12)} · referências: {refs.length === 0 ? "nenhuma (texto puro)" : refs.length}
-            {preview.plan.operation === "generate_asset" && preview.plan.params.backgroundKey ? ` · rota sem alfa: fundo ${preview.plan.params.backgroundKey} removido localmente` : ""}
+            {m.plan(preview.digest.slice(0, 12))} · {m.references(refs.length)}
+            {preview.plan.operation === "generate_asset" && preview.plan.params.backgroundKey ? m.noAlphaRoute(preview.plan.params.backgroundKey) : ""}
           </p>
         </div>
       )}
@@ -370,19 +356,22 @@ function GeneratePanel({
 // ---------------------------------------------------------------------------
 
 function UploadPanel({ projectId, uploads, onChange }: { projectId: string; uploads: UploadView[]; onChange: () => void }) {
+  const locale = useLocale();
+  const m = useMessages(workspaceMessages).upload;
+  const c = useMessages(commonMessages);
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function createItemFromUpload(u: UploadView) {
     setMessage(null);
     try {
-      const name = u.originalName.replace(/\.[a-z0-9]+$/i, "") || "Item importado";
+      const name = u.originalName.replace(/\.[a-z0-9]+$/i, "") || m.importedItem;
       const { asset } = await apiFetch<{ asset: AssetView }>(`/projects/${projectId}/assets`, {
         method: "POST",
         json: { family: "item", kind: "consumable", name },
       });
       await apiFetch(`/projects/${projectId}/assets/${asset.id}/revisions`, { method: "POST", json: { from: "upload", uploadId: u.id } });
-      setMessage(`Item "${name}" criado como candidato.`);
+      setMessage(m.itemCreated(name));
       onChange();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
@@ -395,11 +384,11 @@ function UploadPanel({ projectId, uploads, onChange }: { projectId: string; uplo
     if (!file) return;
     const form = new FormData();
     form.append("file", file);
-    setMessage("Enviando…");
+    setMessage(m.sending);
     try {
       const res = await fetch(`/api/v1/projects/${projectId}/uploads`, { method: "POST", body: form });
       const body = await res.json();
-      setMessage(res.ok ? `Recebido; normalização no job ${body.job.id}.` : `${body.message} (${body.code})`);
+      setMessage(res.ok ? m.received(body.job.id) : `${body.message} (${body.code})`);
       if (fileRef.current) fileRef.current.value = "";
       onChange();
     } catch (err) {
@@ -409,11 +398,11 @@ function UploadPanel({ projectId, uploads, onChange }: { projectId: string; uplo
 
   return (
     <section>
-      <h2>Importar arquivo</h2>
-      <p className="muted small">Imagem, WAV, fonte ou um pacote ZIP exportado (reabre as revisões como candidatas).</p>
+      <h2>{m.title}</h2>
+      <p className="muted small">{m.hint}</p>
       <form onSubmit={upload}>
         <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,audio/wav,.ttf,.otf,.zip" />
-        <button>Importar</button>
+        <button>{m.import}</button>
       </form>
       {message && <p className="small">{message}</p>}
       <ul className="list">
@@ -424,17 +413,17 @@ function UploadPanel({ projectId, uploads, onChange }: { projectId: string; uplo
               <img className="pixel" alt={u.originalName} src={`/api/v1/projects/${projectId}/media/${u.id}`} style={{ maxWidth: 64, maxHeight: 64 }} />
             )}
             <span>{u.originalName}</span>
-            <span className={`badge state-${u.status}`}>{u.status}</span>
+            <span className={`badge state-${u.status}`}>{labelOf(c.uploadStatus, u.status)}</span>
             <span className="muted small">
               {u.modality}
               {u.metadata?.width ? ` · ${u.metadata.width}×${u.metadata.height}` : ""}
               {u.metadata?.durationMs ? ` · ${u.metadata.durationMs} ms` : ""}
-              {u.metadata?.package ? ` · pacote com ${(u.metadata.package as { revisions: number }).revisions} revisões` : ""}
+              {u.metadata?.package ? m.package((u.metadata.package as { revisions: number }).revisions) : ""}
             </span>
-            {u.status === "rejected" && <span className="error small">{(u.error as { message?: string })?.message}</span>}
+            {u.status === "rejected" && <span className="error small">{errorMessage(u.error, locale)}</span>}
             {u.status === "ready" && u.modality === "raster" && (
               <button className="secondary" onClick={() => createItemFromUpload(u)}>
-                Criar item
+                {m.createItem}
               </button>
             )}
           </li>
@@ -448,51 +437,17 @@ function UploadPanel({ projectId, uploads, onChange }: { projectId: string; uplo
 // Fila
 // ---------------------------------------------------------------------------
 
-const STATE_LABEL: Record<string, string> = {
-  queued: "na fila",
-  running: "executando",
-  succeeded: "concluído",
-  failed: "falhou",
-  cancelled: "cancelado",
-  needs_attention: "precisa de decisão",
-};
-
-const JOB_LABEL: Record<string, string> = {
-  generation: "Geração",
-  ingest: "Importação",
-  export: "Exportação",
-  local_process: "Processamento local",
-};
-
-const OPERATION_LABEL: Record<string, string> = {
-  remove_background_flood: "remover fundo",
-  apply_palette: "aplicar paleta",
-  crop_to_content: "recorte justo",
-  slice_grid: "fatiar folha",
-  compose_layers: "compor camadas",
-  composite_protected: "restaurar área protegida",
-  make_thumbnail: "miniatura",
-};
-
-const REMOTE_LABEL: Record<string, string> = {
-  not_sent: "não enviado",
-  sending: "enviando",
-  accepted: "aceito pelo provedor",
-  uncertain: "envio incerto",
-  completed: "resposta salva",
-  rejected: "recusado",
-};
-
 function JobsPanel({ projectId, jobs, assetOfRevision, onChange }: { projectId: string; jobs: JobView[]; assetOfRevision: Map<string, string>; onChange: () => void }) {
+  const locale = useLocale();
+  const m = useMessages(workspaceMessages).jobs;
+  const c = useMessages(commonMessages);
   const [message, setMessage] = useState<string | null>(null);
 
   async function act(job: JobView, action: "cancel" | "retry") {
     setMessage(null);
     let acknowledgePossibleCharge = false;
     if (action === "retry" && job.actions.retryMayCharge) {
-      acknowledgePossibleCharge = window.confirm(
-        "Há envio com resultado e cobrança desconhecidos. Tentar de novo pode gerar uma nova cobrança no provedor. Continuar?",
-      );
+      acknowledgePossibleCharge = window.confirm(m.retryChargeConfirm);
       if (!acknowledgePossibleCharge) return;
     }
     try {
@@ -505,39 +460,39 @@ function JobsPanel({ projectId, jobs, assetOfRevision, onChange }: { projectId: 
 
   return (
     <section>
-      <h2>Fila</h2>
+      <h2>{m.title}</h2>
       {message && <p className="error small">{message}</p>}
-      {jobs.length === 0 && <p className="muted">Nenhum job ainda.</p>}
+      {jobs.length === 0 && <p className="muted">{m.empty}</p>}
       <ul className="list">
         {jobs.map((job) => {
-          const error = job.error as { message?: string; code?: string } | null;
+          const error = errorMessage(job.error, locale);
           return (
             <li key={job.id}>
               <div className="row">
-                <strong>{JOB_LABEL[job.kind] ?? job.kind}</strong>
-                <span className={`badge state-${job.state}`}>{STATE_LABEL[job.state] ?? job.state}</span>
+                <strong>{labelOf(m.kind, job.kind)}</strong>
+                <span className={`badge state-${job.state}`}>{labelOf(c.jobState, job.state)}</span>
                 <span className="muted small">
-                  etapa {job.stage} · tentativa {job.attemptCount}/{job.maxAttempts}
-                  {job.cancelRequested && " · cancelamento solicitado"}
-                  {job.kind === "generation" && ` · chamadas ao provedor: ${job.summary.submissions}`}
-                  {job.summary.cost.map((c) => ` · custo ${c.amount} ${c.unit}`).join("")}
+                  {c.stage(job.stage)} · {m.attempt(job.attemptCount, job.maxAttempts)}
+                  {job.cancelRequested && m.cancelRequested}
+                  {job.kind === "generation" && m.providerCalls(job.summary.submissions)}
+                  {job.summary.cost.map((cost) => m.cost(costText(cost, locale))).join("")}
                 </span>
                 {job.actions.canCancel && (
                   <button className="secondary" onClick={() => act(job, "cancel")}>
-                    Cancelar
+                    {m.cancel}
                   </button>
                 )}
-                {job.actions.canRetry && <button onClick={() => act(job, "retry")}>Tentar de novo</button>}
+                {job.actions.canRetry && <button onClick={() => act(job, "retry")}>{m.retry}</button>}
               </div>
               {job.parts.length > 0 && (
                 <div className="muted small">
-                  {job.parts.map((p) => `${p.partKey}: ${REMOTE_LABEL[p.remoteState]}${p.processed ? ", processada" : ""}`).join(" · ")}
+                  {job.parts.map((p) => `${p.partKey}: ${labelOf(m.remoteState, p.remoteState)}${p.processed ? m.processed : ""}`).join(" · ")}
                 </div>
               )}
-              {error?.message && job.state !== "succeeded" && (
+              {error && job.state !== "succeeded" && (
                 <div className={job.state === "queued" ? "small" : "error small"}>
-                  {job.state === "queued" ? "Última falha (nova tentativa agendada): " : ""}
-                  {error.message}
+                  {job.state === "queued" ? m.lastFailure : ""}
+                  {error}
                 </div>
               )}
               {job.kind === "local_process" && job.state === "succeeded" && <LocalOutputs projectId={projectId} job={job} assetOfRevision={assetOfRevision} onChange={onChange} />}
@@ -565,6 +520,11 @@ function AssetsPanel({
   palette: string[];
   onChange: () => void;
 }) {
+  const locale = useLocale();
+  const text = useText();
+  const m = useMessages(workspaceMessages).library;
+  const edgeRole = useMessages(workspaceMessages).edgeRole;
+  const c = useMessages(commonMessages);
   const [family, setFamily] = useState("all");
   const [status, setStatus] = useState<"all" | "pending" | "approved">("all");
   const [query, setQuery] = useState("");
@@ -594,7 +554,7 @@ function AssetsPanel({
       let recipe: Record<string, unknown>;
       if (operation === "remove_background_flood") {
         const corner = await sampleCorner(`/api/v1/projects/${projectId}/media/${fileId}`);
-        if (corner.alpha === 0) return setMessage("O canto já é transparente: não há fundo uniforme para remover.");
+        if (corner.alpha === 0) return setMessage(m.cornerTransparent);
         recipe = { version: 1, color: corner.hex, tolerance: 24, seeds: { borders: true, points: [] }, connectivity: 4 };
       } else {
         recipe = { version: 1, metric: "srgb8_squared", tieBreak: "lowest_index", dither: false, colors: palette };
@@ -616,7 +576,7 @@ function AssetsPanel({
 
   async function review(asset: AssetView, revision: RevisionView, decision: "approve" | "reject" | "promote") {
     setMessage(null);
-    const reason = decision === "reject" ? window.prompt("Motivo da reprovação") : null;
+    const reason = decision === "reject" ? window.prompt(c.rejectReasonPrompt) : null;
     if (decision === "reject" && !reason) return;
     try {
       await apiFetch(`/projects/${projectId}/assets/${asset.id}/reviews`, {
@@ -626,7 +586,7 @@ function AssetsPanel({
     } catch (err) {
       setMessage(
         err instanceof ApiError && err.status === 409
-          ? "Outra aba alterou a revisão ativa deste asset. A tela foi atualizada; confira antes de decidir de novo."
+          ? m.staleConflict
           : String(err instanceof Error ? err.message : err),
       );
     }
@@ -635,31 +595,31 @@ function AssetsPanel({
 
   return (
     <section>
-      <h2>Biblioteca</h2>
+      <h2>{m.title}</h2>
       <div className="row">
         <label>
-          Família
+          {m.family}
           <select value={family} onChange={(e) => setFamily(e.target.value)}>
-            <option value="all">todas</option>
+            <option value="all">{m.all}</option>
             {families.map((f) => (
               <option key={f}>{f}</option>
             ))}
           </select>
         </label>
         <label>
-          Situação
+          {m.status}
           <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
-            <option value="all">todas</option>
-            <option value="pending">com candidata a revisar</option>
-            <option value="approved">com revisão ativa</option>
+            <option value="all">{m.all}</option>
+            <option value="pending">{m.pending}</option>
+            <option value="approved">{m.approved}</option>
           </select>
         </label>
         <label>
-          Buscar
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="nome do asset" />
+          {m.search}
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={m.searchPlaceholder} />
         </label>
         <label>
-          Zoom
+          {m.zoom}
           <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
             {[1, 2, 4, 8].map((z) => (
               <option key={z} value={z}>
@@ -669,27 +629,25 @@ function AssetsPanel({
           </select>
         </label>
         <label>
-          Fundo
+          {m.background}
           <select value={bg} onChange={(e) => setBg(e.target.value as PreviewBg)}>
-            <option value="checker">quadriculado</option>
-            <option value="dark">escuro</option>
-            <option value="light">claro</option>
+            <option value="checker">{m.bg.checker}</option>
+            <option value="dark">{m.bg.dark}</option>
+            <option value="light">{m.bg.light}</option>
           </select>
         </label>
-        <span className="small muted">
-          {visible.length} de {assets.length} asset(s)
-        </span>
+        <span className="small muted">{m.count(visible.length, assets.length)}</span>
       </div>
       {sideA && sideB && <RevisionCompare a={sideA} b={sideB} zoom={zoom} bg={bg} onClose={() => setCompare([])} />}
-      {compare.length === 1 && <p className="small muted">Escolha mais uma revisão para comparar.</p>}
+      {compare.length === 1 && <p className="small muted">{m.pickAnother}</p>}
       {message && <p className="error small">{message}</p>}
-      {assets.length === 0 && <p className="muted">Nenhum asset ainda.</p>}
+      {assets.length === 0 && <p className="muted">{m.empty}</p>}
       {visible.map(({ asset, revisions, lineage }) => (
         <div key={asset.id} style={{ marginBottom: 16 }}>
           <div className="row">
             <strong>{asset.name}</strong>
             <span className="muted small">
-              {asset.family}/{asset.kind} · {revisions.length} revisão(ões)
+              {asset.family}/{asset.kind} · {m.revisions(revisions.length)}
             </span>
           </div>
           <div className="revisions">
@@ -697,7 +655,7 @@ function AssetsPanel({
               const image = imageOf(rev);
               const w = Number(image?.metadata.width ?? 16);
               const h = Number(image?.metadata.height ?? 16);
-              const report = rev.technicalReport as { sizeMatches?: boolean; receivedSize?: number[]; warnings?: string[] } | null;
+              const report = rev.technicalReport as { sizeMatches?: boolean; receivedSize?: number[]; warnings?: TextValue[] } | null;
               const active = asset.approvedRevisionId === rev.id;
               return (
                 <div key={rev.id} className={["revision", active && "active", compare.includes(rev.id) && "selected"].filter(Boolean).join(" ")}>
@@ -712,66 +670,66 @@ function AssetsPanel({
                     </div>
                   )}
                   <div className="small">
-                    r{rev.number} <span className={`badge state-${rev.status}`}>{active ? "ativa" : rev.status}</span>{" "}
+                    r{rev.number} <span className={`badge state-${rev.status}`}>{active ? c.revisionStatus.active : labelOf(c.revisionStatus, rev.status)}</span>{" "}
                     <span className="muted">{rev.origin}</span>
                   </div>
-                  {report?.sizeMatches === false && <div className="error small">Tamanho recebido {report.receivedSize?.join("×")} difere do pedido</div>}
+                  {report?.sizeMatches === false && <div className="error small">{m.sizeMismatch(report.receivedSize?.join("×") ?? "?")}</div>}
                   {(rev.predecessorId || lineage[rev.id]?.length) && (
                     <div className="small muted">
-                      {rev.predecessorId && <>após r{byId.get(rev.predecessorId)?.rev.number ?? "?"}</>}
+                      {rev.predecessorId && <>{m.after(String(byId.get(rev.predecessorId)?.rev.number ?? "?"))}</>}
                       {lineage[rev.id]?.map((l) => (
                         <span key={`${l.revisionId}-${l.role}`}>
                           {" "}
-                          · {EDGE_ROLE[l.role] ?? l.role.replaceAll("_", " ")} de {l.assetName} r{l.number}
-                          {l.runtime ? " (usada no jogo)" : ""}
+                          · {m.edge((edgeRole as Record<string, string | undefined>)[l.role] ?? l.role.replaceAll("_", " "), l.assetName, l.number)}
+                          {l.runtime ? m.usedInGame : ""}
                         </span>
                       ))}
                     </div>
                   )}
                   {(report?.warnings?.length ?? 0) > 0 && (
                     <details className="small">
-                      <summary>{report!.warnings!.length} aviso(s) técnico(s)</summary>
+                      <summary>{m.warnings(report!.warnings!.length)}</summary>
                       <ul>
                         {report!.warnings!.map((wn, i) => (
-                          <li key={i}>{wn}</li>
+                          <li key={i}>{text(wn)}</li>
                         ))}
                       </ul>
                     </details>
                   )}
                   <div className="row">
-                    {rev.status !== "approved" && <button onClick={() => review(asset, rev, "approve")}>Aprovar</button>}
+                    {rev.status !== "approved" && <button onClick={() => review(asset, rev, "approve")}>{c.approve}</button>}
                     {rev.status === "approved" && !active && (
                       <button className="secondary" onClick={() => review(asset, rev, "promote")}>
-                        Tornar ativa
+                        {m.makeActive}
                       </button>
                     )}
                     {rev.status === "candidate" && (
                       <button className="secondary" onClick={() => review(asset, rev, "reject")}>
-                        Reprovar
+                        {c.reject}
                       </button>
                     )}
                     {image && rev.status === "approved" && (
                       <Link className="button secondary" href={`/projects/${projectId}/inpaint?asset=${asset.id}&revision=${rev.id}&file=${encodeURIComponent(image.fileKey)}`}>
-                        Inpainting
+                        {m.inpainting}
                       </Link>
                     )}
                     {image && (
                       <button className="secondary" aria-pressed={compare.includes(rev.id)} onClick={() => toggleCompare(rev.id)}>
-                        {compare.includes(rev.id) ? "Tirar da comparação" : "Comparar"}
+                        {compare.includes(rev.id) ? m.uncompare : m.compare}
                       </button>
                     )}
                   </div>
                   {image && image.fileKey === "image" && (
                     <div className="row">
                       <button className="secondary" onClick={() => workshop(rev, image.id, "remove_background_flood")}>
-                        Remover fundo
+                        {m.removeBackground}
                       </button>
                       <button className="secondary" disabled={palette.length === 0} onClick={() => workshop(rev, image.id, "apply_palette")}>
-                        Paleta do projeto
+                        {m.projectPalette}
                       </button>
                     </div>
                   )}
-                  <span className="muted small">{formatBytes(image?.bytes ?? 0)}</span>
+                  <span className="muted small">{formatBytes(image?.bytes ?? 0, locale)}</span>
                 </div>
               );
             })}
@@ -787,6 +745,10 @@ function AssetsPanel({
 // ---------------------------------------------------------------------------
 
 function ExportPanel({ projectId, assets, exports, onChange }: { projectId: string; assets: AssetView[]; exports: ExportView[]; onChange: () => void }) {
+  const locale = useLocale();
+  const text = useText();
+  const m = useMessages(workspaceMessages).export;
+  const c = useMessages(commonMessages);
   const approved = assets.filter((a) => a.approvedRevisionId);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState<string | null>(null);
@@ -799,19 +761,19 @@ function ExportPanel({ projectId, assets, exports, onChange }: { projectId: stri
         method: "POST",
         json: { revisionIds, profile: "portable-v1" },
       });
-      setMessage(res.created ? "Exportação enfileirada." : "Esta seleção já foi exportada; reaproveitando o mesmo pacote.");
+      setMessage(res.created ? m.queued : m.reused);
       onChange();
     } catch (err) {
-      const problems = err instanceof ApiError ? (err.details?.problems as { message: string }[] | undefined) : undefined;
-      setMessage(problems?.length ? problems.map((p) => p.message).join(" · ") : String(err instanceof Error ? err.message : err));
+      const problems = err instanceof ApiError ? (err.details?.problems as { message: TextValue }[] | undefined) : undefined;
+      setMessage(problems?.length ? problems.map((p) => text(p.message)).join(" · ") : String(err instanceof Error ? err.message : err));
     }
   }
 
   return (
     <section>
-      <h2>Exportar pacote</h2>
-      <p className="muted small">Revisões ativas aprovadas; as dependências necessárias entram automaticamente.</p>
-      {approved.length === 0 && <p className="muted">Aprove uma revisão para poder exportar.</p>}
+      <h2>{m.title}</h2>
+      <p className="muted small">{m.hint}</p>
+      {approved.length === 0 && <p className="muted">{m.empty}</p>}
       <div className="row">
         {approved.map((a) => (
           <label key={a.id} style={{ flexDirection: "row", alignItems: "center", gap: 4, color: "inherit" }}>
@@ -829,7 +791,7 @@ function ExportPanel({ projectId, assets, exports, onChange }: { projectId: stri
           </label>
         ))}
         <button disabled={selected.size === 0} onClick={exportSelection}>
-          Exportar ZIP portátil
+          {m.exportZip}
         </button>
       </div>
       {message && <p className="small">{message}</p>}
@@ -837,16 +799,20 @@ function ExportPanel({ projectId, assets, exports, onChange }: { projectId: stri
         {exports.map((e) => (
           <li key={e.id}>
             <div className="row">
-              <span className={`badge state-${e.state === "ready" ? "succeeded" : e.state === "failed" ? "failed" : "queued"}`}>{e.state}</span>
+              <span className={`badge state-${e.state === "ready" ? "succeeded" : e.state === "failed" ? "failed" : "queued"}`}>{labelOf(c.exportState, e.state)}</span>
               <span className="small">
-                {e.report ? `${e.report.entries} revisões · ${e.report.files} arquivos` : `${e.revisionIds.length} selecionadas`}
-                {e.bytes ? ` · ${formatBytes(e.bytes)}` : ""}
-                {e.report?.addedDependencies.length ? ` · +${e.report.addedDependencies.length} dependências` : ""}
+                {e.report ? m.contents(e.report.entries, e.report.files) : m.selected(e.revisionIds.length)}
+                {e.bytes ? ` · ${formatBytes(e.bytes, locale)}` : ""}
+                {e.report?.addedDependencies.length ? m.dependencies(e.report.addedDependencies.length) : ""}
               </span>
-              {e.state === "ready" && <a href={`/api/v1/projects/${projectId}/exports/${e.id}/download`}>Baixar {e.fileName}</a>}
+              {e.state === "ready" && <a href={`/api/v1/projects/${projectId}/exports/${e.id}/download`}>{m.download(e.fileName ?? "")}</a>}
             </div>
-            {e.state === "failed" && <div className="error small">{(e.error as { message?: string } | null)?.message}</div>}
-            {e.report && <div className="muted small">Limitações do perfil: {e.report.limitations.join(" · ")}</div>}
+            {e.state === "failed" && <div className="error small">{errorMessage(e.error, locale)}</div>}
+            {e.report && (
+              <div className="muted small">
+                {m.limitations} {e.report.limitations.map((l) => text(l)).join(" · ")}
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -868,12 +834,14 @@ interface LocalResultView {
   status: string;
   outputs: { index: number; role: string; key?: string; width?: number; height?: number }[];
   report: Record<string, unknown>;
-  warnings: string[];
+  warnings: TextValue[];
 }
 
 const PUBLISHABLE = new Set(["cutout", "paletted", "protected"]);
 
 function LocalOutputs({ projectId, job, assetOfRevision, onChange }: { projectId: string; job: JobView; assetOfRevision: Map<string, string>; onChange: () => void }) {
+  const text = useText();
+  const m = useMessages(workspaceMessages).local;
   const [message, setMessage] = useState<string | null>(null);
   const request = job.request as LocalRequestView;
   const result = job.result as LocalResultView;
@@ -882,14 +850,14 @@ function LocalOutputs({ projectId, job, assetOfRevision, onChange }: { projectId
   async function publish(index: number) {
     if (source?.kind !== "revision" || !source.revisionId) return;
     const assetId = assetOfRevision.get(source.revisionId);
-    if (!assetId) return setMessage("Revisão de origem não encontrada");
+    if (!assetId) return setMessage(m.sourceMissing);
     setMessage(null);
     try {
       const { revision } = await apiFetch<{ revision: RevisionView }>(`/projects/${projectId}/assets/${assetId}/revisions`, {
         method: "POST",
         json: { from: "job_output", jobId: job.id, outputIndex: index, baseRevisionId: source.revisionId, fileKey: source.fileKey },
       });
-      setMessage(`Revisão r${revision.number} publicada como candidata.`);
+      setMessage(m.published(revision.number));
       onChange();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
@@ -899,14 +867,14 @@ function LocalOutputs({ projectId, job, assetOfRevision, onChange }: { projectId
   return (
     <div className="small">
       <div className="muted">
-        {OPERATION_LABEL[request.operation] ?? request.operation}
-        {result.cacheHit ? " · reaproveitado do cache" : ""}
-        {typeof result.report.removedPixels === "number" ? ` · ${result.report.removedPixels} pixels removidos` : ""}
-        {typeof result.report.changedPixels === "number" ? ` · ${result.report.changedPixels} pixels ajustados` : ""}
+        {labelOf(m.operation, request.operation)}
+        {result.cacheHit ? m.cacheHit : ""}
+        {typeof result.report.removedPixels === "number" ? m.removedPixels(result.report.removedPixels) : ""}
+        {typeof result.report.changedPixels === "number" ? m.changedPixels(result.report.changedPixels) : ""}
       </div>
-      {result.warnings.map((w) => (
-        <div key={w} className="error">
-          {w}
+      {result.warnings.map((w, i) => (
+        <div key={i} className="error">
+          {text(w)}
         </div>
       ))}
       <div className="row" style={{ marginTop: 4 }}>
@@ -922,7 +890,7 @@ function LocalOutputs({ projectId, job, assetOfRevision, onChange }: { projectId
             />
             {PUBLISHABLE.has(o.role) && source?.kind === "revision" && (
               <button className="secondary" onClick={() => publish(o.index)}>
-                Publicar como revisão
+                {m.publish}
               </button>
             )}
           </div>
@@ -957,8 +925,9 @@ async function sha256Hex(text: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 function UiComponentsPanel({ projectId, assets, onChange }: { projectId: string; assets: AssetView[]; onChange: () => void }) {
+  const m = useMessages(workspaceMessages).ui;
   const router = useRouter();
-  const [name, setName] = useState("Botão de metal");
+  const [name, setName] = useState(m.defaultName);
   const ui = assets.filter((a) => a.family === "ui");
   async function create(kind: "button" | "panel") {
     const { asset } = await apiFetch<{ asset: AssetView }>(`/projects/${projectId}/assets`, { method: "POST", json: { family: "ui", kind, name } });
@@ -967,17 +936,17 @@ function UiComponentsPanel({ projectId, assets, onChange }: { projectId: string;
   }
   return (
     <section>
-      <h2>UI do jogo</h2>
+      <h2>{m.title}</h2>
       <div className="row">
         <label>
-          Nome
+          {m.name}
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <button className="secondary" onClick={() => create("button")}>
-          Novo botão
+          {m.newButton}
         </button>
         <button className="secondary" onClick={() => create("panel")}>
-          Novo painel
+          {m.newPanel}
         </button>
       </div>
       <ul className="list">

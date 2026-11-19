@@ -1,5 +1,6 @@
 import type { AssetFamily, FileModality, ManifestEntry, Rect } from "@/contracts";
 import { mapObjectExtraRefs, sceneEntryRefs } from "../scenes/refs";
+import { uiEntryRefs } from "../ui-refs";
 
 /**
  * Referências que um payload faz a outras revisões e a arquivos do pacote.
@@ -164,45 +165,8 @@ export function entryRefs(entry: ManifestEntry): EntryRefs {
       break;
 
     case "ui":
-      switch (entry.kind) {
-        case "button":
-          entry.payload.states.forEach((s, i) => raster(s.fileId, s.rect, [P, "states", i]));
-          if (entry.payload.focus) raster(entry.payload.focus.fileId, entry.payload.focus.rect, [P, "focus"]);
-          rev(entry.payload.text?.fontRevisionId, [P, "text", "fontRevisionId"], true, [{ family: "font" }]);
-          break;
-        case "panel":
-          raster(entry.payload.image.fileId, entry.payload.image.rect, [P, "image"]);
-          break;
-        case "slot":
-          entry.payload.states.forEach((s, i) => raster(s.fileId, s.rect, [P, "states", i]));
-          break;
-        case "meter":
-          raster(entry.payload.track.fileId, entry.payload.track.rect, [P, "track"]);
-          raster(entry.payload.fill.fileId, entry.payload.fill.rect, [P, "fill"]);
-          raster(entry.payload.frame.fileId, entry.payload.frame.rect, [P, "frame"]);
-          break;
-        case "menu_item":
-          rev(entry.payload.buttonRevisionId, [P, "buttonRevisionId"], true, [{ family: "ui", kinds: ["button"] }]);
-          rev(entry.payload.iconRevisionId, [P, "iconRevisionId"], true, [{ family: "item" }]);
-          rev(entry.payload.text.fontRevisionId, [P, "text", "fontRevisionId"], true, [{ family: "font" }]);
-          break;
-        case "screen":
-          if (entry.payload.background) {
-            rev(entry.payload.background.revisionId, [P, "background", "revisionId"], entry.payload.background.exported, [
-              { family: "texture" },
-              { family: "tileset" },
-            ], "background");
-          }
-          entry.payload.instances.forEach((inst, i) => {
-            rev(inst.componentRevisionId, [P, "instances", i, "componentRevisionId"], true, [
-              { family: "ui" },
-              { family: "portrait", kinds: ["portrait"] },
-              { family: "item" },
-            ]);
-            rev(inst.overrides.iconRevisionId, [P, "instances", i, "overrides", "iconRevisionId"], true, [{ family: "item" }], "icon");
-          });
-          break;
-      }
+      // Cartões U2/U3: estados, partes, botão do menu, instâncias da tela e origem de cada aparência.
+      mergeRefs(uiEntryRefs(entry));
       break;
 
     case "portrait":
@@ -223,6 +187,8 @@ export function entryRefs(entry: ManifestEntry): EntryRefs {
 
     case "font":
       entry.payload.glyphs.forEach((g, i) => raster(g.fileId, g.rect, [P, "glyphs", i]));
+      // D1: glyph estendido cita a revisão-base da fonte (proveniência, não dependência runtime).
+      entry.payload.glyphs.forEach((g, i) => rev(g.baseRevisionId, [P, "glyphs", i, "baseRevisionId"], false, [{ family: "font" }], "base"));
       if (entry.payload.ttf) files.push({ fileId: entry.payload.ttf.fileId, path: [P, "ttf"], modality: "font" });
       break;
 

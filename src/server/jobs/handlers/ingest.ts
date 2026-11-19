@@ -1,3 +1,4 @@
+import { type TextValue, tx } from "@/i18n/locales";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type BlobRecord, getUpload, markUploadReady, markUploadRejected } from "../../catalog/catalog";
@@ -19,11 +20,14 @@ export async function ingestHandler(ctx: HandlerContext): Promise<void> {
   const bytes = await ctx.blobs.read(upload.sha256);
   const format = String(upload.metadata?.format ?? "");
 
-  const reject = (code: string, message: string) =>
-    ctx.queue.fail(ctx.attempt, new DomainFailure("validation_failed", message, { code, uploadId }), {
+  const reject = (code: string, message: TextValue) => {
+    const failure = new DomainFailure("validation_failed", message, { code, uploadId });
+    // Upload recusado guarda português em `message` (compatível) e os dois idiomas em `messages`.
+    ctx.queue.fail(ctx.attempt, failure, {
       retryable: false,
-      apply: () => markUploadRejected(ctx.db, uploadId, { code, message }),
+      apply: () => markUploadRejected(ctx.db, uploadId, { code, message: failure.message, ...(failure.messages ? { messages: failure.messages } : {}) }),
     });
+  };
 
   if (upload.modality === "raster") {
     const inDir = path.join(ctx.workDir, "in");
@@ -46,7 +50,7 @@ export async function ingestHandler(ctx: HandlerContext): Promise<void> {
       return;
     }
     const out = result.outputs.find((o) => o.role === "normalized");
-    if (!out) throw new DomainFailure("internal", "Processador não devolveu o derivado normalizado");
+    if (!out) throw new DomainFailure("internal", tx("Processador não devolveu o derivado normalizado", "The processor did not return the normalized derivative"));
     const stored = await ctx.blobs.putFile(out.absolutePath);
     const normalized: BlobRecord = {
       sha256: stored.sha256,
@@ -72,7 +76,7 @@ export async function ingestHandler(ctx: HandlerContext): Promise<void> {
   if (upload.modality === "audio") {
     const audio = inspectAudio(bytes, format);
     if (!audio) {
-      reject("decode_failed", "Áudio ilegível ou formato ainda não suportado (esta versão lê WAV PCM)");
+      reject("decode_failed", tx("Áudio ilegível ou formato ainda não suportado (esta versão lê WAV PCM)", "Unreadable audio or a format not supported yet (this version reads PCM WAV)"));
       return;
     }
     ctx.queue.succeed(ctx.attempt, () => {
@@ -85,7 +89,7 @@ export async function ingestHandler(ctx: HandlerContext): Promise<void> {
   if (upload.modality === "font") {
     const font = inspectFont(bytes);
     if (!font) {
-      reject("decode_failed", "Fonte ilegível: tabelas maxp/head ausentes");
+      reject("decode_failed", tx("Fonte ilegível: tabelas maxp/head ausentes", "Unreadable font: maxp/head tables are missing"));
       return;
     }
     ctx.queue.succeed(ctx.attempt, () => {
@@ -102,7 +106,7 @@ export async function ingestHandler(ctx: HandlerContext): Promise<void> {
       prepared = await preparePortableImport(ctx, readZip(bytes));
     } catch (err) {
       if (err instanceof ZipError || (err instanceof DomainFailure && err.code === "validation_failed")) {
-        reject("invalid_package", err.message);
+        reject("invalid_package", err.messages ?? err.message);
         return;
       }
       throw err;
@@ -120,5 +124,5 @@ export async function ingestHandler(ctx: HandlerContext): Promise<void> {
     return;
   }
 
-  reject("unsupported_input", `Modalidade ${upload.modality} sem ingestão nesta versão`);
+  reject("unsupported_input", tx(`Modalidade ${upload.modality} sem ingestão nesta versão`, `Modality ${upload.modality} has no ingestion in this version`));
 }

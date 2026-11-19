@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Direction, Id, type OverlayPayload, Slug } from "@/contracts";
+import { type TextValue, tx } from "@/i18n/locales";
 import { createAsset, getProject, publishRevision } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import { listProfiles } from "../providers/registry";
@@ -97,7 +98,7 @@ export function equipmentOverview(studio: Studio, projectId: string) {
     })),
   );
   const profiles = listProfiles(studio.db).map((p) => {
-    let unavailable: string | null = null;
+    let unavailable: TextValue | null = null;
     let capabilities: string[] = [];
     let estimate = null;
     try {
@@ -105,9 +106,14 @@ export function equipmentOverview(studio: Studio, projectId: string) {
       const adapter = studio.providers.adapterFor(p.id);
       capabilities = adapter.capabilities("generate_overlay_coverage");
       estimate = adapter.estimate("generate_overlay_coverage", 1);
-      if (capabilities.length === 0) unavailable = "Sem rota para criar peças (use uma rota de imagem + referências ou extraia de um clipe vestido)";
+      if (capabilities.length === 0) {
+        unavailable = tx(
+          "Sem rota para criar peças (use uma rota de imagem + referências ou extraia de um clipe vestido)",
+          "No route to create pieces (use an image + references route or extract from a dressed clip)",
+        );
+      }
     } catch (err) {
-      unavailable = err instanceof Error ? err.message : String(err);
+      unavailable = err instanceof DomainFailure ? (err.messages ?? err.message) : err instanceof Error ? err.message : String(err);
     }
     return {
       id: p.id,
@@ -170,7 +176,7 @@ export async function composePreview(studio: Studio, projectId: string, raw: z.i
   const input = ComposeInput.parse(raw);
   const ctx = resolveRequest(studio, projectId, input.request);
   const combo = ctx.resolution.combos.find((c) => c.action === input.action && c.direction === input.direction);
-  if (!combo?.clip) throw new DomainFailure("coverage_incomplete", `Sem clipe resolvido para ${input.action}/${input.direction}`);
+  if (!combo?.clip) throw new DomainFailure("coverage_incomplete", tx(`Sem clipe resolvido para ${input.action}/${input.direction}`, `No resolved clip for ${input.action}/${input.direction}`));
   const tolerance = loadRig(studio.db, projectId, ctx.resolution.rigRevisionId).ref.payload.socketTolerancePx;
   const run = await composeCombo({ config: studio.config, blobs: studio.blobs, db: studio.db }, combo, tolerance, { baseOnly: input.baseOnly });
   const sheet = run.outputs.find((o) => o.role === "sheet")!;
@@ -201,9 +207,9 @@ export async function runCoverage(studio: Studio, projectId: string, raw: z.inpu
   const input = RunCoverageInput.parse(raw);
   const planned = await buildOverlayCoveragePlan(studio, projectId, input.plan);
   if (planned.costCheck.kind === "unknown" && !input.allowUnknownCost) {
-    throw new DomainFailure("budget_exceeded", "Custo desconhecido nesta rota: aceite o custo desconhecido explicitamente antes de enviar", { needsConfiguration: true, estimate: planned.plan.limits.estimate });
+    throw new DomainFailure("budget_exceeded", tx("Custo desconhecido nesta rota: aceite o custo desconhecido explicitamente antes de enviar", "Unknown cost on this route: explicitly accept the unknown cost before submitting"), { needsConfiguration: true, estimate: planned.plan.limits.estimate });
   }
-  if (planned.costCheck.withinCeiling === false) throw new DomainFailure("budget_exceeded", "A estimativa passa do teto autorizado", { estimate: planned.plan.limits.estimate });
+  if (planned.costCheck.withinCeiling === false) throw new DomainFailure("budget_exceeded", tx("A estimativa passa do teto autorizado", "The estimate exceeds the authorized cost ceiling"), { estimate: planned.plan.limits.estimate });
   let targetAssetId: string;
   if (planned.plan.operation !== "generate_overlay_coverage") throw new Error("inalcançável");
   if (planned.plan.params.overlayRevisionId) {
@@ -239,7 +245,7 @@ export function applyReuse(studio: Studio, projectId: string, raw: z.input<typeo
     part.coverage = [...part.coverage.filter((c) => !(c.clipRevisionId === r.clipRevisionId && c.frameId === r.frameId)), { ...source, clipRevisionId: r.clipRevisionId, frameId: r.frameId }];
     applied += 1;
   }
-  if (applied === 0) throw new DomainFailure("validation_failed", "Nenhuma célula de origem encontrada para reaproveitar");
+  if (applied === 0) throw new DomainFailure("validation_failed", tx("Nenhuma célula de origem encontrada para reaproveitar", "No source cell found to reuse"));
   const revision = publishRevision(studio.db, studio.clock, {
     projectId,
     assetId: ov.assetId,

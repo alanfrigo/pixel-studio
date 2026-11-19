@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { checkUnique, DurationMs, GridPoint, HexColor, Id, Int, NonNegInt, Offset, PosInt, Rect, Size, Slug } from "./common";
 
 /**
@@ -434,6 +435,12 @@ export const MapEntrance = z.strictObject({
  * Mapa editável de uma região (06 §montar a região): grade lógica de terreno,
  * regra resolvida, objetos, colisões, regiões e portas — não um screenshot.
  */
+
+/** Erro de validação zod com texto bilíngue: `message` em português e `params.messages` com os dois idiomas para a interface. */
+function localizedIssue(ctx: z.RefinementCtx, text: LocalizedText, path: (string | number)[]) {
+  ctx.addIssue({ code: "custom", message: text["pt-BR"], params: { messages: text }, path });
+}
+
 export const TilemapPayload = z
   .strictObject({
     projection: z.enum(["top_down", "three_quarter", "side", "isometric"]),
@@ -456,13 +463,13 @@ export const TilemapPayload = z
   .superRefine((m, ctx) => {
     const [cols, rows] = m.size;
     if (cols > MAX_MAP_SIDE || rows > MAX_MAP_SIDE) {
-      ctx.addIssue({ code: "custom", message: `Mapa limitado a ${MAX_MAP_SIDE}×${MAX_MAP_SIDE} células`, path: ["size"] });
+      localizedIssue(ctx, tx(`Mapa limitado a ${MAX_MAP_SIDE}×${MAX_MAP_SIDE} células`, `Maps are limited to ${MAX_MAP_SIDE}×${MAX_MAP_SIDE} cells`), ["size"]);
       return;
     }
     const inside = (c: readonly [number, number]) => c[0] < cols && c[1] < rows;
     const t = m.terrain;
     const expectMode = m.projection === "side" ? "side" : m.projection === "isometric" ? "isometric" : "corner";
-    if (t.mode !== expectMode) ctx.addIssue({ code: "custom", message: `Projeção ${m.projection} usa terreno ${expectMode}`, path: ["terrain", "mode"] });
+    if (t.mode !== expectMode) localizedIssue(ctx, tx(`Projeção ${m.projection} usa terreno ${expectMode}`, `Projection ${m.projection} uses ${expectMode} terrain`), ["terrain", "mode"]);
     const lengths: [string, number, number][] =
       t.mode === "corner"
         ? [["vertices", t.vertices.length, (cols + 1) * (rows + 1)], ["resolved", t.resolved.length, cols * rows]]
@@ -470,40 +477,40 @@ export const TilemapPayload = z
           ? [["solid", t.solid.length, cols * rows], ["resolved", t.resolved.length, cols * rows]]
           : [["cells", t.cells.length, cols * rows]];
     for (const [key, got, want] of lengths) {
-      if (got !== want) ctx.addIssue({ code: "custom", message: `${key} deve ter ${want} valores (recebido ${got})`, path: ["terrain", key] });
+      if (got !== want) localizedIssue(ctx, tx(`${key} deve ter ${want} valores (recebido ${got})`, `${key} must have ${want} values (got ${got})`), ["terrain", key]);
     }
     if (t.mode === "corner") {
       checkUnique(ctx, t.overrides, (o) => `${o.cell[0]},${o.cell[1]}`, "Substituição", ["terrain", "overrides"]);
       t.overrides.forEach((o, i) => {
-        if (!inside(o.cell)) ctx.addIssue({ code: "custom", message: "Substituição fora do mapa", path: ["terrain", "overrides", i] });
+        if (!inside(o.cell)) localizedIssue(ctx, tx("Substituição fora do mapa", "Override outside the map"), ["terrain", "overrides", i]);
       });
     }
     checkUnique(ctx, m.objects, (o) => o.objectId, "Objeto", ["objects"]);
     m.objects.forEach((o, i) => {
-      if (!inside(o.cell)) ctx.addIssue({ code: "custom", message: "Objeto fora do mapa", path: ["objects", i, "cell"] });
+      if (!inside(o.cell)) localizedIssue(ctx, tx("Objeto fora do mapa", "Object outside the map"), ["objects", i, "cell"]);
       if ((o.objectRevisionId === null) === (o.pieceKey === null)) {
-        ctx.addIssue({ code: "custom", message: "Objeto aponta para uma revisão de objeto OU para uma peça isométrica", path: ["objects", i] });
+        localizedIssue(ctx, tx("Objeto aponta para uma revisão de objeto OU para uma peça isométrica", "An object points to an object revision OR to an isometric piece"), ["objects", i]);
       }
       if (o.pieceKey !== null && m.projection !== "isometric") {
-        ctx.addIssue({ code: "custom", message: "Peça de tileset como objeto só no isométrico", path: ["objects", i, "pieceKey"] });
+        localizedIssue(ctx, tx("Peça de tileset como objeto só no isométrico", "Tileset pieces can be objects only in isometric maps"), ["objects", i, "pieceKey"]);
       }
     });
     checkUnique(ctx, m.collisions, (c) => c.collisionId, "Colisão", ["collisions"]);
     m.collisions.forEach((c, i) => {
-      if (c.kind === "cells" && c.cells.some((cell) => !inside(cell))) ctx.addIssue({ code: "custom", message: "Colisão fora do mapa", path: ["collisions", i] });
+      if (c.kind === "cells" && c.cells.some((cell) => !inside(cell))) localizedIssue(ctx, tx("Colisão fora do mapa", "Collision outside the map"), ["collisions", i]);
     });
     checkUnique(ctx, m.regions, (r) => r.regionId, "Região", ["regions"]);
     m.regions.forEach((r, i) => {
-      if (r.rect[0] + r.rect[2] > cols || r.rect[1] + r.rect[3] > rows) ctx.addIssue({ code: "custom", message: "Região fora do mapa", path: ["regions", i, "rect"] });
+      if (r.rect[0] + r.rect[2] > cols || r.rect[1] + r.rect[3] > rows) localizedIssue(ctx, tx("Região fora do mapa", "Region outside the map"), ["regions", i, "rect"]);
     });
     checkUnique(ctx, m.entrances, (e) => e.entranceId, "Entrada", ["entrances"]);
     m.entrances.forEach((e, i) => {
-      if (!inside(e.cell)) ctx.addIssue({ code: "custom", message: "Entrada fora do mapa", path: ["entrances", i, "cell"] });
+      if (!inside(e.cell)) localizedIssue(ctx, tx("Entrada fora do mapa", "Entrance outside the map"), ["entrances", i, "cell"]);
     });
     const ids = new Set(m.entrances.map((e) => e.entranceId));
     m.passages.forEach((p, i) => {
       for (const end of ["from", "to"] as const) {
-        if (!ids.has(p[end])) ctx.addIssue({ code: "custom", message: `Passagem cita entrada inexistente: ${p[end]}`, path: ["passages", i, end] });
+        if (!ids.has(p[end])) localizedIssue(ctx, tx(`Passagem cita entrada inexistente: ${p[end]}`, `Passage refers to a missing entrance: ${p[end]}`), ["passages", i, end]);
       }
     });
   });

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BasePayload, Direction, Id, NonNegInt, ProjectionKind, SCENE_LAYER_DEPTHS, SceneLayerPayload, ScenePayload, Slug } from "@/contracts";
 import { cameraSpan, layerLeavesGap } from "@/domain/scenes/parallax";
+import { tx } from "@/i18n/locales";
 import { getAsset, getProject, getRevision, getUpload, insertUpload, markUploadReady, publishRevision, type RevisionView } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import { ImageRef, resolveLocalInput } from "../services";
@@ -21,8 +22,19 @@ import { carryFiles, fileBlob } from "./revision-files";
 function sceneRevision(studio: Studio, projectId: string, revisionId: string, kind: "scene" | "scene_layer") {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (asset.family !== "map" || asset.kind !== kind) throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} não é ${kind === "scene" ? "uma cena" : "um plano de paralaxe"}`);
+  if (asset.family !== "map" || asset.kind !== kind) throw new DomainFailure(
+      "validation_failed",
+      tx(
+        `${asset.name} r${revision.number} não é ${kind === "scene" ? "uma cena" : "um plano de paralaxe"}`,
+        `${asset.name} r${revision.number} is not ${kind === "scene" ? "a scene" : "a parallax plane"}`,
+      ),
+    );
   return { revision, asset };
+}
+
+/** Plano sem repetição que deixa a tela descoberta durante a rolagem. */
+function gapWarning(layerName: string) {
+  return tx(`${layerName}: sem repetição, sai da tela durante a rolagem`, `${layerName}: does not tile and leaves the screen while scrolling`);
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +77,7 @@ export const PublishLayerInput = z.strictObject({
 export async function publishSceneLayer(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof PublishLayerInput>) {
   const input = PublishLayerInput.parse(raw);
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "map" || asset.kind !== "scene_layer") throw new DomainFailure("validation_failed", `O asset é ${asset.family}/${asset.kind}; esperado map/scene_layer`);
+  if (asset.family !== "map" || asset.kind !== "scene_layer") throw new DomainFailure("validation_failed", tx(`O asset é ${asset.family}/${asset.kind}; esperado map/scene_layer`, `The asset is ${asset.family}/${asset.kind}; expected map/scene_layer`));
   let image: ReturnType<typeof fileBlob> = resolveImageRef(studio, projectId, input.image);
   if (input.unshift) {
     // Meia largura de novo devolve a orientação original (largura par): a emenda corrigida volta às bordas.
@@ -79,13 +91,13 @@ export async function publishSceneLayer(studio: Studio, projectId: string, asset
   if (input.derivation) {
     const d = input.derivation;
     const source = sceneRevision(studio, projectId, d.sourceRevisionId, "scene");
-    if (ScenePayload.parse(source.revision.payload).outputKind !== "flat_image") throw new DomainFailure("validation_failed", "Derivação de planos parte de uma imagem plana");
+    if (ScenePayload.parse(source.revision.payload).outputKind !== "flat_image") throw new DomainFailure("validation_failed", tx("Derivação de planos parte de uma imagem plana", "Plane derivation starts from a flat image"));
     if (d.hiddenAreas === "reconstructed_inpaint") {
-      if (!d.inpaintRevisionId) throw new DomainFailure("validation_failed", "Área reconstruída cita a revisão de inpainting (E1)");
+      if (!d.inpaintRevisionId) throw new DomainFailure("validation_failed", tx("Área reconstruída cita a revisão de inpainting (E1)", "A rebuilt area must cite the inpainting revision (E1)"));
       assertInpaintOf(studio, projectId, d.inpaintRevisionId, source.revision, d.maskUploadId);
     }
     const upload = getUpload(studio.db, projectId, d.maskUploadId);
-    if (upload.status !== "ready") throw new DomainFailure("validation_failed", "Máscara ainda não importada");
+    if (upload.status !== "ready") throw new DomainFailure("validation_failed", tx("Máscara ainda não importada", "The mask has not been imported yet"));
     mask = fileBlob(studio.db, upload.normalizedSha256 ?? upload.sha256);
     const { width: mw, height: mh } = mask.metadata as { width: number; height: number };
     derivation = { sourceRevisionId: d.sourceRevisionId, mask: { fileId: "mask", rect: [0, 0, mw, mh] }, hiddenAreas: d.hiddenAreas, inpaintRevisionId: d.hiddenAreas === "reconstructed_inpaint" ? d.inpaintRevisionId : null };
@@ -110,7 +122,15 @@ export async function publishSceneLayer(studio: Studio, projectId: string, asset
       check: check.report,
       warnings: check.warnings,
       ...(derivation
-        ? { hiddenAreas: derivation.hiddenAreas === "reconstructed_inpaint" ? "Área antes oculta reconstruída por inpainting (E1) a partir da imagem plana" : "Plano recortado pela máscara revisada; fora dela é transparente (nada estava atrás dentro deste plano)" }
+        ? {
+            hiddenAreas:
+              derivation.hiddenAreas === "reconstructed_inpaint"
+                ? tx("Área antes oculta reconstruída por inpainting (E1) a partir da imagem plana", "Previously hidden area rebuilt by inpainting (E1) from the flat image")
+                : tx(
+                    "Plano recortado pela máscara revisada; fora dela é transparente (nada estava atrás dentro deste plano)",
+                    "Plane cut out by the reviewed mask; outside it is transparent (nothing was behind it within this plane)",
+                  ),
+          }
         : {}),
     },
   });
@@ -128,10 +148,10 @@ export const ShiftLayerInput = z.strictObject({ layerRevisionId: Id, bandPx: z.n
 export async function shiftLayerForSeam(studio: Studio, projectId: string, raw: z.input<typeof ShiftLayerInput>) {
   const input = ShiftLayerInput.parse(raw);
   const { revision, asset } = sceneRevision(studio, projectId, input.layerRevisionId, "scene_layer");
-  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", `Aprove ${asset.name} r${revision.number} antes de corrigir a emenda`);
+  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", tx(`Aprove ${asset.name} r${revision.number} antes de corrigir a emenda`, `Approve ${asset.name} r${revision.number} before fixing the seam`));
   const payload = SceneLayerPayload.parse(revision.payload);
   const [w, h] = payload.logicalSize;
-  if (w % 2 !== 0) throw new DomainFailure("validation_failed", "O deslocamento de meia largura exige largura par");
+  if (w % 2 !== 0) throw new DomainFailure("validation_failed", tx("O deslocamento de meia largura exige largura par", "The half-width shift needs an even width"));
   const file = revision.files.find((f) => f.fileKey === payload.fileId)!;
   const run = await runWorldPython(studio, "texture_seams", [{ role: "source", sha256: file.sha256 }], { axes: { x: true, y: false }, threshold: LAYER_SEAM_THRESHOLD, zoom: 1 });
   const shifted = await storeOutput(studio, outputOf(run, "shifted"));
@@ -152,7 +172,10 @@ export async function shiftLayerForSeam(studio: Studio, projectId: string, raw: 
     edges: [{ toRevisionId: revision.id, role: "source", ordinal: 0, runtime: false }],
     technicalReport: {
       operation: "layer_seam_shift",
-      label: "Etapa de correção: deslocado meia largura para trazer a emenda ao centro (não usar na cena; não promete repetição)",
+      label: tx(
+        "Etapa de correção: deslocado meia largura para trazer a emenda ao centro (não usar na cena; não promete repetição)",
+        "Fix step: shifted by half the width to bring the seam to the center (do not use in the scene; does not promise tiling)",
+      ),
       bandPx: band,
     },
   });
@@ -164,12 +187,12 @@ export function assertInpaintOf(studio: Studio, projectId: string, inpaintRevisi
   const inpaint = getRevision(studio.db, projectId, inpaintRevisionId);
   const report = inpaint.technicalReport as { operation?: string } | null;
   if (inpaint.assetId !== source.assetId || inpaint.predecessorId !== source.id || report?.operation !== "inpaint") {
-    throw new DomainFailure("validation_failed", "A revisão citada não é um inpainting (E1) desta fonte");
+    throw new DomainFailure("validation_failed", tx("A revisão citada não é um inpainting (E1) desta fonte", "The cited revision is not an inpainting (E1) of this source"));
   }
-  if (inpaint.status !== "approved") throw new DomainFailure("source_not_approved", "Revise e aprove o inpainting (área antes oculta) antes de usá-lo");
+  if (inpaint.status !== "approved") throw new DomainFailure("source_not_approved", tx("Revise e aprove o inpainting (área antes oculta) antes de usá-lo", "Review and approve the inpainting (previously hidden area) before using it"));
   const upload = getUpload(studio.db, projectId, maskUploadId);
   const maskFile = inpaint.files.find((f) => f.fileKey === "inpaint-mask");
-  if (!maskFile || maskFile.sha256 !== (upload.normalizedSha256 ?? upload.sha256)) throw new DomainFailure("validation_failed", "O inpainting não usou a máscara desta área");
+  if (!maskFile || maskFile.sha256 !== (upload.normalizedSha256 ?? upload.sha256)) throw new DomainFailure("validation_failed", tx("O inpainting não usou a máscara desta área", "The inpainting did not use this area's mask"));
   return inpaint;
 }
 
@@ -180,8 +203,8 @@ export async function cutSceneLayer(studio: Studio, projectId: string, raw: z.in
   const input = CutLayerInput.parse(raw);
   const { revision } = sceneRevision(studio, projectId, input.sceneRevisionId, "scene");
   const scene = ScenePayload.parse(revision.payload);
-  if (scene.outputKind !== "flat_image") throw new DomainFailure("validation_failed", "Recorte de plano parte de uma imagem plana");
-  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", "Aprove a imagem plana antes de derivar planos");
+  if (scene.outputKind !== "flat_image") throw new DomainFailure("validation_failed", tx("Recorte de plano parte de uma imagem plana", "Plane cutout starts from a flat image"));
+  if (revision.status !== "approved") throw new DomainFailure("source_not_approved", tx("Aprove a imagem plana antes de derivar planos", "Approve the flat image before deriving planes"));
   const file = revision.files.find((f) => f.fileKey === scene.image.fileId)!;
   const maskSha = resolveLocalInput(studio, projectId, { kind: "upload", uploadId: input.maskUploadId });
   const run = await runWorldPython(studio, "room_cutout", [{ role: "source", sha256: file.sha256 }, { role: "editMask", sha256: maskSha }], { dilatePx: input.dilatePx, contextRingPx: 2, alphaThreshold: 128 });
@@ -197,7 +220,10 @@ export async function cutSceneLayer(studio: Studio, projectId: string, raw: z.in
     areaMaskUploadId: areaUpload.id,
     inpaint: { sourceRevisionId: revision.id, sourceFileKey: scene.image.fileId },
     previews: { piece: dataUrl(outputOf(run, "piece")), area: dataUrl(outputOf(run, "area_preview")) },
-    label: "Derivação local revisada: o plano recortado fica com o que a máscara marcou; o fundo atrás dele nunca foi pintado e é reconstruído por inpainting (E1)",
+    label: tx(
+      "Derivação local revisada: o plano recortado fica com o que a máscara marcou; o fundo atrás dele nunca foi pintado e é reconstruído por inpainting (E1)",
+      "Reviewed local derivation: the cut-out plane keeps what the mask marked; the background behind it was never painted and is rebuilt by inpainting (E1)",
+    ),
   };
 }
 
@@ -233,11 +259,20 @@ export const ComposeSceneInput = z.strictObject({
 async function composeRun(studio: Studio, projectId: string, input: z.output<typeof ComposeSceneInput>) {
   const layers = input.layers.map((l) => {
     const { revision, asset } = sceneRevision(studio, projectId, l.layerRevisionId, "scene_layer");
-    if (revision.status !== "approved") throw new DomainFailure("source_not_approved", `Aprove o plano ${asset.name} r${revision.number} antes de compor (cada plano é revisado à parte)`);
+    if (revision.status !== "approved") throw new DomainFailure(
+        "source_not_approved",
+        tx(`Aprove o plano ${asset.name} r${revision.number} antes de compor (cada plano é revisado à parte)`, `Approve plane ${asset.name} r${revision.number} before composing (each plane is reviewed separately)`),
+      );
     const payload = SceneLayerPayload.parse(revision.payload);
     for (const axis of ["x", "y"] as const) {
       if (l.repeat[axis] && !payload.repeat[axis]) {
-        throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} não é repetível em ${axis}: a emenda ${payload.requestedRepeat[axis] ? "foi reprovada" : "não foi pedida"}`);
+        throw new DomainFailure(
+          "validation_failed",
+          tx(
+            `${asset.name} r${revision.number} não é repetível em ${axis}: a emenda ${payload.requestedRepeat[axis] ? "foi reprovada" : "não foi pedida"}`,
+            `${asset.name} r${revision.number} does not tile on ${axis}: the seam ${payload.requestedRepeat[axis] ? "was rejected" : "was not requested"}`,
+          ),
+        );
       }
     }
     const file = revision.files.find((f) => f.fileKey === payload.fileId)!;
@@ -263,13 +298,13 @@ async function composeRun(studio: Studio, projectId: string, input: z.output<typ
 export async function previewScene(studio: Studio, projectId: string, raw: z.input<typeof ComposeSceneInput>) {
   const input = ComposeSceneInput.parse(raw);
   const { run, report, cameraTest, gaps } = await composeRun(studio, projectId, input);
-  return { report, cameraTest, warnings: [...run.warnings, ...gaps.map((g) => `${g}: sem repetição, sai da tela durante a rolagem`)], previews: { image: dataUrl(outputOf(run, "image")), strip: dataUrl(outputOf(run, "strip")) } };
+  return { report, cameraTest, warnings: [...run.warnings, ...gaps.map(gapWarning)], previews: { image: dataUrl(outputOf(run, "image")), strip: dataUrl(outputOf(run, "strip")) } };
 }
 
 export async function composeScene(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof ComposeSceneInput>) {
   const input = ComposeSceneInput.parse(raw);
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "map" || asset.kind !== "scene") throw new DomainFailure("validation_failed", `O asset é ${asset.family}/${asset.kind}; esperado map/scene`);
+  if (asset.family !== "map" || asset.kind !== "scene") throw new DomainFailure("validation_failed", tx(`O asset é ${asset.family}/${asset.kind}; esperado map/scene`, `The asset is ${asset.family}/${asset.kind}; expected map/scene`));
   const { run, report, cameraTest, gaps } = await composeRun(studio, projectId, input);
   const image = await storeOutput(studio, outputOf(run, "image"));
   const strip = await storeOutput(studio, outputOf(run, "strip"));
@@ -301,7 +336,7 @@ export async function composeScene(studio: Studio, projectId: string, assetId: s
       routeLabel: SCENE_ROUTE_LABELS.composed,
       camera: report,
       cameraTest,
-      warnings: [...run.warnings, ...gaps.map((g) => `${g}: sem repetição, sai da tela durante a rolagem`)],
+      warnings: [...run.warnings, ...gaps.map(gapWarning)],
     },
   });
   return { revision, cameraTest, report };
@@ -323,14 +358,14 @@ async function overlayRun(studio: Studio, projectId: string, input: z.output<typ
   const scene = ScenePayload.parse(revision.payload);
   const char = getRevision(studio.db, projectId, input.characterRevisionId);
   const charAsset = getAsset(studio.db, projectId, char.assetId);
-  if (charAsset.family !== "character" || charAsset.kind !== "base") throw new DomainFailure("validation_failed", "O personagem de escala é uma base de personagem aprovada");
-  if (char.status !== "approved") throw new DomainFailure("source_not_approved", `${charAsset.name} r${char.number} precisa estar aprovado`);
+  if (charAsset.family !== "character" || charAsset.kind !== "base") throw new DomainFailure("validation_failed", tx("O personagem de escala é uma base de personagem aprovada", "The scale character must be an approved character base"));
+  if (char.status !== "approved") throw new DomainFailure("source_not_approved", tx(`${charAsset.name} r${char.number} precisa estar aprovado`, `${charAsset.name} r${char.number} must be approved`));
   const base = BasePayload.parse(char.payload);
   const view = base.views.find((v) => v.direction === (input.direction ?? (scene.projection === "side" ? "E" : "S"))) ?? base.views[0]!;
   const viewFile = char.files.find((f) => f.fileKey === view.fileId)!;
   const sceneFile = revision.files.find((f) => f.fileKey === scene.image.fileId)!;
   for (const p of input.supportPoints) {
-    if (p.at[0] > scene.logicalSize[0] || p.at[1] > scene.logicalSize[1]) throw new DomainFailure("validation_failed", `Ponto ${p.pointId} fora da cena`);
+    if (p.at[0] > scene.logicalSize[0] || p.at[1] > scene.logicalSize[1]) throw new DomainFailure("validation_failed", tx(`Ponto ${p.pointId} fora da cena`, `Point ${p.pointId} is outside the scene`));
   }
   const run = await runWorldPython(studio, "scene_overlay", [{ role: "source", sha256: sceneFile.sha256 }, { role: "layer", sha256: viewFile.sha256 }], {
     points: input.supportPoints.map((p) => p.at),
@@ -364,7 +399,10 @@ export async function annotateScene(studio: Studio, projectId: string, raw: z.in
     edges: [{ toRevisionId: revision.id, role: "source", ordinal: 0, runtime: false }],
     technicalReport: {
       operation: "scene_review",
-      label: `Escala revisada com ${charAsset.name} r${char.number} (vista ${view.direction}, ${height} px de altura) e ${input.supportPoints.length} ponto(s) de apoio; pontos de apoio não são colisão nem mapa`,
+      label: tx(
+        `Escala revisada com ${charAsset.name} r${char.number} (vista ${view.direction}, ${height} px de altura) e ${input.supportPoints.length} ponto(s) de apoio; pontos de apoio não são colisão nem mapa`,
+        `Scale reviewed with ${charAsset.name} r${char.number} (view ${view.direction}, ${height} px tall) and ${input.supportPoints.length} support point(s); support points are not collision or a map`,
+      ),
       supportPoints: input.supportPoints,
       outputKind: scene.outputKind,
     },

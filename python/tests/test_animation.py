@@ -92,7 +92,7 @@ def test_escala_comum_unica_e_avisada(pipe: Pipeline) -> None:
     folha = sheet(2, 1, 40, [(20, 4, 24), (20, 4, 20)], scale=2)
     res = pipe.run("animation_sheet", recipe(["a", "b"], 2, 1), [("candidate", folha), ("source", base_view())])
     assert res["status"] == "needs_review"
-    assert any("redução comum" in w for w in res["warnings"])
+    assert any("redução comum" in w["pt-BR"] for w in res["warnings"])
     assert res["report"]["scale"]["resampled"] is True
     assert res["report"]["scale"]["factor"] == pytest.approx(24 / 44, abs=0.01)
     # A diferença de altura entre os quadros sobrevive (agachar não é corrigido para a altura da base).
@@ -106,15 +106,15 @@ def test_quadro_vazio_celula_sobrando_e_recorte_sao_relatados(pipe: Pipeline) ->
     folha = sheet(2, 2, 40, [(20, 4, 24), None, (20, 4, 24), (20, 4, 24)])
     res = pipe.run("animation_sheet", recipe(["a", "b", "c"], 2, 2), [("candidate", folha), ("source", base_view())])
     assert res["status"] == "needs_review"
-    assert any("Quadro b veio vazio" in w for w in res["warnings"])
-    assert any("Célula 4" in w and "sobra" in w for w in res["warnings"])
+    assert any("Quadro b veio vazio" in w["pt-BR"] and "Frame b came out empty" in w["en"] for w in res["warnings"])
+    assert any("Célula 4" in w["pt-BR"] and "sobra" in w["pt-BR"] for w in res["warnings"])
     assert alpha_box(Pipeline.image(res, "frame", "b")) is None
     # Figura mais alta que a célula: os pixels de fora são contados, não esticados.
     alta = sheet(1, 1, 64, [(32, 2, 50)])
     res2 = pipe.run("animation_sheet", recipe(["x"], 1, 1, tolerance=0.5), [("candidate", alta), ("source", base_view(32, (16, 30), 30))])
     frame = res2["report"]["frames"][0]
     assert frame["clippedPixels"] > 0
-    assert any("fora da célula" in w for w in res2["warnings"])
+    assert any("fora da célula" in w["pt-BR"] for w in res2["warnings"])
 
 
 def test_geometria_invalida_falha_legivel(pipe: Pipeline) -> None:

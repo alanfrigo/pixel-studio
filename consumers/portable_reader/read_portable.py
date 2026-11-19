@@ -17,6 +17,7 @@ import hashlib
 import json
 import math
 import sys
+import unicodedata
 import wave
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -331,6 +332,302 @@ def reconstruct_room(images: Images, entries: dict[str, dict], rid: str, p: dict
     }
 
 
+# D1: fala = sequência de visemes da expressão com `durationMs` inteiro por passo (o plano é a autoridade).
+def reconstruct_speech(images: Images, entries: dict[str, dict], rid: str, p: dict, out: Path) -> dict:
+    expression = entries[p["expressionRevisionId"]]["payload"]
+    frames = {v["visemeId"]: v for v in expression["visemes"]}
+    saved: dict[str, str] = {}
+    sequence = []
+    at = 0
+    for step in p["timeline"]:
+        v = frames.get(step["visemeId"])
+        if v is None:
+            raise Rejected(f"{rid}: viseme {step['visemeId']} ausente na expressão {p['expressionRevisionId']}")
+        if step["visemeId"] not in saved:
+            saved[step["visemeId"]] = save(images.crop(v["fileId"], v["rect"]), out, rid, f"viseme-{step['visemeId']}.png")
+        sequence.append({"visemeId": step["visemeId"], "startMs": at, "durationMs": step["durationMs"], "textPosition": step["textPosition"], "file": saved[step["visemeId"]]})
+        at += step["durationMs"]
+    return {"textKey": p["textKey"], "language": p["language"], "text": p["sampleText"], "expression": p["expressionRevisionId"], "timing": p.get("timing"), "sequence": sequence, "totalMs": at}
+
+
+# D1: fonte bitmap = atlas + métricas; glyph ausente vira caixa de diagnóstico, nunca outro glyph.
+FONT_TEST_STRINGS = ["Ação, Poção, Coração — ÁRVORE", "Inventário", "0123456789", ".,;:!?'\"-()/…%+="]
+
+
+def render_text(images: Images, p: dict, text: str) -> tuple[Image.Image, dict]:
+    glyphs = {g["codepoint"]: g for g in p["glyphs"]}
+    kerning = {(k["left"], k["right"]): k["amount"] for k in p["kerning"]}
+    m = p["metrics"]
+    box = max(3, m["spaceAdvance"])
+    lines: list[list[tuple[str, int, dict | None]]] = [[]]
+    widths = [0]
+    missing = []
+    prev = None
+    for pos, ch in enumerate(unicodedata.normalize("NFC", text)):
+        if ch == "\n":
+            lines.append([])
+            widths.append(0)
+            prev = None
+            continue
+        if ch == " ":
+            widths[-1] += m["spaceAdvance"]
+            prev = None
+            continue
+        cp = ord(ch)
+        g = glyphs.get(cp)
+        if prev is not None:
+            widths[-1] += kerning.get((prev, cp), 0)
+        if g is None:
+            missing.append({"char": ch, "position": pos})
+            lines[-1].append(("missing", widths[-1], None))
+            widths[-1] += box + 1
+        else:
+            lines[-1].append(("glyph", widths[-1] + g["bearingX"], g))
+            widths[-1] += g["advanceX"]
+        prev = cp
+    canvas = Image.new("RGBA", (max(1, max(widths)), len(lines) * m["lineHeight"]), (0, 0, 0, 0))
+    for li, line in enumerate(lines):
+        top = li * m["lineHeight"]
+        for kind, x, g in line:
+            if g is None:
+                for yy in range(top, top + m["ascent"]):
+                    for xx in (x, x + box - 1):
+                        canvas.putpixel((xx, yy), (255, 0, 80, 255))
+                continue
+            canvas.alpha_composite(images.crop(g["fileId"], g["rect"]), dest=(x, top + m["ascent"] + g["bearingY"]))
+    return canvas, {"width": max(widths), "lines": len(lines), "missing": missing}
+
+
+def reconstruct_font(images: Images, rid: str, p: dict, out: Path) -> dict:
+    present = {g["codepoint"] for g in p["glyphs"]}
+    unbacked = [c for c in p["declaredCoverage"] if c not in present]
+    if unbacked:
+        raise Rejected(f"{rid}: cobertura declarada sem glyph: {unbacked[:8]}")
+    renders = []
+    for i, text in enumerate(FONT_TEST_STRINGS):
+        img, info = render_text(images, p, text)
+        zoom = img.resize((img.width * 3, img.height * 3), Image.Resampling.NEAREST)
+        renders.append({"text": text, **info, "file": save(img, out, rid, f"text-{i}.png"), "zoom3": save(zoom, out, rid, f"text-{i}-x3.png"), "size": [img.width, img.height]})
+    origins: dict[str, int] = {}
+    for g in p["glyphs"]:
+        origins[g["origin"]] = origins.get(g["origin"], 0) + 1
+    return {"metrics": p["metrics"], "nativeGlyphPx": p["nativeGlyphPx"], "glyphs": len(p["glyphs"]), "origins": origins, "ttfCoverage": (p["ttf"] or {}).get("inspectedCoverage"), "missingGlyph": p["missingGlyph"]["policy"], "renders": renders}
+
+
+# ---------------------------------------------------------------------------
+# UI (U3): nine-slice, barra, slot e tela com âncoras
+# ---------------------------------------------------------------------------
+
+
+def js_round(v: float) -> int:
+    """Arredondamento de `Math.round` (meio para cima), o mesmo do Studio."""
+    return math.floor(v + 0.5)
+
+
+def nine_slice(img: Image.Image, insets: dict | None, size: tuple[int, int]) -> Image.Image:
+    """Cantos intactos; bordas esticam num eixo e o centro nos dois (vizinho mais próximo)."""
+    tw, th = size
+    if not insets or (tw, th) == img.size:
+        return img if (tw, th) == img.size else img.resize((tw, th), Image.Resampling.NEAREST)
+    sw, sh = img.size
+    sx = [0, insets["left"], sw - insets["right"], sw]
+    sy = [0, insets["top"], sh - insets["bottom"], sh]
+    dx = [0, insets["left"], tw - insets["right"], tw]
+    dy = [0, insets["top"], th - insets["bottom"], th]
+    canvas = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    for j in range(3):
+        for i in range(3):
+            src = (sx[i], sy[j], sx[i + 1], sy[j + 1])
+            w, h = dx[i + 1] - dx[i], dy[j + 1] - dy[j]
+            if src[2] <= src[0] or src[3] <= src[1] or w <= 0 or h <= 0:
+                continue
+            canvas.alpha_composite(img.crop(src).resize((w, h), Image.Resampling.NEAREST), dest=(dx[i], dy[j]))
+    return canvas
+
+
+def meter_fill(value: float, rng: dict, useful: list[int], axis: str, direction: str) -> list[int]:
+    t = min(1.0, max(0.0, (value - rng["min"]) / (rng["max"] - rng["min"])))
+    x, y, w, h = useful
+    if axis == "horizontal":
+        fw = math.floor(w * t)
+        return [x, y, fw, h] if direction == "forward" else [x + w - fw, y, fw, h]
+    fh = math.floor(h * t)
+    return [x, y + h - fh, w, fh] if direction == "forward" else [x, y, w, fh]
+
+
+def render_meter(images: Images, p: dict, value: float) -> tuple[Image.Image, int]:
+    """Trilho, a parte visível do preenchimento (arredondada para baixo) e a moldura inteira por cima."""
+    canvas = Image.new("RGBA", tuple(p["logicalSize"]), (0, 0, 0, 0))
+    canvas.alpha_composite(images.crop(p["track"]["fileId"], p["track"]["rect"]))
+    vx, vy, vw, vh = meter_fill(value, p["range"], p["usefulRect"], p["axis"], p["direction"])
+    fx, fy = p["fill"]["offset"]
+    fr = p["fill"]["rect"]
+    x0, y0, x1, y1 = max(vx, fx), max(vy, fy), min(vx + vw, fx + fr[2]), min(vy + vh, fy + fr[3])
+    visible = 0
+    if x1 > x0 and y1 > y0:
+        part = images.crop(p["fill"]["fileId"], [fr[0] + x0 - fx, fr[1] + y0 - fy, x1 - x0, y1 - y0])
+        canvas.alpha_composite(part, dest=(x0, y0))
+        visible = (x1 - x0) if p["axis"] == "horizontal" else (y1 - y0)
+    canvas.alpha_composite(images.crop(p["frame"]["fileId"], p["frame"]["rect"]))
+    return canvas, visible
+
+
+def state_image(images: Images, p: dict, state: str | None, fallback: str) -> tuple[Image.Image, str]:
+    by = {s["state"]: s for s in p["states"]}
+    chosen = state if state in by else fallback if fallback in by else p["states"][0]["state"]
+    s = by[chosen]
+    return images.crop(s["fileId"], s["rect"]), chosen
+
+
+def instance_art(images: Images, entries: dict[str, dict], inst: dict, size: tuple[int, int]) -> tuple[Image.Image | None, str | None]:
+    """Arte de uma instância no tamanho do retângulo (componentes) ou na origem (imagens)."""
+    rid = inst["componentRevisionId"]
+    if rid is None:
+        return None, None
+    e = entries[rid]
+    p = e["payload"]
+    ov = inst["overrides"]
+    if e["family"] == "ui" and e["kind"] == "menu_item":
+        e = entries[p["buttonRevisionId"]]
+        p = e["payload"]
+    if e["family"] == "ui" and e["kind"] == "button":
+        img, state = state_image(images, p, ov.get("state"), "normal")
+        return nine_slice(img, p["nineSlice"], size) if p["nineSlice"] else img, state
+    if e["family"] == "ui" and e["kind"] == "panel":
+        return nine_slice(images.crop(p["image"]["fileId"], p["image"]["rect"]), p["nineSlice"], size), None
+    if e["family"] == "ui" and e["kind"] == "slot":
+        default = "occupied" if ov.get("iconRevisionId") else "empty"
+        img, state = state_image(images, p, ov.get("state"), default)
+        img = img.copy()
+        icon_rid = ov.get("iconRevisionId")
+        if icon_rid:
+            rep = entries[icon_rid]["payload"]["representations"][0]
+            icon = images.crop(rep["fileId"], rep["rect"])
+            ix, iy, iw, ih = p["iconRect"]
+            place(img, icon, ix + (iw - icon.width) // 2, iy + (ih - icon.height) // 2)
+        return img, state
+    if e["family"] == "ui" and e["kind"] == "meter":
+        img, _ = render_meter(images, p, ov.get("value", p["range"]["max"]))
+        return img, None
+    if e["family"] == "item":
+        rep = p["representations"][0]
+        return images.crop(rep["fileId"], rep["rect"]), None
+    if e["family"] == "character" and e["kind"] == "base":
+        v = p["views"][0]
+        return images.crop(v["fileId"], v["rect"]), None
+    if e["family"] == "portrait" and "fileId" in p:
+        return images.crop(p["fileId"], p["rect"]), None
+    return None, None
+
+
+def layout_screen(p: dict, resolution: tuple[int, int]) -> list[tuple[dict, list[int], bool]]:
+    """Hierarquia → retângulos: lado = origem do pai + fração × dimensão do pai + deslocamento (pais antes dos filhos)."""
+    index = {inst["instanceId"]: n for n, inst in enumerate(p["instances"])}
+    children: dict[str | None, list[dict]] = {}
+    for inst in p["instances"]:
+        children.setdefault(inst["parentId"], []).append(inst)
+    for lst in children.values():
+        lst.sort(key=lambda i: (i["order"], index[i["instanceId"]]))
+    out: list[tuple[dict, list[int], bool]] = []
+
+    def visit(inst: dict, parent: list[int], visible: bool) -> None:
+        px, py, pw, ph = parent
+        a, o = inst["anchors"], inst["offsets"]
+        left = js_round(px + a["left"] * pw + o["left"])
+        right = js_round(px + a["right"] * pw + o["right"])
+        top = js_round(py + a["top"] * ph + o["top"])
+        bottom = js_round(py + a["bottom"] * ph + o["bottom"])
+        rect = [left, top, max(0, right - left), max(0, bottom - top)]
+        vis = visible and not inst["hidden"]
+        out.append((inst, rect, vis))
+        for child in children.get(inst["instanceId"], []):
+            visit(child, rect, vis)
+
+    for root in children.get(None, []):
+        visit(root, [0, 0, resolution[0], resolution[1]], True)
+    return out
+
+
+def reconstruct_screen(images: Images, entries: dict[str, dict], rid: str, p: dict, out: Path) -> dict:
+    resolutions = p.get("testedResolutions") or [p["referenceResolution"]]
+    layouts: dict[str, dict] = {}
+    files: dict[str, str] = {}
+    states: dict[str, str] = {}
+    bg = p["background"]
+    for res in resolutions:
+        key = f"{res[0]}x{res[1]}"
+        canvas = Image.new("RGBA", (res[0], res[1]), (0, 0, 0, 0))
+        if bg and bg["exported"] and bg["revisionId"] in entries:
+            be = entries[bg["revisionId"]]
+            region = be["payload"].get("image") or be["payload"]
+            if "fileId" in region:
+                place(canvas, images.crop(region["fileId"], region["rect"]), 0, 0)
+        rects = {}
+        for inst, rect, visible in layout_screen(p, (res[0], res[1])):
+            rects[inst["instanceId"]] = rect
+            if not visible or rect[2] <= 0 or rect[3] <= 0:
+                continue
+            art, state = instance_art(images, entries, inst, (rect[2], rect[3]))
+            if state:
+                states[inst["instanceId"]] = state
+            if art is not None:
+                place(canvas, art, rect[0], rect[1])
+        layouts[key] = rects
+        files[key] = save(canvas, out, rid, f"screen-{key}.png")
+    catalog = p.get("textCatalog") or {"languages": [], "entries": []}
+    return {
+        "referenceResolution": p["referenceResolution"],
+        "background": bg,
+        "hierarchy": [
+            {
+                "instanceId": i["instanceId"],
+                "parentId": i["parentId"],
+                "role": i.get("role"),
+                "componentRevisionId": i["componentRevisionId"],
+                "kind": entries[i["componentRevisionId"]]["kind"] if i["componentRevisionId"] else ("text" if i.get("text") else "group"),
+                "order": i["order"],
+                "hidden": i["hidden"],
+                "textKey": i["overrides"].get("textKey") or (i.get("text") or {}).get("key"),
+                "grid": i.get("layout"),
+                "overrides": i["overrides"],
+            }
+            for i in p["instances"]
+        ],
+        "layouts": layouts,
+        "states": states,
+        "focusOrder": p["focusOrder"],
+        "languages": catalog["languages"],
+        "textKeys": [en["key"] for en in catalog["entries"]],
+        "files": files,
+    }
+
+
+def reconstruct_ui(images: Images, entries: dict[str, dict], rid: str, kind: str, p: dict, out: Path) -> dict:
+    if kind == "panel":
+        img = images.crop(p["image"]["fileId"], p["image"]["rect"])
+        grown = nine_slice(img, p["nineSlice"], (p["logicalSize"][0] * 3, p["logicalSize"][1] * 2))
+        return {"nineSlice": p["nineSlice"], "contentPadding": p["contentPadding"], "minSize": p["minSize"], "file": save(img, out, rid, "panel.png"), "grown": save(grown, out, rid, "panel-grown.png")}
+    if kind == "slot":
+        return {
+            "states": {s["state"]: save(images.crop(s["fileId"], s["rect"]), out, rid, f"{s['state']}.png") for s in p["states"]},
+            "origins": {s["state"]: (s.get("origin") or {}).get("kind") for s in p["states"]},
+            "iconRect": p["iconRect"],
+            "counterAnchor": p["counterAnchor"],
+            "complete": p["complete"],
+        }
+    if kind == "meter":
+        fills = {}
+        for value in (p["range"]["min"], p["range"]["min"] + (p["range"]["max"] - p["range"]["min"]) / 4, p["range"]["max"]):
+            img, visible = render_meter(images, p, value)
+            fills[str(round(value))] = {"visiblePx": visible, "file": save(img, out, rid, f"value-{round(value)}.png")}
+        return {"axis": p["axis"], "direction": p["direction"], "range": p["range"], "usefulRect": p["usefulRect"], "fills": fills}
+    if kind == "menu_item":
+        return {"actionId": p["actionId"], "textKey": p["text"]["key"], "sample": p["text"]["sample"], "shortcut": p["shortcut"], "selectable": p["selectable"], "button": p["buttonRevisionId"]}
+    if kind == "screen":
+        return reconstruct_screen(images, entries, rid, p, out)
+    return {}
+
+
 def reconstruct(entries: dict[str, dict], files: dict[str, dict], out: Path) -> list[dict]:
     images = Images(files)
     summary = []
@@ -377,6 +674,11 @@ def reconstruct(entries: dict[str, dict], files: dict[str, dict], out: Path) -> 
         elif e["family"] == "ui" and e["kind"] == "button":
             item["states"] = {s["state"]: save(images.crop(s["fileId"], s["rect"]), out, rid, f"{s['state']}.png") for s in p["states"]}
             item.update(nineSlice=p["nineSlice"], contentPadding=p["contentPadding"], focus=(p["focus"] or {}).get("mode"), textKey=(p["text"] or {}).get("key"))
+            # U3: origem de cada aparência (recorte do template, referência, transformação local) e completude.
+            item.update(origins={s["state"]: (s.get("origin") or {}).get("kind") for s in p["states"]}, complete=p["complete"], requiredStates=p["requiredStates"])
+        elif e["family"] == "ui":
+            # U3: painel, slot, barra, item de menu e tela reconstruídos pelas mesmas regras do Studio.
+            item.update(reconstruct_ui(images, entries, rid, e["kind"], p, out))
         elif e["family"] == "tileset" and e["kind"] == "isometric":
             item.update(diamond=p["groundDiamondSize"], pieces={pc["pieceKey"]: {"kind": pc["kind"], "supportPoint": pc["supportPoint"], "footprintCells": pc["footprintCells"]} for pc in p["pieces"]})
         elif e["family"] == "tileset" and e["kind"] == "sidescroller":
@@ -396,6 +698,15 @@ def reconstruct(entries: dict[str, dict], files: dict[str, dict], out: Path) -> 
             item.update(depth=p["depth"], obtained=p["obtained"], repeat=p["repeat"], groundLineY=p["groundLineY"], file=save(images.crop(p["fileId"], p["rect"]), out, rid, "layer.png"))
         elif e["family"] == "map" and e["kind"] == "room":
             item.update(reconstruct_room(images, entries, rid, p, out))
+        elif e["family"] == "portrait" and e["kind"] == "portrait":
+            item.update(logicalSize=p["logicalSize"], faceAnchor=p["faceAnchor"], faceRect=p.get("faceRect"), mouthRect=p.get("mouthRect"), character=p["characterRevisionId"], file=save(images.crop(p["fileId"], p["rect"]), out, rid, "portrait.png"))
+        elif e["family"] == "portrait" and e["kind"] == "expression":
+            frames = {v["visemeId"]: save(images.crop(v["fileId"], v["rect"]), out, rid, f"{v['visemeId']}.png") for v in p["visemes"]}
+            item.update(expressionKey=p["expressionKey"], portrait=p["portraitRevisionId"], visemes=[v["visemeId"] for v in p["visemes"]], visemeSet=p.get("visemeSet"), grid=p.get("grid"), frames=frames)
+        elif e["family"] == "portrait" and e["kind"] == "speech":
+            item.update(reconstruct_speech(images, entries, rid, p, out))
+        elif e["family"] == "font":
+            item.update(reconstruct_font(images, rid, p, out))
         elif e["family"] == "audio":
             f = files[p["fileId"]]
             item.update(durationMs=f["durationMs"], sampleRate=f["sampleRate"], channels=f["channels"], loop=p["loop"])

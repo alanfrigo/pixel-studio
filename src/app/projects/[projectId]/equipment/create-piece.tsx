@@ -3,8 +3,12 @@
 import { useState } from "react";
 import type { GenerationPlan } from "@/contracts";
 import type { CoveragePlanSummary } from "@/server/equipment/plans";
-import { ApiError, apiFetch } from "@/app/client/api";
+import { ApiError, apiFetch, errorMessage } from "@/app/client/api";
 import { estimateText } from "@/app/client/cost";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
+import { equipmentMessages } from "@/i18n/messages/equipment";
 import type { CoveragePrefill } from "./loadout-workspace";
 import { errorText, type Overview, type RigInfo } from "./shared";
 
@@ -26,9 +30,11 @@ interface PlanResult {
   costCheck: { kind: string; withinCeiling: boolean | null };
 }
 
-const FATE_LABEL: Record<string, string> = { existing: "já coberta", empty: "vazia explícita", reused: "reaproveita pose equivalente", generate: "gerar", later: "depois da prova" };
-
 export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { projectId: string; overview: Overview; rig: RigInfo; prefill: CoveragePrefill | null; refresh: () => void }) {
+  const locale = useLocale();
+  const c = useMessages(commonMessages);
+  const m = useMessages(equipmentMessages).createPiece;
+  const text = useText();
   const profiles = overview.profiles.filter((p) => !p.unavailable);
   const [profileId, setProfileId] = useState(profiles.find((p) => p.simulated)?.id ?? profiles[0]?.id ?? "");
   const profile = overview.profiles.find((p) => p.id === profileId);
@@ -37,10 +43,10 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
   const foreign = prefill?.foreign;
   const pieces = overview.overlays.flatMap((g) => g.revisions.filter((r) => r.active && r.rigRevisionId === rig.revisionId).map((r) => ({ ...r, group: g })));
   const [overlayRevisionId, setOverlayRevisionId] = useState<string>(() => (prefill?.overlayRevisionId && pieces.some((p) => p.revisionId === prefill.overlayRevisionId) ? prefill.overlayRevisionId : ""));
-  const [itemName, setItemName] = useState(foreign ? `${foreign.name} (para ${rig.name})` : "");
+  const [itemName, setItemName] = useState(foreign ? m.itemNameFor(foreign.name, rig.name) : "");
   const [slots, setSlots] = useState<string[]>(foreign ? foreign.slots.filter((s) => rig.slots.some((x) => x.slotId === s)) : ["torso"]);
   const [stances, setStances] = useState<string[]>(foreign ? foreign.stances.filter((s) => rig.stances.includes(s)) : rig.stances);
-  const [description, setDescription] = useState(foreign?.name ?? "cota de malha de ferro com rebites");
+  const [description, setDescription] = useState(foreign?.name ?? m.defaultDescription);
   const pieceParts = rig.parts.filter((p) => !rig.baseParts.includes(p.partId));
   const [parts, setParts] = useState<string[]>(() => (prefill?.partIds.length ? prefill.partIds.filter((p) => rig.parts.some((x) => x.partId === p)) : pieceParts.slice(0, 1).map((p) => p.partId)));
   const clips = overview.clips.filter((c) => c.rigRevisionId === rig.revisionId && c.active && c.status === "approved");
@@ -95,7 +101,7 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
     } catch (err) {
       setResult(null);
       if (err instanceof ApiError && err.details?.nothingToGenerate && Array.isArray(err.details.reused) && err.details.reused.length) setReuse(err.details.reused);
-      setMessage(errorText(err));
+      setMessage(errorText(err, locale));
     } finally {
       setBusy(false);
     }
@@ -109,10 +115,10 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
         method: "POST",
         json: { plan: body(), ...(overlayRevisionId ? {} : { newItemName: itemName || description.slice(0, 60) }), allowUnknownCost: allowUnknown },
       });
-      setMessage(res.created ? `Job ${res.job.id} enfileirado. A peça volta como revisão CANDIDATA (aprove na aba Peças).` : `Mesmo plano: job ${res.job.id} já existe (sem cobrança duplicada).`);
+      setMessage(res.created ? m.queued(res.job.id) : m.duplicate(res.job.id));
       refresh();
     } catch (err) {
-      setMessage(errorText(err));
+      setMessage(errorText(err, locale));
     } finally {
       setBusy(false);
     }
@@ -122,11 +128,11 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
     if (!reuse || !overlayRevisionId) return;
     try {
       const res = await apiFetch<{ revision: { number: number }; applied: number }>(`/projects/${projectId}/equipment/overlays/reuse`, { method: "POST", json: { overlayRevisionId, reused: reuse } });
-      setMessage(`${res.applied} célula(s) reaproveitada(s) sem gerar nada: revisão r${res.revision.number} (candidata).`);
+      setMessage(m.reused(res.applied, res.revision.number));
       setReuse(null);
       refresh();
     } catch (err) {
-      setMessage(errorText(err));
+      setMessage(errorText(err, locale));
     }
   }
 
@@ -135,34 +141,34 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
   return (
     <>
       <section>
-        <h2>Criar peça para este personagem</h2>
+        <h2>{m.title}</h2>
         <div className="row">
           <label>
-            Perfil
+            {m.profile}
             <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>
               {overview.profiles.map((p) => (
                 <option key={p.id} value={p.id} disabled={Boolean(p.unavailable)}>
                   {p.name}
-                  {p.simulated ? " (simulado)" : ""}
-                  {p.unavailable ? " — indisponível" : ""}
+                  {p.simulated ? m.simulated : ""}
+                  {p.unavailable ? m.unavailable : ""}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            Tipo
+            {m.type}
             <select value={mode} onChange={(e) => (setMode(e.target.value as typeof mode), setResult(null))}>
-              <option value="coverage">roupa/armadura por frame (cobertura)</option>
-              <option value="rigid_view">peça rígida (vista com empunhadura)</option>
+              <option value="coverage">{m.modeCoverage}</option>
+              <option value="rigid_view">{m.modeRigid}</option>
             </select>
           </label>
           <label>
-            Peça
+            {m.piece}
             <select value={overlayRevisionId} onChange={(e) => setOverlayRevisionId(e.target.value)}>
-              <option value="">nova peça</option>
+              <option value="">{m.newPiece}</option>
               {pieces.map((p) => (
                 <option key={p.revisionId} value={p.revisionId}>
-                  {p.group.name} r{p.number} (gerar só lacunas)
+                  {m.gapsOnly(p.group.name, p.number)}
                 </option>
               ))}
             </select>
@@ -170,31 +176,35 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
         </div>
         {profile && (
           <ul className="anim-routes small">
-            <li>Cobertura: {profile.routes.coverage ?? <span className="error">indisponível neste perfil</span>}</li>
-            <li>Vista rígida: {profile.routes.rigid ?? <span className="error">indisponível neste perfil</span>}</li>
+            <li>
+              {m.routeCoverage} {profile.routes.coverage ? text(profile.routes.coverage) : <span className="error">{m.unavailableHere}</span>}
+            </li>
+            <li>
+              {m.routeRigid} {profile.routes.rigid ? text(profile.routes.rigid) : <span className="error">{m.unavailableHere}</span>}
+            </li>
           </ul>
         )}
         {overview.profiles
           .filter((p) => p.unavailable)
           .map((p) => (
             <p key={p.id} className="small muted">
-              {p.name}: {p.unavailable}
+              {p.name}: {text(p.unavailable)}
             </p>
           ))}
         {!overlayRevisionId && (
           <div className="row small">
             <label>
-              Nome do item
-              <input value={itemName} placeholder="Cota de malha" onChange={(e) => setItemName(e.target.value)} />
+              {m.itemName}
+              <input value={itemName} placeholder={m.itemNamePlaceholder} onChange={(e) => setItemName(e.target.value)} />
             </label>
-            <span>Slots:</span>
+            <span>{m.slots}</span>
             {rig.slots.map((s) => (
               <label key={s.slotId} style={{ flexDirection: "row", gap: 4 }}>
                 <input type="checkbox" checked={slots.includes(s.slotId)} onChange={(e) => setSlots(toggle(slots, s.slotId, e.target.checked))} />
                 {s.label}
               </label>
             ))}
-            <span>Posturas:</span>
+            <span>{m.stances}</span>
             {rig.stances.map((s) => (
               <label key={s} style={{ flexDirection: "row", gap: 4 }}>
                 <input type="checkbox" checked={stances.includes(s)} onChange={(e) => setStances(toggle(stances, s, e.target.checked))} />
@@ -204,14 +214,14 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
           </div>
         )}
         <label>
-          Descrição da peça (material, forma)
+          {m.description}
           <input value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
 
         {mode === "coverage" ? (
           <>
             <div className="row small">
-              <span>Partes desenháveis:</span>
+              <span>{m.drawableParts}</span>
               {pieceParts.map((p) => (
                 <label key={p.partId} style={{ flexDirection: "row", gap: 4 }}>
                   <input type="checkbox" checked={parts.includes(p.partId)} onChange={(e) => setParts(toggle(parts, p.partId, e.target.checked))} />
@@ -219,30 +229,30 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
                 </label>
               ))}
             </div>
-            <p className="small">Movimentos e vistas a entregar (clipes aprovados da base):</p>
+            <p className="small">{m.clipsHelp}</p>
             <div className="row small">
               {clips.map((c) => (
                 <label key={c.revisionId} style={{ flexDirection: "row", gap: 4 }}>
                   <input type="checkbox" checked={clipIds.includes(c.revisionId)} onChange={(e) => setClipIds(toggle(clipIds, c.revisionId, e.target.checked))} />
-                  {c.name} ({c.frames.length} frames)
+                  {m.clipFrames(c.name, c.frames.length)}
                 </label>
               ))}
             </div>
             <div className="row small">
               <label>
-                Frames por tira
+                {m.framesPerStrip}
                 <select value={framesPerStrip} onChange={(e) => setFramesPerStrip(Number(e.target.value))}>
                   {[1, 2, 4, 6].map((n) => (
                     <option key={n} value={n}>
-                      {n === 1 ? "1 (um frame por imagem)" : `${n} (grade)`}
+                      {n === 1 ? m.oneFrame : m.grid(n)}
                     </option>
                   ))}
                 </select>
               </label>
               <label>
-                Pose de prova
+                {m.proofPose}
                 <select value={proof} onChange={(e) => setProof(e.target.value)}>
-                  <option value="">gerar todas as lacunas</option>
+                  <option value="">{m.allGaps}</option>
                   {proofOptions.map((o) => (
                     <option key={o.key} value={o.key}>
                       {o.label}
@@ -250,47 +260,46 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
                   ))}
                 </select>
               </label>
-              <label title="Amplia a zona em que o modelo pode desenhar a peça; olhos e mãos da base continuam protegidos">
-                Ampliar zona da roupa
+              <label title={m.growTitle}>
+                {m.grow}
                 <select value={growZonePx} onChange={(e) => setGrowZonePx(Number(e.target.value))}>
                   {[0, 1, 2, 3, 4, 6, 8].map((n) => (
                     <option key={n} value={n}>
-                      {n === 0 ? "sem folga" : `+${n} px`}
+                      {n === 0 ? m.noSlack : `+${n} px`}
                     </option>
                   ))}
                 </select>
               </label>
               <label style={{ flexDirection: "row", gap: 4 }}>
-                <input type="checkbox" checked={regenerate} onChange={(e) => setRegenerate(e.target.checked)} /> refazer células já cobertas
+                <input type="checkbox" checked={regenerate} onChange={(e) => setRegenerate(e.target.checked)} /> {m.regenerate}
               </label>
             </div>
           </>
         ) : (
           <div className="row small">
             <label>
-              Vista
+              {m.view}
               <input value={view.viewId} onChange={(e) => setView({ ...view, viewId: e.target.value })} style={{ width: 80 }} />
             </label>
             <label>
-              Tamanho
+              {m.size}
               <span className="row">
                 <input type="number" min={2} max={128} value={view.w} style={{ width: 56 }} onChange={(e) => setView({ ...view, w: Number(e.target.value) })} />×
                 <input type="number" min={2} max={128} value={view.h} style={{ width: 56 }} onChange={(e) => setView({ ...view, h: Number(e.target.value) })} />
               </span>
             </label>
             <label>
-              Orientação
+              {m.orientation}
               <select value={view.orientation} onChange={(e) => setView({ ...view, orientation: e.target.value })}>
-                <option value="vertical_up">vertical, ponta para cima</option>
-                <option value="vertical_down">vertical, ponta para baixo</option>
-                <option value="horizontal_right">horizontal, para a direita</option>
-                <option value="horizontal_left">horizontal, para a esquerda</option>
-                <option value="diagonal_up">diagonal para cima</option>
-                <option value="diagonal_down">diagonal para baixo</option>
+                {(["vertical_up", "vertical_down", "horizontal_right", "horizontal_left", "diagonal_up", "diagonal_down"] as const).map((o) => (
+                  <option key={o} value={o}>
+                    {m.orientations[o]}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
-              Empunhadura 1
+              {m.grip1}
               <span className="row">
                 <select value={view.grip1} onChange={(e) => setView({ ...view, grip1: e.target.value })}>
                   {rig.sockets.map((s) => (
@@ -302,10 +311,10 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
               </span>
             </label>
             <label>
-              Segunda mão (dupla empunhadura)
+              {m.grip2}
               <span className="row">
                 <select value={view.grip2} onChange={(e) => setView({ ...view, grip2: e.target.value })}>
-                  <option value="">nenhuma</option>
+                  <option value="">{c.none}</option>
                   {rig.sockets.map((s) => (
                     <option key={s.socketId}>{s.socketId}</option>
                   ))}
@@ -315,23 +324,23 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
               </span>
             </label>
             <label style={{ flexDirection: "row", gap: 4 }}>
-              <input type="checkbox" checked={view.mirrorAllowed} onChange={(e) => setView({ ...view, mirrorAllowed: e.target.checked })} /> arte simétrica (autorizar espelho)
+              <input type="checkbox" checked={view.mirrorAllowed} onChange={(e) => setView({ ...view, mirrorAllowed: e.target.checked })} /> {m.mirror}
             </label>
           </div>
         )}
         <div className="row">
           <button type="button" disabled={busy || !profileId} onClick={preview}>
-            Ver plano (matriz e tiras)
+            {m.previewPlan}
           </button>
           <label style={{ flexDirection: "row", gap: 4 }} className="small">
-            <input type="checkbox" checked={allowUnknown} onChange={(e) => setAllowUnknown(e.target.checked)} /> aceito custo desconhecido
+            <input type="checkbox" checked={allowUnknown} onChange={(e) => setAllowUnknown(e.target.checked)} /> {m.acceptUnknown}
           </label>
           <button type="button" disabled={busy || !result} onClick={run}>
-            Gerar {result ? `(${result.plan.parts.length} envio(s))` : ""}
+            {m.generate} {result ? m.submissions(result.plan.parts.length) : ""}
           </button>
           {reuse && overlayRevisionId && (
             <button type="button" className="secondary" onClick={applyReuse}>
-              Aplicar reaproveitamento ({reuse.length} célula(s), sem custo)
+              {m.applyReuse(reuse.length)}
             </button>
           )}
         </div>
@@ -346,28 +355,34 @@ export function CreatePiece({ projectId, overview, rig, prefill, refresh }: { pr
 }
 
 function PlanSummary({ result }: { result: PlanResult }) {
+  const locale = useLocale();
+  const em = useMessages(equipmentMessages);
+  const m = em.plan;
+  const text = useText();
   const s = result.summary;
   const clipsInCells = [...new Set(s.cells.map((c) => c.clipName))];
   return (
     <section>
-      <h2>Plano congelado</h2>
+      <h2>{m.title}</h2>
       <p className="small">
-        <strong>{s.routeLabel}</strong> · destino {result.destination.name}
-        {result.destination.simulated ? " (simulado)" : ""} · custo estimado{" "}
-        {estimateText(result.plan)}
+        <strong>{text(s.routeLabel)}</strong> · {m.destination(result.destination.name)}
+        {result.destination.simulated ? em.createPiece.simulated : ""} · {m.estimatedCost} {estimateText(result.plan, locale)}
       </p>
       <p className="small">
-        {s.requested} célula(s) pedida(s): {s.existing} já coberta(s), {s.empty} vazia(s), {s.reused} reaproveitada(s) de pose equivalente, <strong>{s.toGenerate} a gerar</strong> em <strong>{s.strips.length} tira(s)</strong>.
+        {m.counts(s)}
+        <strong>{m.toGenerate(s.toGenerate)}</strong>
+        {m.inStrips}
+        <strong>{m.strips(s.strips.length)}</strong>.
       </p>
       {s.strips.length > 0 && (
         <table className="eq-matrix">
           <thead>
             <tr>
-              <th>Tira</th>
-              <th>Clipe</th>
-              <th>Frames</th>
-              <th>Grade</th>
-              <th>Tela</th>
+              <th>{m.strip}</th>
+              <th>{m.clip}</th>
+              <th>{m.frames}</th>
+              <th>{m.grid}</th>
+              <th>{m.canvas}</th>
             </tr>
           </thead>
           <tbody>
@@ -393,7 +408,7 @@ function PlanSummary({ result }: { result: PlanResult }) {
                   {s.cells
                     .filter((c) => c.clipName === name)
                     .map((c) => (
-                      <td key={`${c.frameId}-${c.partId}`} className={c.fate === "generate" ? "missing" : c.fate === "later" ? "stale" : c.fate === "empty" ? "empty" : "covered"} title={`${c.frameId} · ${c.partId}: ${FATE_LABEL[c.fate]}`}>
+                      <td key={`${c.frameId}-${c.partId}`} className={c.fate === "generate" ? "missing" : c.fate === "later" ? "stale" : c.fate === "empty" ? "empty" : "covered"} title={`${c.frameId} · ${c.partId}: ${labelOf(em.createPiece.fate, c.fate)}`}>
                         {c.frameId}/{c.partId}
                       </td>
                     ))}
@@ -403,13 +418,13 @@ function PlanSummary({ result }: { result: PlanResult }) {
           </table>
         </div>
       )}
-      {s.warnings.map((w) => (
-        <p key={w} className="small muted">
-          {w}
+      {s.warnings.map((w, i) => (
+        <p key={i} className="small muted">
+          {text(w)}
         </p>
       ))}
       <details className="small">
-        <summary>Prompt compilado e fontes</summary>
+        <summary>{m.compiled}</summary>
         <pre>{result.plan.prompt.compiled}</pre>
         <pre>{JSON.stringify(result.plan.sources, null, 2)}</pre>
       </details>
@@ -418,6 +433,10 @@ function PlanSummary({ result }: { result: PlanResult }) {
 }
 
 function ExtractPanel({ projectId, overview, rig, refresh }: { projectId: string; overview: Overview; rig: RigInfo; refresh: () => void }) {
+  const locale = useLocale();
+  const em = useMessages(equipmentMessages);
+  const m = em.extract;
+  const text = useText();
   const targets = overview.clips.filter((c) => c.rigRevisionId === rig.revisionId && c.status === "approved");
   const [target, setTarget] = useState("");
   const t = targets.find((c) => c.revisionId === target);
@@ -425,21 +444,23 @@ function ExtractPanel({ projectId, overview, rig, refresh }: { projectId: string
   const [source, setSource] = useState("");
   const pieces = overview.overlays.flatMap((g) => g.revisions.filter((r) => r.active && r.rigRevisionId === rig.revisionId).map((r) => ({ ...r, group: g })));
   const [overlay, setOverlay] = useState("");
-  const [name, setName] = useState("Peça extraída");
+  const [name, setName] = useState(m.defaultName);
   const [part, setPart] = useState(rig.parts.find((p) => p.partId === "torso")?.partId ?? rig.parts[0]?.partId ?? "");
-  const [out, setOut] = useState<{ revision: { number: number }; warnings: string[]; previews: Record<string, string> } | null>(null);
+  const [out, setOut] = useState<{ revision: { number: number }; warnings: TextValue[]; previews: Record<string, string> } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   return (
     <section>
-      <h2>Extrair cobertura de um clipe vestido (sem custo)</h2>
+      <h2>{m.title}</h2>
       <p className="small muted">
-        Aceita o clipe candidato da operação “transferir roupa” (estado <code>outfit_*</code>) ou qualquer clipe com os mesmos frames e célula: a peça é a diferença contra a base limpa dentro da zona autorizada, com mãos protegidas.
+        {m.helpBefore}
+        <code>outfit_*</code>
+        {m.helpAfter}
       </p>
       <div className="row small">
         <label>
-          Clipe limpo (alvo)
+          {m.target}
           <select value={target} onChange={(e) => (setTarget(e.target.value), setSource(""))}>
-            <option value="">escolha</option>
+            <option value="">{m.choose}</option>
             {targets.map((c) => (
               <option key={c.revisionId} value={c.revisionId}>
                 {c.name} r{c.number}
@@ -448,21 +469,21 @@ function ExtractPanel({ projectId, overview, rig, refresh }: { projectId: string
           </select>
         </label>
         <label>
-          Clipe vestido
+          {m.source}
           <select value={source} onChange={(e) => setSource(e.target.value)}>
-            <option value="">escolha</option>
+            <option value="">{m.choose}</option>
             {sources.map((c) => (
               <option key={c.revisionId} value={c.revisionId}>
                 {c.name} r{c.number}
-                {c.state?.startsWith("outfit_") ? " · transferir roupa" : ""}
+                {c.state?.startsWith("outfit_") ? m.transferOutfit : ""}
               </option>
             ))}
           </select>
         </label>
         <label>
-          Peça
+          {m.piece}
           <select value={overlay} onChange={(e) => setOverlay(e.target.value)}>
-            <option value="">nova</option>
+            <option value="">{m.newOne}</option>
             {pieces.map((p) => (
               <option key={p.revisionId} value={p.revisionId}>
                 {p.group.name} r{p.number}
@@ -472,12 +493,12 @@ function ExtractPanel({ projectId, overview, rig, refresh }: { projectId: string
         </label>
         {!overlay && (
           <label>
-            Nome
+            {m.name}
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </label>
         )}
         <label>
-          Parte
+          {m.part}
           <select value={part} onChange={(e) => setPart(e.target.value)}>
             {rig.parts.map((p) => (
               <option key={p.partId} value={p.partId}>
@@ -492,7 +513,7 @@ function ExtractPanel({ projectId, overview, rig, refresh }: { projectId: string
           onClick={async () => {
             setMessage(null);
             try {
-              const res = await apiFetch<{ revision: { number: number }; warnings: string[]; previews: Record<string, string> }>(`/projects/${projectId}/equipment/extract`, {
+              const res = await apiFetch<{ revision: { number: number }; warnings: TextValue[]; previews: Record<string, string> }>(`/projects/${projectId}/equipment/extract`, {
                 method: "POST",
                 json: {
                   targetClipRevisionId: target,
@@ -505,24 +526,24 @@ function ExtractPanel({ projectId, overview, rig, refresh }: { projectId: string
               setOut(res);
               refresh();
             } catch (err) {
-              setMessage(errorText(err));
+              setMessage(errorText(err, locale));
             }
           }}
         >
-          Extrair
+          {m.extract}
         </button>
       </div>
       {message && <p className="small error">{message}</p>}
       {out && (
         <>
           <p className="small">
-            Revisão candidata r{out.revision.number} publicada. {out.warnings.length ? `Avisos: ${out.warnings.join("; ")}` : "Sem avisos."}
+            {m.published(out.revision.number)} {out.warnings.length ? em.shared.warnings(out.warnings.map((w) => text(w)).join("; ")) : m.noWarnings}
           </p>
           <div className="row">
             {Object.entries(out.previews).map(([frameId, src]) => (
               <figure key={frameId} style={{ margin: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="pixel" src={src} alt={`Base + peça em ${frameId}`} width={128} height={128} />
+                <img className="pixel" src={src} alt={m.previewAlt(frameId)} width={128} height={128} />
                 <figcaption className="small">{frameId}</figcaption>
               </figure>
             ))}
@@ -534,15 +555,18 @@ function ExtractPanel({ projectId, overview, rig, refresh }: { projectId: string
 }
 
 function JobsList({ overview }: { overview: Overview }) {
+  const locale = useLocale();
+  const c = useMessages(commonMessages);
+  const m = useMessages(equipmentMessages).jobs;
   if (overview.jobs.length === 0) return null;
   return (
     <section>
-      <h2>Gerações recentes</h2>
+      <h2>{m.title}</h2>
       <ul className="list small">
         {overview.jobs.map((j) => (
           <li key={j.id}>
-            {j.id} · <span className={`badge state-${j.state}`}>{j.state}</span>
-            {j.error ? ` · ${(j.error as { message?: string }).message ?? ""}` : ""}
+            {j.id} · <span className={`badge state-${j.state}`}>{labelOf(c.jobState, j.state)}</span>
+            {j.error ? ` · ${errorMessage(j.error, locale) ?? ""}` : ""}
           </li>
         ))}
       </ul>

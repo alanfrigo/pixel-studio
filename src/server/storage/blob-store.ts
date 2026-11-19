@@ -1,3 +1,4 @@
+import { tx } from "@/i18n/locales";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, open, readFile, rename, rm, stat, statfs } from "node:fs/promises";
@@ -36,7 +37,7 @@ export class BlobStore {
     const fs = await statfs(this.root);
     const free = Number(fs.bavail) * Number(fs.bsize);
     if (free < expectedBytes + this.minFreeBytes) {
-      throw new DomainFailure("storage_failed", "Espaço em disco insuficiente para gravar o arquivo", {
+      throw new DomainFailure("storage_failed", tx("Espaço em disco insuficiente para gravar o arquivo", "Not enough disk space to write the file"), {
         freeBytes: free,
         neededBytes: expectedBytes + this.minFreeBytes,
       });
@@ -60,7 +61,7 @@ export class BlobStore {
     } catch (err) {
       await rm(tmp, { force: true });
       if (err instanceof DomainFailure) throw err;
-      throw new DomainFailure("storage_failed", "Falha ao gravar arquivo no armazenamento local", { cause: String(err) });
+      throw new DomainFailure("storage_failed", tx("Falha ao gravar arquivo no armazenamento local", "Failed to write the file to local storage"), { cause: String(err) });
     }
   }
 

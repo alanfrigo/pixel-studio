@@ -3,6 +3,7 @@ import { type AssetFamily, type ClipPayload, Id, Insets, type OverlayPayload, pa
 import { expandClipCell, isZeroInsets, shiftOverlayForExpansion } from "@/domain/equipment/cell";
 import { frameDigest, rebindOverlay } from "@/domain/equipment/digest";
 import { entryRefs } from "@/domain/manifest/refs";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { getAsset, getBlob, getProject, getRevision, type PublishFile, publishRevision, type RevisionView } from "../catalog/catalog";
 import type { Db } from "../db/connection";
 import { DomainFailure } from "../errors";
@@ -21,13 +22,13 @@ import { runEquipmentPython, uniqueFiles } from "./python";
 /** Arquivos citados pelo payload, reaproveitados da revisão de origem (mesmos blobs). */
 export function reuseFiles(db: Db, from: RevisionView, family: AssetFamily, kind: string, payload: unknown): PublishFile[] {
   const parsed = parseRevisionPayload(family, kind, payload);
-  if (!parsed.success) throw new DomainFailure("validation_failed", parsed.issues[0]?.message ?? "Payload inválido", { issues: parsed.issues.slice(0, 10) });
+  if (!parsed.success) throw new DomainFailure("validation_failed", parsed.issues[0]?.message ?? tx("Payload inválido", "Invalid payload"), { issues: parsed.issues.slice(0, 10) });
   const keys = new Set(entryRefs(parsed.entry).files.map((f) => f.fileId));
   return from.files
     .filter((f) => keys.has(f.fileKey))
     .map((f) => {
       const blob = getBlob(db, f.sha256);
-      if (!blob) throw new DomainFailure("internal", `Blob ${f.sha256} sem registro`);
+      if (!blob) throw new DomainFailure("internal", tx(`Blob ${f.sha256} sem registro`, `Blob ${f.sha256} is not registered`));
       return { fileKey: f.fileKey, role: f.role, idx: f.idx, blob };
     });
 }
@@ -82,17 +83,17 @@ export function editOverlay(studio: Studio, projectId: string, raw: OverlayEditI
   const same = (c: { clipRevisionId: string; frameId: string }) => "clipRevisionId" in input && c.clipRevisionId === input.clipRevisionId && c.frameId === input.frameId;
   const partOf = (partId: string) => {
     const part = p.parts.find((x) => x.partId === partId);
-    if (!part) throw new DomainFailure("not_found", `A peça ${ov.name} não tem a parte ${partId}`);
+    if (!part) throw new DomainFailure("not_found", tx(`A peça ${ov.name} não tem a parte ${partId}`, `Piece ${ov.name} has no part ${partId}`));
     return part;
   };
-  let summary: string;
+  let summary: LocalizedText;
   switch (input.op) {
     case "mark_empty":
       if (input.partId === "rigid") {
         const list = (p.rigidPlacements ??= []);
         const at = list.findIndex(same);
         const anchor = list[at]?.anchorSocketId ?? p.rigidViews[0]?.grips[0]?.socketId;
-        if (!anchor) throw new DomainFailure("validation_failed", `${ov.name} não tem vista rígida`);
+        if (!anchor) throw new DomainFailure("validation_failed", tx(`${ov.name} não tem vista rígida`, `${ov.name} has no rigid view`));
         const placement = { clipRevisionId: input.clipRevisionId, frameId: input.frameId, viewId: null, anchorSocketId: anchor, drawIndex: list[at]?.drawIndex ?? 0 };
         if (at >= 0) list[at] = placement;
         else list.push(placement);
@@ -103,44 +104,45 @@ export function editOverlay(studio: Studio, projectId: string, raw: OverlayEditI
         if (at >= 0) part.coverage[at] = cell;
         else part.coverage.push(cell);
       }
-      summary = `Célula vazia explícita: ${input.partId} em ${input.frameId}`;
+      summary = tx(`Célula vazia explícita: ${input.partId} em ${input.frameId}`, `Explicit empty cell: ${input.partId} in ${input.frameId}`);
       break;
     case "remove_cell":
       if (input.partId === "rigid") p.rigidPlacements = (p.rigidPlacements ?? []).filter((x) => !same(x));
       else partOf(input.partId).coverage = partOf(input.partId).coverage.filter((x) => !same(x));
-      summary = `Cobertura removida: ${input.partId} em ${input.frameId} (lacuna)`;
+      summary = tx(`Cobertura removida: ${input.partId} em ${input.frameId} (lacuna)`, `Coverage removed: ${input.partId} in ${input.frameId} (gap)`);
       break;
     case "set_draw_index": {
       if (input.partId === "rigid") {
         const pl = (p.rigidPlacements ?? []).find(same);
-        if (!pl) throw new DomainFailure("not_found", "Sem uso de vista rígida neste frame");
+        if (!pl) throw new DomainFailure("not_found", tx("Sem uso de vista rígida neste frame", "No rigid view is used in this frame"));
         pl.drawIndex = input.drawIndex;
       } else {
         const cell = partOf(input.partId).coverage.find(same);
-        if (!cell) throw new DomainFailure("not_found", "Sem cobertura neste frame");
+        if (!cell) throw new DomainFailure("not_found", tx("Sem cobertura neste frame", "No coverage in this frame"));
         cell.drawIndex = input.drawIndex;
       }
-      summary = `Ordem de ${input.partId} em ${input.frameId}: ${input.drawIndex}`;
+      summary = tx(`Ordem de ${input.partId} em ${input.frameId}: ${input.drawIndex}`, `Order of ${input.partId} in ${input.frameId}: ${input.drawIndex}`);
       break;
     }
     case "set_grips": {
       const view = p.rigidViews.find((v) => v.viewId === input.viewId);
-      if (!view) throw new DomainFailure("not_found", `Vista ${input.viewId} inexistente`);
+      if (!view) throw new DomainFailure("not_found", tx(`Vista ${input.viewId} inexistente`, `View ${input.viewId} does not exist`));
       const [w, h] = [view.rect[2], view.rect[3]];
       for (const g of input.grips) {
-        if (g.at[0] >= w || g.at[1] >= h) throw new DomainFailure("validation_failed", `Empunhadura ${g.socketId} fora da vista ${w}×${h}`);
+        if (g.at[0] >= w || g.at[1] >= h) throw new DomainFailure("validation_failed", tx(`Empunhadura ${g.socketId} fora da vista ${w}×${h}`, `Grip ${g.socketId} is outside the ${w}×${h} view`));
       }
       view.grips = input.grips;
-      summary = `Empunhaduras da vista ${input.viewId}: ${input.grips.map((g) => `${g.socketId}@${g.at.join(",")}`).join("; ")}`;
+      const grips = input.grips.map((g) => `${g.socketId}@${g.at.join(",")}`).join("; ");
+      summary = tx(`Empunhaduras da vista ${input.viewId}: ${grips}`, `Grips of view ${input.viewId}: ${grips}`);
       break;
     }
     case "set_item": {
       if (input.itemRevisionId) {
         const item = getRevision(studio.db, projectId, input.itemRevisionId);
-        if (getAsset(studio.db, projectId, item.assetId).family !== "item") throw new DomainFailure("validation_failed", "O vínculo precisa apontar uma revisão de item de inventário");
+        if (getAsset(studio.db, projectId, item.assetId).family !== "item") throw new DomainFailure("validation_failed", tx("O vínculo precisa apontar uma revisão de item de inventário", "The link must point to an inventory item revision"));
       }
       p.itemRevisionId = input.itemRevisionId;
-      summary = input.itemRevisionId ? `Ligada ao item ${input.itemRevisionId}` : "Sem item de inventário";
+      summary = input.itemRevisionId ? tx(`Ligada ao item ${input.itemRevisionId}`, `Linked to item ${input.itemRevisionId}`) : tx("Sem item de inventário", "No inventory item");
       break;
     }
     case "set_placement": {
@@ -156,7 +158,7 @@ export function editOverlay(studio: Studio, projectId: string, raw: OverlayEditI
       const at = list.findIndex(same);
       if (at >= 0) list[at] = placement;
       else list.push(placement);
-      summary = `Vista ${input.viewId ?? "oculta"} em ${input.frameId}${input.mirrored ? " (espelhada)" : ""}`;
+      summary = tx(`Vista ${input.viewId ?? "oculta"} em ${input.frameId}${input.mirrored ? " (espelhada)" : ""}`, `View ${input.viewId ?? "hidden"} in ${input.frameId}${input.mirrored ? " (mirrored)" : ""}`);
       break;
     }
   }
@@ -178,10 +180,10 @@ export function expandCell(studio: Studio, projectId: string, raw: z.input<typeo
   const input = ExpandCellInput.parse(raw);
   const moved: { from: string; to: RevisionView; margins: z.infer<typeof Insets> }[] = [];
   for (const c of input.clips) {
-    if (isZeroInsets(c.margins)) throw new DomainFailure("validation_failed", "Margens zeradas: nada a ampliar");
+    if (isZeroInsets(c.margins)) throw new DomainFailure("validation_failed", tx("Margens zeradas: nada a ampliar", "Margins are zero: nothing to enlarge"));
     const rev = getRevision(studio.db, projectId, c.clipRevisionId);
     const asset = getAsset(studio.db, projectId, rev.assetId);
-    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", `${asset.name} não é um clipe`);
+    if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", tx(`${asset.name} não é um clipe`, `${asset.name} is not a clip`));
     const before = rev.payload as ClipPayload;
     const payload = expandClipCell(before, c.margins);
     const to = republish(studio, projectId, rev, payload, {
@@ -190,7 +192,7 @@ export function expandCell(studio: Studio, projectId: string, raw: z.input<typeo
       fromSize: before.logicalSize,
       toSize: payload.logicalSize,
       pivot: { from: before.pivot, to: payload.pivot },
-      note: "Camadas, sockets e pivô deslocados pela mesma margem; posição em cena preservada",
+      note: tx("Camadas, sockets e pivô deslocados pela mesma margem; posição em cena preservada", "Layers, sockets and pivot shifted by the same margin; position in the scene preserved"),
     });
     moved.push({ from: rev.id, to, margins: c.margins });
   }
@@ -235,9 +237,9 @@ export function shareClip(studio: Studio, projectId: string, raw: z.input<typeof
   const input = ShareClipInput.parse(raw);
   const rev = getRevision(studio.db, projectId, input.clipRevisionId);
   const clip = rev.payload as ClipPayload;
-  if (clip.stance === input.stance || clip.sharedStances?.includes(input.stance)) throw new DomainFailure("validation_failed", `O clipe já serve à postura ${input.stance}`);
+  if (clip.stance === input.stance || clip.sharedStances?.includes(input.stance)) throw new DomainFailure("validation_failed", tx(`O clipe já serve à postura ${input.stance}`, `The clip already serves stance ${input.stance}`));
   const payload: ClipPayload = { ...clip, sharedStances: [...(clip.sharedStances ?? []), input.stance] };
-  return republish(studio, projectId, rev, payload, { operation: "share_clip", stance: input.stance, note: "Vínculo explícito: revise e aprove para o resolvedor usar" });
+  return republish(studio, projectId, rev, payload, { operation: "share_clip", stance: input.stance, note: tx("Vínculo explícito: revise e aprove para o resolvedor usar", "Explicit link: review and approve it for the resolver to use") });
 }
 
 // ---------------------------------------------------------------------------
@@ -286,11 +288,11 @@ export async function rebindCoverage(studio: Studio, projectId: string, raw: z.i
   if (!fromId) {
     const covered = new Set([...ov.payload.parts.flatMap((p) => p.coverage.map((c) => c.clipRevisionId)), ...(ov.payload.rigidPlacements ?? []).map((p) => p.clipRevisionId)]);
     const candidates = [...covered].filter((id) => id !== to.id).map((id) => getRevision(studio.db, projectId, id)).filter((r) => r.assetId === to.assetId).sort((a, b) => b.number - a.number);
-    if (!candidates[0]) throw new DomainFailure("not_found", `${ov.name} não cobre nenhuma revisão anterior deste clipe`);
+    if (!candidates[0]) throw new DomainFailure("not_found", tx(`${ov.name} não cobre nenhuma revisão anterior deste clipe`, `${ov.name} does not cover any earlier revision of this clip`));
     fromId = candidates[0].id;
   }
   const from = getRevision(studio.db, projectId, fromId);
-  if (from.assetId !== to.assetId) throw new DomainFailure("validation_failed", "Revincular só entre revisões do mesmo clipe");
+  if (from.assetId !== to.assetId) throw new DomainFailure("validation_failed", tx("Revincular só entre revisões do mesmo clipe", "Rebind only between revisions of the same clip"));
   const [fromDigests, toDigests] = await Promise.all([clipDigests(studio, projectId, from.id), clipDigests(studio, projectId, to.id)]);
   const result = rebindOverlay(ov.payload, { revisionId: from.id, digests: fromDigests }, { revisionId: to.id, frameIds: (to.payload as ClipPayload).frames.map((f) => f.frameId), digests: toDigests });
   const revision =

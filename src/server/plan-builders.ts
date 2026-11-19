@@ -9,6 +9,8 @@ import type { Studio } from "./studio";
 import { buildTexturePlan, TexturePlanInput } from "./world/textures";
 import { buildTilesetPlan, TilesetPlanInput } from "./world/tilesets";
 import { SCENE_PLAN_BUILDERS } from "./scenes/plans";
+import { UI_PLAN_BUILDERS } from "./ui/plans";
+import { DIALOGUE_PLAN_BUILDERS } from "./dialogue/plans";
 
 /**
  * Construtores de plano por operação para `POST /generation-plans`. Cada cartão
@@ -35,6 +37,10 @@ export const PLAN_BUILDERS: PlanBuilder[] = [
   ...SCENE_PLAN_BUILDERS.map((b): PlanBuilder => ({ operation: b.operation, input: b.input as unknown as PlanBuilder["input"], build: b.build })),
   // Cartão S2: "Criar peça para este personagem" (cobertura por tiras ou vista rígida).
   { operation: "generate_overlay_coverage", input: OverlayCoveragePlanInput, build: (studio, projectId, body) => buildOverlayCoveragePlan(studio, projectId, body) },
+  // Cartão U3: template pela guia raster e estados por imagem + referência do componente aprovado.
+  ...UI_PLAN_BUILDERS.map((b): PlanBuilder => ({ operation: b.operation, input: b.input as unknown as PlanBuilder["input"], build: b.build })),
+  // Cartão D1: retrato, folha de bocas (uma expressão por job) e páginas de glyphs (base ou extensão).
+  ...DIALOGUE_PLAN_BUILDERS.map((b): PlanBuilder => ({ operation: b.operation, input: b.input as unknown as PlanBuilder["input"], build: b.build })),
 ];
 
 /** União discriminada por `operation`: erro de validação aponta o campo do schema certo. */

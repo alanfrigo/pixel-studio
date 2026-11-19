@@ -177,7 +177,7 @@ describe("mapa editável", () => {
     // Faixa de água de cima a baixo (vértices x = 5..7) fecha os dois vaus.
     for (let vy = 0; vy <= 8; vy++) for (let vx = 5; vx <= 7; vx++) closed = paintCornerVertex(closed, tileset(), vx, vy, 1).map;
     const blocked = checkPassages(closed, ctx);
-    expect(blocked.results[0]).toMatchObject({ connected: false, reason: "Sem caminho entre as entradas" });
+    expect(blocked.results[0]).toMatchObject({ connected: false, reason: { "pt-BR": "Sem caminho entre as entradas", en: "No path between the entrances" } });
     // Preenchimento: secar o lago a partir de um vértice de água devolve a passagem.
     const dried = fillCornerVertices(closed, tileset(), 6, 4, 0);
     expect(dried.terrain.vertices.every((v) => v === 0)).toBe(true);

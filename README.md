@@ -11,7 +11,7 @@
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white">
   <img alt="Python 3.14 + Pillow" src="https://img.shields.io/badge/Python-3.14%20%2B%20Pillow-3776ab?logo=python&logoColor=white">
   <img alt="SQLite" src="https://img.shields.io/badge/SQLite-local--first-003b57?logo=sqlite&logoColor=white">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-323%20TS%20%2B%2089%20Python-brightgreen">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-377%20TS%20%2B%20103%20Python-brightgreen">
 </p>
 
 <p align="center">
@@ -245,10 +245,38 @@ python/.venv/bin/python -I scripts/showcase-codex.py <date>
 - **Room kits to editable maps:** walls, floors, corners and doors are cut from the room picture, mapped by key and rebuilt as a tile map in the world editor.
 - **Isometric preview with a character** walking behind and in front of tall props, with world-to-screen direction mapping.
 
-### Game UI
-- **Nine-slice buttons and panels** with normal/hover/pressed/disabled states.
-- **Focus overlay** and a separate text slot.
-- Previews at several sizes (32×16, 96×24, custom).
+### Game UI kit: menus, HUD, inventory and dialogue
+- **Nine-slice buttons and panels** with normal/hover/pressed/disabled/selected states, a focus overlay and a separate text slot. Captions are text keys, so translating or lengthening a label never regenerates the art.
+- **Kit template from a brief:** the model draws the requested pieces into a guide grid, and you review the proposed crop of each piece before it becomes a component. Splitting crops pixels; it never invents new art.
+- **States:** derived by image + reference of the approved component and checked for the same cell, outline and padding. Local transforms (palette ramp, highlight, offset) work without AI. Every state records its origin.
+- **Components:**
+  - menu items with action ID, shortcut and selected state;
+  - health bars with separate track, fill and frame (0%, 25% and 100% keep the frame intact);
+  - inventory slots in an integer grid, with linked item icons and quantity counters;
+  - dialogue panels with separate title, body, portrait and continue indicator.
+- **Screen composer:**
+  - per-side anchors plus pixel offsets, groups, draw order and a separate keyboard focus order;
+  - tested at 320×180 and 400×300 with integer zoom;
+  - meter sliders, state toggles and caption swaps never start a generation job;
+  - preview over an approved scene;
+  - the exported package rebuilds the hierarchy and positions in a clean folder.
+
+### Portraits, expressions, speech and pixel fonts
+- **Portraits** generated from an approved character, with palette and scale checks and a face anchor.
+- **Expressions and mouth shapes:** 8 visemes in the same order for every expression, with a face-stability check outside the mouth.
+- **Speech timing plans:**
+  - built locally from text (Portuguese and English letter rules) into a viseme, duration and text-position sequence;
+  - two lines reuse the same approved mouths with zero new jobs;
+  - a timing plan, not voice synthesis or audio sync.
+- **Pixel fonts as assets:**
+  - glyph pages drawn into a grid guide and measured locally into a bitmap atlas with baseline, bearings, advances and line height;
+  - coverage is derived from the project's texts, and the Portuguese kit requires `á à â ã é ê í ó ô õ ú ü ç` in both cases;
+  - missing glyphs are listed, never silently replaced, and can be extended from the approved base glyphs;
+  - a test renderer shows "Ação, Poção, Coração — ÁRVORE" at 1× and zoom.
+
+### English and Portuguese interface
+- **Every screen in both languages,** with a language switch in the corner. The first visit follows the browser language.
+- **Server text is bilingual too:** errors, route labels and technical-report warnings, including the ones from the Python pipeline. Data saved earlier keeps the language it was written in.
 
 ### Asset management and export
 - **Catalog:**
@@ -278,7 +306,7 @@ cp .env.example .env        # optional: add OPENROUTER_API_KEY for real models
 npm run dev                 # migrates the DB, starts web + worker
 ```
 
-Open **http://127.0.0.1:3000**, create a project and generate your first sprite with the **Simulated** provider. No key and no cost are involved.
+Open **http://127.0.0.1:3000**, create a project and generate your first sprite with the **Simulated** provider. No key and no cost are involved. The interface is in English or Portuguese (switch in the top-right corner).
 
 ### Use real AI models
 
@@ -377,7 +405,7 @@ flowchart LR
   API --> Export[Portable ZIP<br/>manifest v1 + JSON Schemas]
 ```
 
-1. **Plan:** every AI operation (icon, inpaint, animation, view, state, interpolation, outfit coverage, texture, tileset, scene, room, furniture) is compiled into a typed **generation plan**. The plan freezes hash-checked sources, required capabilities, parts and a cost estimate under a canonical digest.
+1. **Plan:** every AI operation (icon, inpaint, animation, view, state, interpolation, outfit coverage, texture, tileset, scene, room, furniture, UI template and states, portrait, mouth shapes, pixel font) is compiled into a typed **generation plan**. The plan freezes hash-checked sources, required capabilities, parts and a cost estimate under a canonical digest.
 2. **Queue:** the persistent job queue records the intent before each remote call, the remote ID on acceptance and the raw bytes on arrival. A crash between "sent" and "accepted" is flagged as *uncertain*, never silently resent.
 3. **Process:** the Python pipeline runs pixel operations deterministically, and Node re-verifies hashes, paths and dimensions.
 4. **Publish:** results become candidate revisions linked to their sources. Approval is explicit, and export resolves the runtime dependency closure.
@@ -397,9 +425,10 @@ Benchmarks, costs and per-task recommendations are in **[MODELS.md](MODELS.md)**
 
 ```text
 src/contracts/   versioned zod contracts (plans, manifest v1, assets, Python protocol)
-src/domain/      pure rules: manifest validation, UI geometry, animation, equipment, autotile, isometric, maps, scenes
-src/server/      catalog, job queue + worker handlers, provider adapters, inpainting, animation, equipment, library, world, scenes
+src/domain/      pure rules: manifest validation, UI geometry and screens, animation, equipment, autotile, isometric, maps, scenes, dialogue and fonts
+src/server/      catalog, job queue + worker handlers, provider adapters, inpainting, animation, equipment, library, world, scenes, UI kit, dialogue
 src/app/         Next.js App Router: /api/v1 route handlers and the editors
+src/i18n/        English and Portuguese message catalogs, locale negotiation, bilingual server text
 src/worker/      background worker process
 python/          pixel_pipeline (raster operations over a JSON stdio protocol) + pytest suite
 consumers/       independent reader of the portable package (no Studio imports)
@@ -433,11 +462,11 @@ Design rules the code follows:
 - [x] Equipment layering and modular characters (weapons, armor, sockets)
 - [x] Character states, frame interpolation and partial edits
 - [x] Scenes, rooms, parallax backgrounds and furniture kits
-- [ ] UI kits: HUD, inventory, health bars, dialogue boxes
-- [ ] Portraits, expressions, lip-sync and pixel fonts
+- [x] UI kits: HUD, inventory, health bars, dialogue boxes
+- [x] Portraits, expressions, speech timing plans and pixel fonts
 - [ ] Music and sound effects
 - [ ] Engine exports: Tiled (TMX/TMJ), Godot, Unity, Aseprite, GIF
-- [ ] English UI localization
+- [x] English and Portuguese UI
 - [x] Local Codex CLI provider (ChatGPT plan, no API key)
 
 ## FAQ

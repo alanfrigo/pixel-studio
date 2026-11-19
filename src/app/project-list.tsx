@@ -3,10 +3,14 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { ProjectView } from "@/server/catalog/catalog";
+import { useLocale, useMessages } from "@/i18n/client";
+import { homeMessages } from "@/i18n/messages/home";
 import { apiFetch } from "./client/api";
 import { usePoll } from "./client/use-poll";
 
 export function ProjectList() {
+  const locale = useLocale();
+  const m = useMessages(homeMessages).projects;
   const { data, error, refresh } = usePoll(() => apiFetch<{ projects: ProjectView[] }>("/projects"), { active: () => false, slowMs: 30_000 });
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,21 +33,21 @@ export function ProjectList() {
 
   return (
     <section>
-      <h2>Projetos</h2>
+      <h2>{m.title}</h2>
       <form onSubmit={create}>
         <label>
-          Nome do jogo
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Clareira" required maxLength={120} />
+          {m.gameName}
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={m.namePlaceholder} required maxLength={120} />
         </label>
-        <button disabled={busy || !name.trim()}>Criar projeto</button>
+        <button disabled={busy || !name.trim()}>{m.create}</button>
         {createError && <span className="error">{createError}</span>}
       </form>
       {error && <p className="error">{error}</p>}
       <ul className="list" style={{ marginTop: 12 }}>
-        {data?.projects.length === 0 && <li className="muted">Nenhum projeto ainda. Comece por texto puro: crie um projeto e gere o primeiro asset.</li>}
+        {data?.projects.length === 0 && <li className="muted">{m.empty}</li>}
         {data?.projects.map((p) => (
           <li key={p.id}>
-            <Link href={`/projects/${p.id}`}>{p.name}</Link> <span className="muted small">· atualizado {new Date(p.updatedAt).toLocaleString("pt-BR")}</span>
+            <Link href={`/projects/${p.id}`}>{p.name}</Link> <span className="muted small">· {m.updated(new Date(p.updatedAt).toLocaleString(locale))}</span>
           </li>
         ))}
       </ul>

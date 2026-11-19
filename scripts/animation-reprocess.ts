@@ -9,6 +9,7 @@
  */
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pick } from "@/i18n/locales";
 import type { GenerationPlan } from "@/contracts";
 import { getRevision } from "@/server/catalog/catalog";
 import { loadConfig, loadDotEnv, REPO_ROOT } from "@/server/config";
@@ -44,7 +45,7 @@ for (const r of report.results) {
     columns: frames.length + 1,
     gap: 8,
   });
-  if (contact.status === "error") throw new Error(contact.message);
+  if (contact.status === "error") throw new Error(pick(contact.message, "pt-BR"));
   const tag = `${r.scenario}-${slugify(r.model).replaceAll("_", "-")}`;
   await copyFile(contact.outputs[0]!.absolutePath, path.join(dir, `${tag}-folha-v2.png`));
   const details = (result.processed.details as { sheet: { scale: unknown; frames: { frameId: string; lift: number; shift: number; clippedPixels: number }[] } }).sheet;

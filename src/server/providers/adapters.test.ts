@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildClareira } from "@/fixtures/clareira";
+import { pick, type TextValue } from "@/i18n/locales";
 import { createImage, encodePng, fillRect } from "@/lib/media/png";
 import { listRevisions } from "../catalog/catalog";
 import { makeTestStudio, seedIconJob, type TestStudio } from "../testing";
@@ -225,13 +226,13 @@ describe("cadastro de perfis", () => {
     expect(saved).toMatchObject({ transport: "openrouter_images", secretConfigured: true });
     const matrix = capabilityMatrix(studio.db, "or");
     expect(matrix.filter((m) => m.operation === "inpaint").map((m) => m.capability)).toEqual(["image_edit"]);
-    expect(matrix.every((m) => m.status === "declared" && m.contractSnapshot?.includes("2026-11-18"))).toBe(true);
+    expect(matrix.every((m) => m.status === "declared" && pick(m.contractSnapshot, "pt-BR").includes("2026-11-18"))).toBe(true);
 
     handlers.set("GET /api/v1/images/models/bytedance-seed/seedream-4.5/endpoints", (_req, res) =>
       json(res, 200, { endpoints: [{ provider_tag: "seed", supported_parameters: { input_references: { type: "array", max: 14 } }, pricing: [] }] }),
     );
     const check = await checkProfile(studio.db, new ProviderRegistry(studio.db, studio.config), "or");
-    expect(check).toMatchObject({ ok: true, message: expect.stringContaining("1 rota(s)") });
+    expect(check).toMatchObject({ ok: true, message: { "pt-BR": expect.stringContaining("1 rota(s)"), en: expect.stringContaining("1 route(s)") } });
     expect(requests.every((r) => r.method === "GET")).toBe(true);
   });
 
@@ -353,11 +354,11 @@ describe.skipIf(!existsSync(`${process.cwd()}/python/.venv/bin/python`))("geraç
 
     const { listRevisions } = await import("../catalog/catalog");
     const edited = listRevisions(studio.db, project.id, asset).find((r) => r.origin === "edit")!;
-    const report = edited.technicalReport as { mode: string; composite: { protectedDiffPixels: number; editedPixels: number; candidateAgreement: number }; steps: { operation: string; method?: string }[]; warnings: string[] };
+    const report = edited.technicalReport as { mode: string; composite: { protectedDiffPixels: number; editedPixels: number; candidateAgreement: number }; steps: { operation: string; method?: string }[]; warnings: TextValue[] };
     expect(report.mode).toBe("candidate-composite");
     expect(report.composite).toMatchObject({ protectedDiffPixels: 0, editedPixels: 64 * 40, candidateAgreement: 0 });
     expect(report.steps[0]).toMatchObject({ operation: "fit_logical", method: "nearest_integer" });
-    expect(report.warnings.some((w) => /emenda/.test(w))).toBe(true);
+    expect(report.warnings.some((w) => /emenda/.test(pick(w, "pt-BR")) && /seam/.test(pick(w, "en")))).toBe(true);
   });
 
   it("alfa só com uma referência: sem referência o plano usa cor-chave e não pede fundo transparente", async () => {

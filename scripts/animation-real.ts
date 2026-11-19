@@ -18,6 +18,7 @@
  */
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pick } from "@/i18n/locales";
 import type { ClipPayload, MotionPayload } from "@/contracts";
 import { findPreset } from "@/domain/animation/presets";
 import { defaultHumanoidPose, humanoidSkeleton, presetPoses } from "@/domain/animation/skeleton";
@@ -126,7 +127,7 @@ async function contactSheet(name: string, shas: string[], columns: number) {
     columns,
     gap: 8,
   });
-  if (out.status === "error") throw new Error(out.message);
+  if (out.status === "error") throw new Error(pick(out.message, "pt-BR"));
   await copyFile(out.outputs[0]!.absolutePath, path.join(outDir, `${name}.png`));
 }
 
@@ -177,7 +178,7 @@ for (const route of routes) {
       entry = {
         ...entry,
         operation: sc.plan.operation,
-        route: run.route.label,
+        route: run.route.label["pt-BR"],
         state: final.state,
         seconds: (Date.now() - started) / 1000,
         costUsd: result?.cost?.find((x) => x.unit === "USD")?.amount ?? null,

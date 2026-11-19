@@ -24,17 +24,19 @@ from typing import Any
 
 from PIL import Image, ImageChops, ImageOps
 
+from pixel_pipeline.i18n import tx
 from pixel_pipeline.operations import hex_rgb, inputs_by_ordinal, load_rgba, recipe_of, respond, write_png
-from pixel_pipeline.protocol import PipelineError, rgba_sha256
+from pixel_pipeline.protocol import PipelineError, Text, rgba_sha256
 
 Json = dict[str, Any]
 Rect = list[int]
 
 
-def _crop(image: Image.Image, rect: Rect, label: str) -> Image.Image:
+def _crop(image: Image.Image, rect: Rect, label: Text) -> Image.Image:
     x, y, w, h = rect
     if x < 0 or y < 0 or x + w > image.width or y + h > image.height:
-        raise PipelineError("geometry_mismatch", f"{label}: retângulo {rect} fora da imagem {image.width}×{image.height}")
+        pt, en = (label["pt-BR"], label["en"]) if isinstance(label, dict) else (label, label)
+        raise PipelineError("geometry_mismatch", tx(f"{pt}: retângulo {rect} fora da imagem {image.width}×{image.height}", f"{en}: rectangle {rect} outside the {image.width}×{image.height} image"))
     return image.crop((x, y, x + w, y + h))
 
 
@@ -71,7 +73,7 @@ def equipment_compose(request: Json, workdir: Path) -> Json:
     sheet = Image.new("RGBA", (cw * len(frames), ch), (0, 0, 0, 0))
     outputs: list[Json] = []
     report_frames: list[Json] = []
-    warnings: list[str] = []
+    warnings: list[Text] = []
     for index, frame in enumerate(frames):
         canvas = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
         placed: list[Json] = []
@@ -79,7 +81,7 @@ def equipment_compose(request: Json, workdir: Path) -> Json:
         for layer in frame["layers"]:
             source = images.get(layer["inputOrdinal"])
             if source is None:
-                raise PipelineError("invalid_request", f"Camada {layer['key']} cita entrada {layer['inputOrdinal']} inexistente")
+                raise PipelineError("invalid_request", tx(f"Camada {layer['key']} cita entrada {layer['inputOrdinal']} inexistente", f"Layer {layer['key']} references missing input {layer['inputOrdinal']}"))
             image = _crop(source, layer["rect"], layer["key"])
             if layer["mirrored"]:
                 image = ImageOps.mirror(image)
@@ -88,7 +90,7 @@ def equipment_compose(request: Json, workdir: Path) -> Json:
             clipped = any(over.values())
             placed.append({"key": layer["key"], "offset": [ox, oy], "size": [image.width, image.height], "overflow": over, "clipped": clipped})
             if clipped:
-                warnings.append(f"{frame['frameId']}: contorno cortado em {layer['key']} ({', '.join(f'{k} {v} px' for k, v in over.items() if v)})")
+                warnings.append(tx(f"{frame['frameId']}: contorno cortado em {layer['key']} ({', '.join(f'{k} {v} px' for k, v in over.items() if v)})", f"{frame['frameId']}: outline clipped on {layer['key']} ({', '.join(f'{k} {v} px' for k, v in over.items() if v)})"))
             for grip in layer.get("grips") or []:
                 gx, gy = grip["at"]
                 if layer["mirrored"]:
@@ -99,7 +101,7 @@ def equipment_compose(request: Json, workdir: Path) -> Json:
                 on_art = 0 <= gx < image.width and 0 <= gy < image.height and image.getpixel((gx, gy))[3] > 0
                 grips.append({"key": layer["key"], "socketId": grip["socketId"], "drawnAt": drawn, "expected": [ex, ey], "deviation": deviation, "exceeds": deviation > tolerance, "onArt": on_art})
                 if deviation > tolerance:
-                    warnings.append(f"{frame['frameId']}: {grip['socketId']} a {deviation} px da empunhadura de {layer['key']} (tolerância {tolerance} px)")
+                    warnings.append(tx(f"{frame['frameId']}: {grip['socketId']} a {deviation} px da empunhadura de {layer['key']} (tolerância {tolerance} px)", f"{frame['frameId']}: {grip['socketId']} is {deviation} px from the grip of {layer['key']} (tolerance {tolerance} px)"))
         sheet.alpha_composite(canvas, dest=(index * cw, 0))
         out = write_png(workdir, canvas, f"out/frames/{index:02d}.png", "frame", key=frame["frameId"])
         outputs.append(out)
@@ -256,18 +258,18 @@ def equipment_extract(request: Json, workdir: Path) -> Json:
     candidates = _load_inputs(request, workdir, "candidate")
     outputs: list[Json] = []
     report: list[Json] = []
-    warnings: list[str] = []
+    warnings: list[Text] = []
     for frame in recipe["frames"]:
         fid = frame["frameId"]
         base = bases.get(frame["baseOrdinal"])
         source = candidates.get(frame["candidateOrdinal"])
         if base is None or source is None:
-            raise PipelineError("invalid_request", f"Frame {fid}: base ou candidato ausente")
+            raise PipelineError("invalid_request", tx(f"Frame {fid}: base ou candidato ausente", f"Frame {fid}: base or candidate missing"))
         if base.size != (cw, ch):
-            raise PipelineError("geometry_mismatch", f"Frame {fid}: base {base.width}×{base.height}, célula {cw}×{ch}")
-        candidate = _crop(source, frame["candidateRect"], f"candidato de {fid}")
+            raise PipelineError("geometry_mismatch", tx(f"Frame {fid}: base {base.width}×{base.height}, célula {cw}×{ch}", f"Frame {fid}: base {base.width}×{base.height}, cell {cw}×{ch}"))
+        candidate = _crop(source, frame["candidateRect"], tx(f"candidato de {fid}", f"candidate for {fid}"))
         if candidate.size != (cw, ch):
-            raise PipelineError("geometry_mismatch", f"Frame {fid}: candidato fora da grade ({candidate.width}×{candidate.height}, célula {cw}×{ch})")
+            raise PipelineError("geometry_mismatch", tx(f"Frame {fid}: candidato fora da grade ({candidate.width}×{candidate.height}, célula {cw}×{ch})", f"Frame {fid}: candidate off the grid ({candidate.width}×{candidate.height}, cell {cw}×{ch})"))
         # Alfa binário no candidato (pixel art): abaixo do limiar vira transparente.
         alpha = candidate.getchannel("A").point(lambda a: 255 if a >= threshold else 0)
         # Resíduo da cor-chave ou da cor da guia nunca é peça: vira transparente e é relatado.
@@ -286,7 +288,7 @@ def equipment_extract(request: Json, workdir: Path) -> Json:
         candidate = Image.composite(candidate, Image.new("RGBA", candidate.size, (0, 0, 0, 0)), alpha)
         candidate.putalpha(alpha)
         if forbidden:
-            warnings.append(f"{fid}: {forbidden} px com a cor-chave ou da guia descartados do candidato")
+            warnings.append(tx(f"{fid}: {forbidden} px com a cor-chave ou da guia descartados do candidato", f"{fid}: {forbidden} px in the key color or the guide color discarded from the candidate"))
 
         zones_all = _mask_of((cw, ch), [r for part in frame["parts"] for r in part["zones"]])
         protect = _mask_of((cw, ch), frame["protect"])
@@ -304,9 +306,9 @@ def equipment_extract(request: Json, workdir: Path) -> Json:
             "parts": [],
         }
         if dx or dy:
-            warnings.append(f"{fid}: candidato realinhado em ({dx}, {dy}) px contra a base")
+            warnings.append(tx(f"{fid}: candidato realinhado em ({dx}, {dy}) px contra a base", f"{fid}: candidate realigned by ({dx}, {dy}) px against the base"))
         if base_opaque and _count(outside_changed) > 0.05 * base_opaque:
-            warnings.append(f"{fid}: o candidato mudou {_count(outside_changed)} px da base fora da zona; descartados (a base limpa prevalece)")
+            warnings.append(tx(f"{fid}: o candidato mudou {_count(outside_changed)} px da base fora da zona; descartados (a base limpa prevalece)", f"{fid}: the candidate changed {_count(outside_changed)} base px outside the zone; discarded (the clean base wins)"))
         claimed = Image.new("L", (cw, ch), 0)
         preview = base.copy()
         for part in frame["parts"]:
@@ -335,7 +337,7 @@ def equipment_extract(request: Json, workdir: Path) -> Json:
             }
             if bbox is None:
                 part_report.update(rect=None, offset=None)
-                warnings.append(f"{fid}/{pid}: nada da peça dentro da zona; se a pose a encobre, marque a célula vazia")
+                warnings.append(tx(f"{fid}/{pid}: nada da peça dentro da zona; se a pose a encobre, marque a célula vazia", f"{fid}/{pid}: nothing of the piece inside the zone; if the pose hides it, mark the cell empty"))
             else:
                 x0, y0, x1, y1 = bbox
                 cropped = layer.crop(bbox)
@@ -344,9 +346,9 @@ def equipment_extract(request: Json, workdir: Path) -> Json:
                 part_report.update(rect=[0, 0, x1 - x0, y1 - y0], offset=[x0, y0], sha256=out["sha256"], rgbaSha256=out["rgbaSha256"])
                 preview.alpha_composite(cropped, dest=(x0, y0))
             if touches:
-                warnings.append(f"{fid}/{pid}: a peça encosta na borda da zona em {len(touches)} px e continua fora dela (ex.: {touches[0]}); amplie a zona se ela foi cortada")
+                warnings.append(tx(f"{fid}/{pid}: a peça encosta na borda da zona em {len(touches)} px e continua fora dela (ex.: {touches[0]}); amplie a zona se ela foi cortada", f"{fid}/{pid}: the piece touches the zone edge on {len(touches)} px and continues outside it (e.g. {touches[0]}); enlarge the zone if it was cut off"))
             if erased:
-                warnings.append(f"{fid}/{pid}: o candidato apagou {erased} px da base dentro da zona; uma camada só acrescenta pixels, revise a silhueta")
+                warnings.append(tx(f"{fid}/{pid}: o candidato apagou {erased} px da base dentro da zona; uma camada só acrescenta pixels, revise a silhueta", f"{fid}/{pid}: the candidate erased {erased} base px inside the zone; a layer only adds pixels, review the silhouette"))
             frame_report["parts"].append(part_report)
         outputs.append(write_png(workdir, preview, f"out/{fid}--preview.png", "preview", key=fid))
         outputs.append(write_png(workdir, moved, f"out/{fid}--candidate.png", "aligned", key=fid))
@@ -372,10 +374,10 @@ def equipment_guide(request: Json, workdir: Path) -> Json:
     for frame in frames:
         base = bases.get(frame["baseOrdinal"])
         if base is None or base.size != (cw, ch):
-            raise PipelineError("geometry_mismatch", f"Frame {frame['frameId']}: base ausente ou fora da célula {cw}×{ch}")
+            raise PipelineError("geometry_mismatch", tx(f"Frame {frame['frameId']}: base ausente ou fora da célula {cw}×{ch}", f"Frame {frame['frameId']}: base missing or outside the {cw}×{ch} cell"))
         ox, oy = frame["at"]
         if ox < 0 or oy < 0 or ox + cw > gw or oy + ch > gh:
-            raise PipelineError("geometry_mismatch", f"Frame {frame['frameId']}: célula em ({ox}, {oy}) fora da tela {gw}×{gh}")
+            raise PipelineError("geometry_mismatch", tx(f"Frame {frame['frameId']}: célula em ({ox}, {oy}) fora da tela {gw}×{gh}", f"Frame {frame['frameId']}: cell at ({ox}, {oy}) outside the {gw}×{gh} canvas"))
         grid.alpha_composite(base, dest=(ox, oy))
         cell_zone = ImageChops.subtract(_mask_of((cw, ch), frame["zones"]), _mask_of((cw, ch), frame["protect"]))
         zone.paste(cell_zone, (ox, oy))
@@ -396,7 +398,7 @@ def equipment_region_hashes(request: Json, workdir: Path) -> Json:
     for region in recipe["regions"]:
         source = images.get(region["inputOrdinal"])
         if source is None:
-            raise PipelineError("invalid_request", f"Região {region['key']} cita entrada {region['inputOrdinal']} inexistente")
+            raise PipelineError("invalid_request", tx(f"Região {region['key']} cita entrada {region['inputOrdinal']} inexistente", f"Region {region['key']} references missing input {region['inputOrdinal']}"))
         crop = _crop(source, region["rect"], region["key"])
         hashes[region["key"]] = rgba_sha256(crop)
         bbox = crop.getchannel("A").getbbox()

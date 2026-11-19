@@ -239,6 +239,15 @@ Use it when you have a ChatGPT plan and do not want to pay per call.
 | The parallax camera test did not catch a non-repeating plane leaving the screen | The test now fails the loop when any plane leaves the viewport. |
 | Room door marks were painted as yellow blocks | The room recipe says the marks only locate doorways and must become a real door or opening. |
 
+## 11. Not benchmarked yet
+
+These features run end to end with the simulated provider and are covered by tests, but no real model has been measured on them yet:
+- game UI kit templates and generated states;
+- portraits and expression mouth sheets;
+- pixel-font glyph pages.
+
+They use the same generic route (image + references, with a raster guide) as the benchmarked tasks, so `gpt-image-2.6-flare` or the Codex CLI are the expected starting points.
+
 ## Reproduce
 
 Every paid script estimates first and only spends with `--yes`. It enforces `--max-usd` and checks the key's remaining limit before sending anything.
@@ -257,6 +266,7 @@ npx tsx scripts/scenes-real.ts                                              # fl
 npx tsx scripts/showcase-real.ts                                            # README gallery (dry run)
 npx tsx scripts/codex-real.ts                                               # Codex CLI: version, login and skill check (no generation)
 npx tsx scripts/codex-real.ts --yes                                         # 7 images on your ChatGPT plan quota
+npx tsx scripts/dialogue-real.ts                                            # portrait, mouth sheets and font pages (dry run)
 ```
 
 Raw outputs, contact sheets and per-case technical reports are written to `reports/` (git-ignored).

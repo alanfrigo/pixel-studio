@@ -1,3 +1,4 @@
+import { isLocalized, type LocalizedText, pick, type TextValue, tx } from "@/i18n/locales";
 import { type BasePayload, type Capability, type ClipPayload, type Direction, type MotionPayload, parseRevisionPayload, type PlanOperation, type RigPayload } from "@/contracts";
 import { resolveView } from "@/domain/animation/directions";
 import { type AssetView, getAsset, getRevision, type RevisionFileView, type RevisionView } from "../catalog/catalog";
@@ -21,13 +22,13 @@ export function loadBase(db: Db, projectId: string, baseRevisionId: string, opts
   const revision = getRevision(db, projectId, baseRevisionId);
   const asset = getAsset(db, projectId, revision.assetId);
   if (asset.family !== "character" || asset.kind !== "base") {
-    throw new DomainFailure("validation_failed", `A animação parte de uma base de personagem; ${asset.name} é ${asset.family}/${asset.kind}`);
+    throw new DomainFailure("validation_failed", tx(`A animação parte de uma base de personagem; ${asset.name} é ${asset.family}/${asset.kind}`, `Animation starts from a character base; ${asset.name} is ${asset.family}/${asset.kind}`));
   }
   if ((opts.approved ?? true) && revision.status !== "approved") {
-    throw new DomainFailure("source_not_approved", `A base ${asset.name} r${revision.number} precisa estar aprovada`);
+    throw new DomainFailure("source_not_approved", tx(`A base ${asset.name} r${revision.number} precisa estar aprovada`, `The base ${asset.name} r${revision.number} must be approved`));
   }
   const parsed = parseRevisionPayload("character", "base", revision.payload);
-  if (!parsed.success || parsed.entry.kind !== "base") throw new DomainFailure("internal", "Payload da base não passa no schema");
+  if (!parsed.success || parsed.entry.kind !== "base") throw new DomainFailure("internal", tx("Payload da base não passa no schema", "Base payload does not match the schema"));
   return { revision, asset, payload: parsed.entry.payload as BasePayload };
 }
 
@@ -38,7 +39,8 @@ export function loadBase(db: Db, projectId: string, baseRevisionId: string, opts
 export function viewFile(base: LoadedBase, direction: Direction): { view: BasePayload["views"][number]; file: RevisionFileView; size: [number, number] } {
   const resolution = resolveView(direction, base.payload.views);
   if (resolution.kind !== "view") {
-    throw new DomainFailure("coverage_incomplete", `${base.asset.name}: ${resolution.kind === "missing" ? resolution.reason : "espelho não é implícito"}`, {
+    const reason = resolution.kind === "missing" ? resolution.reason : tx("espelho não é implícito", "mirroring is never implicit");
+    throw new DomainFailure("coverage_incomplete", tx(`${base.asset.name}: ${pick(reason, "pt-BR")}`, `${base.asset.name}: ${pick(reason, "en")}`), {
       missingView: direction,
       available: base.payload.views.map((v) => v.direction),
     });
@@ -47,10 +49,10 @@ export function viewFile(base: LoadedBase, direction: Direction): { view: BasePa
   const file = base.revision.files.find((f) => f.fileKey === view.fileId);
   const [w, h] = base.payload.logicalSize;
   const { width, height } = (file?.metadata ?? {}) as { width?: number; height?: number };
-  if (!file || file.mime !== "image/png") throw new DomainFailure("not_found", `A vista ${direction} não tem arquivo PNG vinculado`);
+  if (!file || file.mime !== "image/png") throw new DomainFailure("not_found", tx(`A vista ${direction} não tem arquivo PNG vinculado`, `View ${direction} has no linked PNG file`));
   // S1 anima vistas guardadas como célula inteira (o que a geração e a composição produzem).
   if (width !== w || height !== h || view.rect[0] !== 0 || view.rect[1] !== 0 || view.rect[2] !== w || view.rect[3] !== h || view.sourceOffset[0] !== 0 || view.sourceOffset[1] !== 0) {
-    throw new DomainFailure("validation_failed", `A vista ${direction} está num atlas (${width}×${height}, rect ${view.rect.join(",")}); recorte-a para a célula ${w}×${h} antes de animar`);
+    throw new DomainFailure("validation_failed", tx(`A vista ${direction} está num atlas (${width}×${height}, rect ${view.rect.join(",")}); recorte-a para a célula ${w}×${h} antes de animar`, `View ${direction} is in an atlas (${width}×${height}, rect ${view.rect.join(",")}); crop it to the ${w}×${h} cell before animating`));
   }
   return { view, file, size: [w, h] };
 }
@@ -75,9 +77,9 @@ export function rigForBase(db: Db, projectId: string, base: LoadedBase): { id: s
 export function loadMotion(db: Db, projectId: string, motionRevisionId: string, opts: { approved?: boolean } = {}): { revision: RevisionView; payload: MotionPayload } {
   const revision = getRevision(db, projectId, motionRevisionId);
   const asset = getAsset(db, projectId, revision.assetId);
-  if (asset.family !== "character" || asset.kind !== "motion") throw new DomainFailure("validation_failed", `${asset.name} não é um movimento`);
+  if (asset.family !== "character" || asset.kind !== "motion") throw new DomainFailure("validation_failed", tx(`${asset.name} não é um movimento`, `${asset.name} is not a motion`));
   if ((opts.approved ?? true) && revision.status !== "approved") {
-    throw new DomainFailure("source_not_approved", `O movimento ${asset.name} r${revision.number} precisa estar aprovado antes de gerar`);
+    throw new DomainFailure("source_not_approved", tx(`O movimento ${asset.name} r${revision.number} precisa estar aprovado antes de gerar`, `Motion ${asset.name} r${revision.number} must be approved before generating`));
   }
   return { revision, payload: revision.payload as MotionPayload };
 }
@@ -85,7 +87,7 @@ export function loadMotion(db: Db, projectId: string, motionRevisionId: string, 
 export function loadClip(db: Db, projectId: string, clipRevisionId: string): { revision: RevisionView; asset: AssetView; payload: ClipPayload } {
   const revision = getRevision(db, projectId, clipRevisionId);
   const asset = getAsset(db, projectId, revision.assetId);
-  if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", `${asset.name} não é um clipe`);
+  if (asset.family !== "character" || asset.kind !== "clip") throw new DomainFailure("validation_failed", tx(`${asset.name} não é um clipe`, `${asset.name} is not a clip`));
   return { revision, asset, payload: revision.payload as ClipPayload };
 }
 
@@ -98,17 +100,17 @@ export type AnimationStrategy = "native" | "reference_sheet";
 export interface AnimationRoute {
   strategy: AnimationStrategy;
   required: Capability[];
-  label: string;
+  label: LocalizedText;
 }
 
 export const ROUTE_LABELS = {
-  native_text: "Animação por texto nativa do provedor",
-  native_skeleton: "Esqueleto enviado como dados (keypoints de cada quadro)",
-  native_rotation: "Rotação nativa: arte nova da direção",
-  sheet_text: "Folha de quadros por imagem + referência (rota genérica; não é animação nativa)",
-  sheet_skeleton: "Guia de poses em imagem + referência (rota genérica; não é esqueleto estruturado)",
-  sheet_rotation: "Nova vista desenhada por imagem + referência (rota genérica; não é rotação nativa)",
-} as const;
+  native_text: tx("Animação por texto nativa do provedor", "Provider's native text animation"),
+  native_skeleton: tx("Esqueleto enviado como dados (keypoints de cada quadro)", "Skeleton sent as data (keypoints for each frame)"),
+  native_rotation: tx("Rotação nativa: arte nova da direção", "Native rotation: new art for the direction"),
+  sheet_text: tx("Folha de quadros por imagem + referência (rota genérica; não é animação nativa)", "Frame sheet via image + reference (generic route; not native animation)"),
+  sheet_skeleton: tx("Guia de poses em imagem + referência (rota genérica; não é esqueleto estruturado)", "Pose guide image + reference (generic route; not a structured skeleton)"),
+  sheet_rotation: tx("Nova vista desenhada por imagem + referência (rota genérica; não é rotação nativa)", "New view drawn via image + reference (generic route; not native rotation)"),
+} as const satisfies Record<string, LocalizedText>;
 
 /**
  * Escolhe a rota pela capacidade declarada da operação: nativa quando o
@@ -139,10 +141,27 @@ export function chooseRoute(
   throw new DomainFailure(
     "capability_missing",
     want.isometric && offered.includes("image_references")
-      ? `O perfil ${profileId} não qualifica vistas isométricas nesta operação; use um perfil que declare isometric_views (rotação nativa com vista isométrica)`
-      : `O perfil ${profileId} não oferece ${missing.join(", ")} nem imagem + referências para ${operation}`,
+      ? tx(
+          `O perfil ${profileId} não qualifica vistas isométricas nesta operação; use um perfil que declare isometric_views (rotação nativa com vista isométrica)`,
+          `Provider profile ${profileId} does not support isometric views for this operation; use a profile that declares isometric_views (native rotation with isometric view)`,
+        )
+      : tx(
+          `O perfil ${profileId} não oferece ${missing.join(", ")} nem imagem + referências para ${operation}`,
+          `Provider profile ${profileId} offers neither ${missing.join(", ")} nor image + references for ${operation}`,
+        ),
     { missing, offered },
   );
+}
+
+/**
+ * Texto de um erro capturado para devolver na API (rota indisponível, edição
+ * recusada): bilíngue quando o erro traz `messages` (DomainFailure,
+ * ClipEditError), senão a mensagem como veio.
+ */
+export function failureText(err: unknown): TextValue {
+  const messages = (err as { messages?: unknown } | null)?.messages;
+  if (isLocalized(messages)) return messages;
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** IDs dos quadros do texto livre: estáveis e locais à revisão do clipe. */

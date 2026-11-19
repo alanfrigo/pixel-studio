@@ -1,4 +1,5 @@
 import type { ClipPayload } from "@/contracts";
+import { type LocalizedText, tx } from "@/i18n/locales";
 
 /**
  * Tempo de clipe (04 §contratos): `durationMs` inteiro positivo de cada quadro
@@ -7,6 +8,20 @@ import type { ClipPayload } from "@/contracts";
  */
 
 export type Playback = ClipPayload["playback"];
+
+/**
+ * Edição de clipe recusada, com o motivo nos dois idiomas (`messages`). É um
+ * RangeError com a mensagem em português; o serviço a converte em erro de
+ * domínio bilíngue.
+ */
+export class ClipEditError extends RangeError {
+  readonly messages: LocalizedText;
+  constructor(text: LocalizedText) {
+    super(text["pt-BR"]);
+    this.messages = text;
+    this.name = "ClipEditError";
+  }
+}
 
 export function totalMs(durations: readonly number[]): number {
   return durations.reduce((a, b) => a + b, 0);
@@ -44,11 +59,11 @@ export function frameAt(durations: readonly number[], t: number, playback: Playb
   return order[order.length - 1]!;
 }
 
-export function durationProblems(durations: readonly number[], frames: number): string[] {
-  const problems: string[] = [];
-  if (durations.length !== frames) problems.push(`Esperadas ${frames} durações, recebidas ${durations.length}`);
+export function durationProblems(durations: readonly number[], frames: number): LocalizedText[] {
+  const problems: LocalizedText[] = [];
+  if (durations.length !== frames) problems.push(tx(`Esperadas ${frames} durações, recebidas ${durations.length}`, `Expected ${frames} durations, got ${durations.length}`));
   durations.forEach((d, i) => {
-    if (!Number.isInteger(d) || d < 1 || d > 60_000) problems.push(`Duração do quadro ${i + 1} deve ser inteira entre 1 e 60000 ms`);
+    if (!Number.isInteger(d) || d < 1 || d > 60_000) problems.push(tx(`Duração do quadro ${i + 1} deve ser inteira entre 1 e 60000 ms`, `Frame ${i + 1} duration must be a whole number from 1 to 60000 ms`));
   });
   return problems;
 }
@@ -56,7 +71,7 @@ export function durationProblems(durations: readonly number[], frames: number): 
 /** Novo payload com as durações trocadas; IDs, camadas, sockets e eventos intactos. */
 export function retimeClip(clip: ClipPayload, durations: readonly number[]): ClipPayload {
   const problems = durationProblems(durations, clip.frames.length);
-  if (problems.length > 0) throw new RangeError(problems[0]);
+  if (problems.length > 0) throw new ClipEditError(problems[0]!);
   return { ...clip, frames: clip.frames.map((f, i) => ({ ...f, durationMs: durations[i]! })) };
 }
 

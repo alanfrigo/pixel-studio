@@ -18,6 +18,7 @@ import {
 } from "@/contracts";
 import { canonicalDigest } from "@/domain/canonical-json";
 import { validatePlanReferences } from "@/domain/plan/references";
+import { type LocalizedText, tx } from "@/i18n/locales";
 import { type BlobRecord, getAsset, getProject, getRevision, getStyleRevision, publishRevision, type RevisionView } from "../catalog/catalog";
 import { catalogLookup } from "../catalog/plan-lookup";
 import { DomainFailure } from "../errors";
@@ -80,13 +81,13 @@ export type TilesetTemplateInput = z.input<typeof TilesetTemplateInput>;
 
 function assertTilesetAsset(studio: Studio, projectId: string, assetId: string, kind: TilesetKind) {
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "tileset" || asset.kind !== kind) throw new DomainFailure("validation_failed", `O asset é ${asset.family}/${asset.kind}; esperado tileset/${kind}`);
+  if (asset.family !== "tileset" || asset.kind !== kind) throw new DomainFailure("validation_failed", tx(`O asset é ${asset.family}/${asset.kind}; esperado tileset/${kind}`, `The asset is ${asset.family}/${asset.kind}; expected tileset/${kind}`));
   return asset;
 }
 
 function atlasOf(revision: RevisionView, payload: AnyTilesetPayload) {
   const file = revision.files.find((f) => f.fileKey === payload.atlas.fileId);
-  if (!file) throw new DomainFailure("not_found", `Atlas ${payload.atlas.fileId} ausente na revisão`);
+  if (!file) throw new DomainFailure("not_found", tx(`Atlas ${payload.atlas.fileId} ausente na revisão`, `Atlas ${payload.atlas.fileId} is missing from the revision`));
   const { width, height } = file.metadata as { width?: number; height?: number };
   return { file, size: [width ?? 0, height ?? 0] as [number, number] };
 }
@@ -113,15 +114,21 @@ export async function buildTilesetTemplate(studio: Studio, projectId: string, as
   let guides: WorldRun;
   const sources: { revisionId: string }[] = [];
   const extra: { fileKey: string; role: string; idx: number; blob: BlobRecord }[] = [];
-  let label: string;
+  let label: LocalizedText;
 
   if (input.kind === "corner") {
     const a = textureSource(studio, projectId, input.materialA);
     const b = textureSource(studio, projectId, input.materialB);
     if (a.size[0] !== b.size[0] || a.size[1] !== b.size[1]) {
-      throw new DomainFailure("validation_failed", `As texturas têm tamanhos diferentes (${a.size.join("×")} e ${b.size.join("×")}); a célula usa o tamanho delas`);
+      throw new DomainFailure(
+        "validation_failed",
+        tx(
+          `As texturas têm tamanhos diferentes (${a.size.join("×")} e ${b.size.join("×")}); a célula usa o tamanho delas`,
+          `The textures have different sizes (${a.size.join("×")} and ${b.size.join("×")}); the cell uses their size`,
+        ),
+      );
     }
-    if (input.terrains[0].terrainId === input.terrains[1].terrainId) throw new DomainFailure("validation_failed", "Os dois terrenos devem ser distintos");
+    if (input.terrains[0].terrainId === input.terrains[1].terrainId) throw new DomainFailure("validation_failed", tx("Os dois terrenos devem ser distintos", "The two terrains must be different"));
     const cell = a.size;
     guides = await runWorldPython(studio, "corner_guides", [{ role: "layer", sha256: a.sha256 }, { role: "layer", sha256: b.sha256 }], {
       cellSize: cell,
@@ -172,7 +179,7 @@ export async function buildTilesetTemplate(studio: Studio, projectId: string, as
   } else {
     const floor = textureSource(studio, projectId, input.floor);
     const [dw, dh] = input.diamond;
-    if (dw % 2 || dh % 2) throw new DomainFailure("validation_failed", "Losango deve ter largura e altura pares");
+    if (dw % 2 || dh % 2) throw new DomainFailure("validation_failed", tx("Losango deve ter largura e altura pares", "The diamond must have even width and height"));
     const prop = input.prop ? resolveImageRef(studio, projectId, input.prop.image) : null;
     guides = await runWorldPython(
       studio,
@@ -188,9 +195,9 @@ export async function buildTilesetTemplate(studio: Studio, projectId: string, as
       const size: [number, number] = [p.rect[2], p.rect[3]];
       if (p.kind === "prop") {
         const sp = input.prop!.supportPoint ?? p.visualBase;
-        if (!sp) throw new DomainFailure("validation_failed", "Prop sem pixels visíveis: não há base para o apoio");
-        if (sp[0] > size[0] || sp[1] > size[1]) throw new DomainFailure("validation_failed", "Ponto de apoio fora da imagem do prop");
-        if (sp[1] < dh / 2) throw new DomainFailure("validation_failed", "Apoio do prop alto demais: o losango do footprint sairia da imagem");
+        if (!sp) throw new DomainFailure("validation_failed", tx("Prop sem pixels visíveis: não há base para o apoio", "The prop has no visible pixels: there is no base for the support point"));
+        if (sp[0] > size[0] || sp[1] > size[1]) throw new DomainFailure("validation_failed", tx("Ponto de apoio fora da imagem do prop", "Support point is outside the prop image"));
+        if (sp[1] < dh / 2) throw new DomainFailure("validation_failed", tx("Apoio do prop alto demais: o losango do footprint sairia da imagem", "The prop support point is too high: the footprint diamond would leave the image"));
         pieces.push({
           pieceKey: "prop",
           kind: "prop",
@@ -265,11 +272,11 @@ export const TilesetImportInput = z.strictObject({
 export async function importTileset(studio: Studio, projectId: string, assetId: string, raw: z.input<typeof TilesetImportInput>) {
   const input = TilesetImportInput.parse(raw);
   const asset = getAsset(studio.db, projectId, assetId);
-  if (asset.family !== "tileset") throw new DomainFailure("validation_failed", "Importação de atlas é para assets de tileset");
+  if (asset.family !== "tileset") throw new DomainFailure("validation_failed", tx("Importação de atlas é para assets de tileset", "Atlas import is for tileset assets"));
   const image = resolveImageRef(studio, projectId, input.image);
   const candidate = { ...input.payload, atlas: { margin: 0, spacing: 0, ...((input.payload.atlas as object) ?? {}), fileId: "atlas" } };
   const parsed = parseRevisionPayload(asset.family, asset.kind, candidate);
-  if (!parsed.success) throw new DomainFailure("validation_failed", "Layout declarado não confere com o tipo do tileset", { issues: parsed.issues.slice(0, 20) });
+  if (!parsed.success) throw new DomainFailure("validation_failed", tx("Layout declarado não confere com o tipo do tileset", "The declared layout does not match the tileset type"), { issues: parsed.issues.slice(0, 20) });
   const payload = parsed.entry.payload as AnyTilesetPayload;
   const check = await checkTilesetAtlas(studio, asset.kind as TilesetKind, payload, image.sha256);
   const revision = publishRevision(studio.db, studio.clock, {
@@ -291,7 +298,7 @@ export async function importTileset(studio: Studio, projectId: string, assetId: 
 export async function checkTilesetRevision(studio: Studio, projectId: string, revisionId: string, opts: { threshold?: number } = {}) {
   const revision = getRevision(studio.db, projectId, revisionId);
   const asset = getAsset(studio.db, projectId, revision.assetId);
-  if (asset.family !== "tileset") throw new DomainFailure("validation_failed", "A revisão não é de um tileset");
+  if (asset.family !== "tileset") throw new DomainFailure("validation_failed", tx("A revisão não é de um tileset", "The revision is not a tileset"));
   const payload = revision.payload as AnyTilesetPayload;
   const { file } = atlasOf(revision, payload);
   const guide = (revision.technicalReport as { guide?: { sha256: string; lockedBandPx: number } } | null)?.guide;
@@ -327,14 +334,14 @@ export type TilesetPlanInput = z.input<typeof TilesetPlanInput>;
 export function buildTilesetPlan(studio: Studio, projectId: string, raw: TilesetPlanInput) {
   const input = TilesetPlanInput.parse(raw);
   const project = getProject(studio.db, projectId);
-  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", "Projeto sem estilo ativo");
+  if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", tx("Projeto sem estilo ativo", "Project has no active style"));
   const style = getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload;
   studio.providers.assertReady(input.providerProfileId);
   const adapter = studio.providers.adapterFor(input.providerProfileId);
   const guide = getRevision(studio.db, projectId, input.guideRevisionId);
-  if (guide.status !== "approved") throw new DomainFailure("source_not_approved", `O gabarito r${guide.number} precisa estar aprovado`);
+  if (guide.status !== "approved") throw new DomainFailure("source_not_approved", tx(`O gabarito r${guide.number} precisa estar aprovado`, `Template r${guide.number} must be approved`));
   const asset = getAsset(studio.db, projectId, guide.assetId);
-  if (asset.family !== "tileset") throw new DomainFailure("validation_failed", "O gabarito precisa ser uma revisão de tileset");
+  if (asset.family !== "tileset") throw new DomainFailure("validation_failed", tx("O gabarito precisa ser uma revisão de tileset", "The template must be a tileset revision"));
   const kind = asset.kind as TilesetKind;
   const payload = guide.payload as AnyTilesetPayload;
   const { file, size } = atlasOf(guide, payload);
@@ -343,11 +350,18 @@ export function buildTilesetPlan(studio: Studio, projectId: string, raw: Tileset
   const offered = adapter.capabilities("generate_tileset");
   const missing = required.filter((c) => !offered.includes(c));
   if (missing.length) {
-    throw new DomainFailure("capability_missing", `O perfil ${input.providerProfileId} não edita a partir de um gabarito (${missing.join(", ")}); geração nativa de tileset não está disponível neste perfil`, { missing, offered });
+    throw new DomainFailure(
+      "capability_missing",
+      tx(
+        `O perfil ${input.providerProfileId} não edita a partir de um gabarito (${missing.join(", ")}); geração nativa de tileset não está disponível neste perfil`,
+        `Provider profile ${input.providerProfileId} cannot edit from a template (${missing.join(", ")}); native tileset generation is not available in this profile`,
+      ),
+      { missing, offered },
+    );
   }
   const materials = input.materialRevisionIds.map((id) => textureSource(studio, projectId, id));
   const maxRefs = adapter.limits?.("generate_tileset").maxReferences;
-  if (maxRefs !== undefined && 1 + materials.length > maxRefs) throw new DomainFailure("capability_missing", `O perfil aceita até ${maxRefs} referências; o pedido tem ${1 + materials.length}`);
+  if (maxRefs !== undefined && 1 + materials.length > maxRefs) throw new DomainFailure("capability_missing", tx(`O perfil aceita até ${maxRefs} referências; o pedido tem ${1 + materials.length}`, `The provider profile accepts up to ${maxRefs} references; the request has ${1 + materials.length}`));
   const language = input.language ?? (style.briefLanguage === "en" ? "en" : "pt-BR");
   const guideRef = { revisionId: guide.id, atlasSize: size, lockedBandPx: band, geometry: geometryOf(kind, payload) };
   const params: Extract<GenerationPlan, { operation: "generate_tileset" }>["params"] =

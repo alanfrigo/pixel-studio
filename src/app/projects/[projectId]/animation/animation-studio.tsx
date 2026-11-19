@@ -2,12 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { BasePayload, ClipPayload, Direction, MotionPayload, ProjectionKind } from "@/contracts";
-import { BUILTIN_PRESETS } from "@/domain/animation/presets";
+import { BUILTIN_PRESETS, presetText } from "@/domain/animation/presets";
 import type { RevisionView } from "@/server/catalog/catalog";
-import { ApiError, apiFetch } from "@/app/client/api";
+import { ApiError, apiFetch, errorMessage } from "@/app/client/api";
+import { costText } from "@/app/client/cost";
 import { usePoll } from "@/app/client/use-poll";
+import { useLocale, useMessages, useText } from "@/i18n/client";
+import type { TextValue } from "@/i18n/locales";
+import { animationMessages } from "@/i18n/messages/animation";
+import { commonMessages, labelOf } from "@/i18n/messages/common";
 import { ClipPlayer } from "./clip-player";
-import { type AssetEntry, DIR_LABEL, DIRS, errorText, estimateText, type Overview, type PlanPreview, type ProfileInfo, review, type RunResult, viewUrl } from "./shared";
+import { type AssetEntry, DIRS, errorText, estimateText, type Overview, type PlanPreview, type ProfileInfo, review, type RunResult, viewUrl } from "./shared";
 import { SkeletonEditor } from "./skeleton-editor";
 import { LibraryPanel } from "./library-panel";
 import { ObjectsPanel, StatesPanel } from "./states-panel";
@@ -46,6 +51,10 @@ function loadConfig(projectId: string, profileId: string): PresetConfig | null {
 }
 
 export function AnimationStudio({ projectId }: { projectId: string }) {
+  const m = useMessages(animationMessages);
+  const s = m.studio;
+  const c = useMessages(commonMessages);
+  const text = useText();
   const { data, error, refresh } = usePoll(() => apiFetch<Overview>(`/projects/${projectId}/animation`), {
     active: (d) => d.jobs.some((j) => j.state === "queued" || j.state === "running"),
     fastMs: 1000,
@@ -70,7 +79,7 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
     setMessage(null);
     try {
       const res = await apiFetch<RunResult>(`/projects/${projectId}/animation/run`, { method: "POST", json: { plan, oneClick: opts.oneClick ?? false, allowUnknownCost: opts.allowUnknownCost ?? false } });
-      setMessage(res.created ? `Job ${res.job.id} enfileirado · ${res.route.label}.` : `Mesmo pedido: job ${res.job.id} já existe (nenhum envio nem cobrança duplicados).`);
+      setMessage(res.created ? s.jobQueued(res.job.id, text(res.route.label)) : s.jobExists(res.job.id));
       refresh();
       return res;
     } catch (err) {
@@ -84,20 +93,20 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
   }
 
   if (error && !data) return <p className="error">{error}</p>;
-  if (!data) return <p className="muted">Carregando…</p>;
+  if (!data) return <p className="muted">{c.loading}</p>;
 
   return (
     <>
-      <h1>Animação, estados e edição temporal</h1>
+      <h1>{s.title}</h1>
       {bases.length === 0 ? (
         <section>
-          <p className="error">Nenhuma base de personagem aprovada neste projeto. Importe ou gere uma base (character/base) e aprove-a na biblioteca do projeto, ou crie um objeto (baú, tocha) a partir de uma imagem na aba Objetos.</p>
+          <p className="error">{s.noBases}</p>
         </section>
       ) : (
         <section>
           <div className="row">
             <label>
-              Base aprovada
+              {s.approvedBase}
               <select value={base?.asset.id ?? ""} onChange={(e) => setBaseAssetId(e.target.value)}>
                 {bases.map((b) => (
                   <option key={b.asset.id} value={b.asset.id}>
@@ -107,23 +116,23 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
               </select>
             </label>
             <label>
-              Perfil
+              {s.profile}
               <select value={profile?.id ?? ""} onChange={(e) => setProfileId(e.target.value)}>
                 {profiles.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
-                    {p.simulated ? " (simulado)" : ""}
+                    {p.simulated ? m.shared.simulated : ""}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              Direção
+              {m.shared.direction}
               <select value={direction} onChange={(e) => setDirection(e.target.value as Direction)}>
                 {DIRS.map((d) => (
                   <option key={d} value={d}>
-                    {d} · {DIR_LABEL[d]}
-                    {hasView(d) ? "" : " — sem vista"}
+                    {d} · {c.directions[d]}
+                    {hasView(d) ? "" : s.noView}
                   </option>
                 ))}
               </select>
@@ -132,30 +141,30 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
               <span className="row small">
                 {basePayload.views.map((v) => (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img key={v.direction} className="pixel" alt={`Vista ${v.direction}`} title={`Vista ${v.direction}`} src={viewUrl(projectId, approved, v.direction)!} width={48} height={48} />
+                  <img key={v.direction} className="pixel" alt={m.shared.viewAlt(v.direction)} title={m.shared.viewAlt(v.direction)} src={viewUrl(projectId, approved, v.direction)!} width={48} height={48} />
                 ))}
                 <span className="muted">
-                  r{approved.number} · {basePayload.logicalSize.join("×")} · pivô {basePayload.groundOrigin.join(",")}
+                  r{approved.number} · {basePayload.logicalSize.join("×")} · {s.pivot(basePayload.groundOrigin.join(","))}
                 </span>
               </span>
             )}
           </div>
           {profile && <RouteBadges profile={profile} />}
-          {!hasView(direction) && <p className="small error">A base não tem a vista {direction}: gere-a na aba Vistas. Espelhar a vista oposta não é implícito.</p>}
+          {!hasView(direction) && <p className="small error">{s.missingView(direction)}</p>}
         </section>
       )}
       <nav className="row anim-tabs">
         {(
           [
-            ["preset", "Um clique"],
-            ["text", "Texto livre"],
-            ["skeleton", "Esqueleto"],
-            ["views", "Vistas 4/8"],
-            ["clips", "Clipes e revisão"],
-            ["states", "Estados"],
-            ["objects", "Objetos"],
-            ["temporal", "Edição temporal"],
-            ["library", "Biblioteca"],
+            ["preset", s.tabs.preset],
+            ["text", s.tabs.text],
+            ["skeleton", s.tabs.skeleton],
+            ["views", s.tabs.views],
+            ["clips", s.tabs.clips],
+            ["states", s.tabs.states],
+            ["objects", s.tabs.objects],
+            ["temporal", s.tabs.temporal],
+            ["library", s.tabs.library],
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button key={key} type="button" className={tab === key ? "" : "secondary"} onClick={() => setTab(key)}>
@@ -185,14 +194,14 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
           )}
           {tab === "views" && (
             <section>
-              <h2>Vistas</h2>
+              <h2>{s.viewsHeading}</h2>
               <ViewsGrid
                 projectId={projectId}
                 base={base}
                 approved={approved}
                 projection={data.projection}
                 worldToView={data.orientation.worldToView}
-                rotationLabel={"label" in (profile.routes.rotation ?? {}) ? (profile.routes.rotation as { label: string }).label : null}
+                rotationLabel={"label" in (profile.routes.rotation ?? {}) ? text((profile.routes.rotation as { label: TextValue }).label) : null}
                 onGenerate={async (views, asymmetries) => {
                   for (const view of views) {
                     await run({ operation: "rotate_views", providerProfileId: profile.id, baseRevisionId: approved.id, view, asymmetries }).catch(() => undefined);
@@ -215,10 +224,13 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
 }
 
 function RouteBadges({ profile }: { profile: ProfileInfo }) {
+  const s = useMessages(animationMessages).studio;
+  const c = useMessages(commonMessages);
+  const text = useText();
   const entries: [string, string][] = [
-    ["Texto", "text"],
-    ["Esqueleto", "skeleton"],
-    ["Vistas", "rotation"],
+    [s.routes.text, "text"],
+    [s.routes.skeleton, "skeleton"],
+    [s.routes.rotation, "rotation"],
   ];
   return (
     <ul className="small anim-routes">
@@ -227,11 +239,18 @@ function RouteBadges({ profile }: { profile: ProfileInfo }) {
         return (
           <li key={key}>
             <strong>{label}:</strong>{" "}
-            {r && "label" in r ? <span className={r.strategy === "native" ? "" : "anim-sheet"}>{r.label}</span> : <span className="error">indisponível{r && "unavailable" in r ? ` — ${r.unavailable}` : ""}</span>}
+            {r && "label" in r ? (
+              <span className={r.strategy === "native" ? "" : "anim-sheet"}>{text(r.label as TextValue)}</span>
+            ) : (
+              <span className="error">
+                {c.unavailable}
+                {r && "unavailable" in r ? ` — ${text(r.unavailable as TextValue)}` : ""}
+              </span>
+            )}
           </li>
         );
       })}
-      {profile.simulated && <li className="muted">Perfil simulado: ensaia fila, publicação e revisão sem custo; não substitui provedor real.</li>}
+      {profile.simulated && <li className="muted">{s.simulatedProfile}</li>}
     </ul>
   );
 }
@@ -242,6 +261,10 @@ function RouteBadges({ profile }: { profile: ProfileInfo }) {
 
 function PresetTab(props: { projectId: string; profile: ProfileInfo; baseRevisionId: string; direction: Direction; hasView: (d: Direction) => boolean; run: (plan: Record<string, unknown>, o?: { oneClick?: boolean; allowUnknownCost?: boolean }) => Promise<RunResult | null> }) {
   const { projectId, profile } = props;
+  const m = useMessages(animationMessages);
+  const t = m.studio.preset;
+  const locale = useLocale();
+  const text = useText();
   const [config, setConfig] = useState<PresetConfig | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -269,7 +292,7 @@ function PresetTab(props: { projectId: string; profile: ProfileInfo; baseRevisio
   async function animate(presetKey: string) {
     if (!config) {
       setEditing(true);
-      setReason("Configure o teto de custo deste perfil antes do primeiro clique.");
+      setReason(t.configureFirst);
       return;
     }
     setBusy(presetKey);
@@ -299,13 +322,21 @@ function PresetTab(props: { projectId: string; profile: ProfileInfo; baseRevisio
 
   return (
     <section>
-      <h2>Um clique · presets versionados</h2>
+      <h2>{t.heading}</h2>
       <p className="small muted">
-        Estimativa deste perfil: {profile.estimate ? (profile.estimate.kind === "known" ? `${profile.estimate.amount.amount} ${profile.estimate.amount.unit} por envio` : profile.estimate.kind === "unknown" ? `desconhecida — ${profile.estimate.reason}` : "faixa") : "—"} · direções:{" "}
-        {directions.join(", ")} · teto: {config ? (config.ceilingAmount !== null ? `${config.ceilingAmount} ${config.ceilingUnit}` : "sem teto") : "não configurado"}
-        {config?.allowUnknown ? " · custo desconhecido aceito" : ""}{" "}
+        {t.estimateOfProfile}{" "}
+        {profile.estimate
+          ? profile.estimate.kind === "known"
+            ? t.perSubmission(costText(profile.estimate.amount, locale))
+            : profile.estimate.kind === "unknown"
+              ? t.unknownEstimate(text(profile.estimate.reason as TextValue))
+              : t.rangeEstimate
+          : "—"}{" "}
+        · {t.directions} {directions.join(", ")} · {t.ceiling}{" "}
+        {config ? (config.ceilingAmount !== null ? costText({ amount: config.ceilingAmount, unit: config.ceilingUnit }, locale) : t.noCeiling) : t.notConfigured}
+        {config?.allowUnknown ? t.unknownAccepted : ""}{" "}
         <button type="button" className="secondary" onClick={() => setEditing((e) => !e)}>
-          Configurar
+          {t.configure}
         </button>
       </p>
       {editing && <PresetConfigForm initial={config} profile={profile} direction={props.direction} hasView={props.hasView} reason={reason} onSave={saveConfig} />}
@@ -313,17 +344,17 @@ function PresetTab(props: { projectId: string; profile: ProfileInfo; baseRevisio
         {BUILTIN_PRESETS.map((p) => (
           <article key={p.key} className="anim-preset">
             <h3>
-              {p.label} <span className="muted small">v{p.version}</span>
+              {text(presetText(p).label)} <span className="muted small">v{p.version}</span>
             </h3>
             <p className="small">
-              {p.frameIds.length} quadros · {p.durationsMs.join("/")} ms · {p.playback === "loop" ? "ciclo" : "uma vez"}
-              {p.stance ? ` · postura ${p.stance}` : ""}
+              {m.shared.frames(p.frameIds.length)} · {p.durationsMs.join("/")} ms · {p.playback === "loop" ? m.shared.playback.loop : m.shared.playback.once}
+              {p.stance ? t.stance(p.stance) : ""}
             </p>
             <p className="small muted">
-              {p.strategy === "skeleton" ? "Sequência de esqueleto (exige movimento aprovado)" : "Ação por texto"} · {p.intent}
+              {p.strategy === "skeleton" ? t.skeletonSequence : t.textAction} · {text(presetText(p).intent)}
             </p>
             <button type="button" disabled={busy !== null || directions.some((d) => !props.hasView(d))} onClick={() => animate(p.key)}>
-              {busy === p.key ? "Enviando…" : "Animar"}
+              {busy === p.key ? m.shared.sending : t.animate}
             </button>
           </article>
         ))}
@@ -333,6 +364,7 @@ function PresetTab(props: { projectId: string; profile: ProfileInfo; baseRevisio
 }
 
 function PresetConfigForm(props: { initial: PresetConfig | null; profile: ProfileInfo; direction: Direction; hasView: (d: Direction) => boolean; reason: string | null; onSave: (c: PresetConfig) => void }) {
+  const t = useMessages(animationMessages).studio.config;
   const estimateUnit = props.profile.estimate?.kind === "known" ? props.profile.estimate.amount.unit : "USD";
   const [amount, setAmount] = useState<string>(props.initial?.ceilingAmount?.toString() ?? "");
   const [unit, setUnit] = useState(props.initial?.ceilingUnit ?? estimateUnit);
@@ -340,35 +372,35 @@ function PresetConfigForm(props: { initial: PresetConfig | null; profile: Profil
   const [dirs, setDirs] = useState<Direction[]>(props.initial?.directions?.length ? props.initial.directions : [props.direction]);
   return (
     <fieldset className="small">
-      <legend>Configuração do atalho ({props.profile.name})</legend>
+      <legend>{t.legend(props.profile.name)}</legend>
       {props.reason && <p className="error">{props.reason}</p>}
       <div className="row">
         <label>
-          Teto por envio
-          <input type="number" min={0} step={0.01} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="ex.: 0.10" />
+          {t.ceilingPerSubmission}
+          <input type="number" min={0} step={0.01} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={t.ceilingPlaceholder} />
         </label>
         <label>
-          Unidade
+          {t.unit}
           <select value={unit} onChange={(e) => setUnit(e.target.value)}>
             <option value="USD">USD</option>
-            <option value="generations">gerações</option>
-            <option value="credits">créditos</option>
+            <option value="generations">{t.unitGenerations}</option>
+            <option value="credits">{t.unitCredits}</option>
           </select>
         </label>
         <label style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-          <input type="checkbox" checked={allowUnknown} onChange={(e) => setAllowUnknown(e.target.checked)} /> aceito custo desconhecido (1 envio por direção)
+          <input type="checkbox" checked={allowUnknown} onChange={(e) => setAllowUnknown(e.target.checked)} /> {t.allowUnknown}
         </label>
       </div>
       <div className="row">
-        Direções:
+        {t.directions}
         {DIRS.map((d) => (
-          <label key={d} style={{ flexDirection: "row", alignItems: "center", gap: 2 }} title={props.hasView(d) ? "" : "sem vista aprovada"}>
+          <label key={d} style={{ flexDirection: "row", alignItems: "center", gap: 2 }} title={props.hasView(d) ? "" : t.noApprovedView}>
             <input type="checkbox" disabled={!props.hasView(d)} checked={dirs.includes(d)} onChange={(e) => setDirs((all) => (e.target.checked ? [...all, d] : all.filter((x) => x !== d)))} /> {d}
           </label>
         ))}
       </div>
       <button type="button" disabled={dirs.length === 0} onClick={() => props.onSave({ ceilingAmount: amount.trim() === "" ? null : Number(amount), ceilingUnit: unit, allowUnknown, directions: dirs })}>
-        Salvar configuração
+        {t.save}
       </button>
     </fieldset>
   );
@@ -379,6 +411,8 @@ function PresetConfigForm(props: { initial: PresetConfig | null; profile: Profil
 // ---------------------------------------------------------------------------
 
 function TextTab(props: { projectId: string; profile: ProfileInfo; baseRevisionId: string; direction: Direction; run: (plan: Record<string, unknown>) => Promise<RunResult | null> }) {
+  const m = useMessages(animationMessages);
+  const t = m.studio.text;
   const [text, setText] = useState("");
   const [frames, setFrames] = useState(4);
   const [ms, setMs] = useState(120);
@@ -399,36 +433,36 @@ function TextTab(props: { projectId: string; profile: ProfileInfo; baseRevisionI
 
   return (
     <section>
-      <h2>Texto livre</h2>
+      <h2>{t.heading}</h2>
       <label>
-        Descreva o movimento
-        <textarea value={text} maxLength={1000} onChange={(e) => (setText(e.target.value), setPreview(null))} placeholder="ex.: pula no lugar com os braços abertos e aterrissa agachado" />
+        {t.describeMotion}
+        <textarea value={text} maxLength={1000} onChange={(e) => (setText(e.target.value), setPreview(null))} placeholder={t.motionPlaceholder} />
       </label>
       <div className="row">
         <label>
-          Quadros
+          {t.framesLabel}
           <input type="number" min={1} max={16} value={frames} onChange={(e) => (setFrames(Math.max(1, Math.min(16, Number(e.target.value) || 1))), setPreview(null))} />
         </label>
         <label>
-          ms por quadro
+          {m.shared.msPerFrame}
           <input type="number" min={1} max={60000} value={ms} onChange={(e) => (setMs(Math.max(1, Number(e.target.value) || 1)), setPreview(null))} />
         </label>
         <label>
-          Repetição
+          {m.shared.playbackLabel}
           <select value={playback} onChange={(e) => (setPlayback(e.target.value as ClipPayload["playback"]), setPreview(null))}>
-            <option value="loop">ciclo</option>
-            <option value="once">uma vez</option>
-            <option value="ping_pong">vai e volta</option>
+            <option value="loop">{m.shared.playback.loop}</option>
+            <option value="once">{m.shared.playback.once}</option>
+            <option value="ping_pong">{m.shared.playback.ping_pong}</option>
           </select>
         </label>
         <button type="button" className="secondary" disabled={!text.trim()} onClick={loadPreview}>
-          Prévia do plano
+          {m.shared.planPreview}
         </button>
         <button type="button" disabled={!text.trim()} onClick={() => props.run(plan).catch(() => undefined)}>
-          Gerar
+          {m.shared.generate}
         </button>
       </div>
-      <p className="small muted">Texto não garante poses exatas: a animação por texto nativa recebe a vista e a ação; rotas genéricas desenham uma folha que é fatiada localmente.</p>
+      <p className="small muted">{t.note}</p>
       {message && <p className="small error">{message}</p>}
       {preview && <PlanBox preview={preview} />}
     </section>
@@ -436,13 +470,16 @@ function TextTab(props: { projectId: string; profile: ProfileInfo; baseRevisionI
 }
 
 function PlanBox({ preview }: { preview: PlanPreview }) {
+  const sh = useMessages(animationMessages).shared;
+  const locale = useLocale();
+  const text = useText();
   const sheet = (preview.plan.params as { sheet?: { columns: number; rows: number; backgroundKey: string | null } }).sheet;
   return (
     <div className="small">
       <p>
-        <strong>{preview.route.label}</strong> · destino {preview.destination.name}
-        {preview.destination.simulated ? " (simulado)" : ""} · estimativa {estimateText(preview.plan)} · capacidades {preview.plan.requiredCapabilities.join(", ")}
-        {sheet ? ` · folha ${sheet.columns}×${sheet.rows}${sheet.backgroundKey ? " com fundo de cor-chave removido localmente" : " com alfa"}` : ""}
+        <strong>{text(preview.route.label)}</strong> · {sh.plan.destination(preview.destination.name)}
+        {preview.destination.simulated ? sh.simulated : ""} · {sh.plan.estimate(estimateText(preview.plan, locale))} · {sh.plan.capabilities(preview.plan.requiredCapabilities.join(", "))}
+        {sheet ? sh.plan.sheet(sheet.columns, sheet.rows, Boolean(sheet.backgroundKey)) : ""}
       </p>
       <pre>{preview.plan.prompt.compiled}</pre>
     </div>
@@ -466,6 +503,10 @@ function SkeletonTab(props: {
   onChanged: () => void;
 }) {
   const { projectId, approved, direction } = props;
+  const am = useMessages(animationMessages);
+  const t = am.studio.skeleton;
+  const c = useMessages(commonMessages);
+  const text = useText();
   const basePayload = approved.payload as BasePayload;
   const ownMotions = props.motions.filter((m) => m.revisions.some((r) => (r.technicalReport as { baseAssetId?: string } | null)?.baseAssetId === props.base.asset.id && (r.payload as MotionPayload).direction === direction));
   const latest = ownMotions[0]?.revisions[0] ?? null;
@@ -474,7 +515,7 @@ function SkeletonTab(props: {
   const [preview, setPreview] = useState<PlanPreview | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const imageUrl = viewUrl(projectId, approved, direction);
-  if (!imageUrl) return <section className="error">A base não tem a vista {direction}; gere-a na aba Vistas.</section>;
+  if (!imageUrl) return <section className="error">{t.noView(direction)}</section>;
 
   const planFor = (motionRevisionId: string) => ({
     operation: "animate_skeleton",
@@ -488,9 +529,10 @@ function SkeletonTab(props: {
 
   return (
     <section>
-      <h2>Esqueleto · poses editáveis</h2>
+      <h2>{t.heading}</h2>
       <p className="small muted">
-        {"label" in (props.profile.routes.skeleton ?? {}) ? (props.profile.routes.skeleton as { label: string }).label : "Perfil sem modo esqueleto"} — a sequência abaixo é o que vai ao provedor.
+        {"label" in (props.profile.routes.skeleton ?? {}) ? text((props.profile.routes.skeleton as { label: TextValue }).label) : t.noSkeletonMode}
+        {t.sequenceNote}
       </p>
       <SkeletonEditor
         projectId={projectId}
@@ -504,8 +546,8 @@ function SkeletonTab(props: {
         initialPresetKey={props.presetKey}
         onSaved={() => props.onChanged()}
       />
-      <h3>Movimentos desta base ({direction})</h3>
-      {ownMotions.length === 0 && <p className="small muted">Nenhum movimento publicado ainda.</p>}
+      <h3>{t.motionsHeading(direction)}</h3>
+      {ownMotions.length === 0 && <p className="small muted">{t.noMotions}</p>}
       <ul className="list small">
         {ownMotions.flatMap((m) =>
           m.revisions.map((r) => {
@@ -513,7 +555,7 @@ function SkeletonTab(props: {
             return (
               <li key={r.id} className="row">
                 <span>
-                  {m.asset.name} r{r.number} · <span className={`badge state-${r.status}`}>{r.status}</span> · {mp.action} · {mp.poses.length} poses · {mp.skeleton.kind}
+                  {m.asset.name} r{r.number} · <span className={`badge state-${r.status}`}>{labelOf(c.revisionStatus, r.status)}</span> · {mp.action} · {t.poses(mp.poses.length)} · {mp.skeleton.kind}
                 </span>
                 {r.status === "candidate" && (
                   <button
@@ -528,7 +570,7 @@ function SkeletonTab(props: {
                       }
                     }}
                   >
-                    Aprovar
+                    {c.approve}
                   </button>
                 )}
                 {r.status === "approved" && (
@@ -544,10 +586,10 @@ function SkeletonTab(props: {
                         }
                       }}
                     >
-                      Prévia
+                      {am.shared.preview}
                     </button>
                     <button type="button" onClick={() => props.run(planFor(r.id)).catch(() => undefined)}>
-                      Gerar com estas poses
+                      {t.generateWithPoses}
                     </button>
                   </>
                 )}
@@ -558,12 +600,12 @@ function SkeletonTab(props: {
       </ul>
       <div className="row">
         <label>
-          Ação (texto curto)
-          <input value={actionText} onChange={(e) => setActionText(e.target.value)} placeholder="ex.: recua ao ser atingido" />
+          {t.actionShort}
+          <input value={actionText} onChange={(e) => setActionText(e.target.value)} placeholder={t.actionPlaceholder} />
         </label>
         <label>
-          Aparência (opcional)
-          <input value={appearance} onChange={(e) => setAppearance(e.target.value)} placeholder="ex.: guerreiro de túnica azul" />
+          {t.appearance}
+          <input value={appearance} onChange={(e) => setAppearance(e.target.value)} placeholder={t.appearancePlaceholder} />
         </label>
       </div>
       {message && <p className="small error">{message}</p>}
@@ -577,6 +619,10 @@ function SkeletonTab(props: {
 // ---------------------------------------------------------------------------
 
 function ClipsTab({ projectId, base, clips, onChanged }: { projectId: string; base: AssetEntry; clips: Overview["clips"]; onChanged: () => void }) {
+  const m = useMessages(animationMessages);
+  const t = m.studio.clips;
+  const c = useMessages(commonMessages);
+  const text = useText();
   const own = clips.filter((c) => c.asset.name.startsWith(`${base.asset.name} · `) || c.revisions.some((r) => (r.technicalReport as { baseAssetId?: string } | null)?.baseAssetId === base.asset.id));
   const [selected, setSelected] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -584,21 +630,22 @@ function ClipsTab({ projectId, base, clips, onChanged }: { projectId: string; ba
   const current = all.find((x) => x.revision.id === selected) ?? all[0] ?? null;
   return (
     <section>
-      <h2>Clipes de {base.asset.name}</h2>
-      {all.length === 0 && <p className="small muted">Nenhum clipe ainda: use um clique, texto livre ou esqueleto.</p>}
+      <h2>{t.heading(base.asset.name)}</h2>
+      {all.length === 0 && <p className="small muted">{t.none}</p>}
       <div className="grid2">
         <ul className="list small">
           {all.map(({ asset, revision }) => {
             const clip = revision.payload as ClipPayload;
-            const report = revision.technicalReport as { routeLabel?: string; operation?: string; warnings?: string[] } | null;
+            const report = revision.technicalReport as { routeLabel?: TextValue; operation?: string; warnings?: TextValue[] } | null;
             return (
               <li key={revision.id}>
                 <button type="button" className={current?.revision.id === revision.id ? "" : "secondary"} onClick={() => setSelected(revision.id)}>
                   {asset.name} r{revision.number}
                 </button>{" "}
-                <span className={`badge state-${revision.status}`}>{revision.status}</span>
-                {asset.approvedRevisionId === revision.id ? " · ativa" : ""} · {clip.frames.length} quadros · {report?.operation === "retime" ? "retime local (sem geração)" : (report?.routeLabel ?? revision.origin)}
-                {(report?.warnings?.length ?? 0) > 0 && <span className="error"> · {report!.warnings!.length} alerta(s)</span>}
+                <span className={`badge state-${revision.status}`}>{labelOf(c.revisionStatus, revision.status)}</span>
+                {asset.approvedRevisionId === revision.id ? ` · ${c.revisionStatus.active}` : ""} · {m.shared.frames(clip.frames.length)} ·{" "}
+                {report?.operation === "retime" ? t.retimeLocal : report?.routeLabel ? text(report.routeLabel) : revision.origin}
+                {(report?.warnings?.length ?? 0) > 0 && <span className="error"> · {t.warnings(report!.warnings!.length)}</span>}
               </li>
             );
           })}
@@ -619,7 +666,7 @@ function ClipsTab({ projectId, base, clips, onChanged }: { projectId: string; ba
                     }
                   }}
                 >
-                  Aprovar r{current.revision.number}
+                  {m.shared.approveRev(current.revision.number)}
                 </button>
               )}
               {current.revision.status === "candidate" && (
@@ -627,7 +674,7 @@ function ClipsTab({ projectId, base, clips, onChanged }: { projectId: string; ba
                   type="button"
                   className="secondary"
                   onClick={async () => {
-                    const reason = window.prompt("Motivo da reprovação");
+                    const reason = window.prompt(c.rejectReasonPrompt);
                     if (!reason) return;
                     try {
                       await review(projectId, current.asset.id, current.revision.id, "reject", current.asset.approvedRevisionId, reason);
@@ -637,17 +684,17 @@ function ClipsTab({ projectId, base, clips, onChanged }: { projectId: string; ba
                     }
                   }}
                 >
-                  Reprovar
+                  {c.reject}
                 </button>
               )}
             </div>
-            {((current.revision.technicalReport as { warnings?: string[] } | null)?.warnings ?? []).map((w, i) => (
+            {((current.revision.technicalReport as { warnings?: TextValue[] } | null)?.warnings ?? []).map((w, i) => (
               <p key={i} className="small error">
-                {w}
+                {text(w)}
               </p>
             ))}
             {message && <p className="small error">{message}</p>}
-            <p className="small muted">Aprovados, os clipes entram na exportação portátil pela biblioteca do projeto.</p>
+            <p className="small muted">{t.exportNote}</p>
           </div>
         )}
       </div>
@@ -656,16 +703,19 @@ function ClipsTab({ projectId, base, clips, onChanged }: { projectId: string; ba
 }
 
 function JobsList({ jobs }: { jobs: Overview["jobs"] }) {
+  const s = useMessages(animationMessages).studio;
+  const c = useMessages(commonMessages);
+  const locale = useLocale();
   if (jobs.length === 0) return null;
   return (
     <section>
-      <h2>Jobs de animação</h2>
+      <h2>{s.jobsHeading}</h2>
       <ul className="list small">
         {jobs.map((j) => (
           <li key={j.id}>
-            {j.id} · <span className={`badge state-${j.state}`}>{j.state}</span>
+            {j.id} · <span className={`badge state-${j.state}`}>{labelOf(c.jobState, j.state)}</span>
             {j.stage ? ` · ${j.stage}` : ""}
-            {j.error ? <span className="error"> · {(j.error as { message?: string }).message}</span> : null}
+            {j.error ? <span className="error"> · {errorMessage(j.error, locale)}</span> : null}
           </li>
         ))}
       </ul>
