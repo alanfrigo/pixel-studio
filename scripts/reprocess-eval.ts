@@ -10,7 +10,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { GenerationPlan } from "@/contracts";
-import { getRevision } from "@/server/catalog/catalog";
+import { getRevision, getStyleRevision } from "@/server/catalog/catalog";
 import { loadConfig, loadDotEnv, REPO_ROOT } from "@/server/config";
 import { processProviderImage } from "@/server/jobs/handlers/generation";
 import { openStudio } from "@/server/studio";
@@ -39,11 +39,13 @@ for (const r of data.results) {
   const plan = (JSON.parse(job!.request_json) as { plan: GenerationPlan }).plan;
   const base = `${r.task}-${r.language}-${slugify(r.model).replaceAll("_", "-")}`;
   try {
+    const { palette } = getStyleRevision(studio.db, projectId, plan.styleRevisionId).payload;
     const { processed, stored } = await processProviderImage(
       { blobs: studio.blobs, config: studio.config, jobId: "job_reprocess", attemptId: "att_reprocess", signal: AbortSignal.timeout(120_000) },
       plan,
       r.rawSha,
       path.join(work, base),
+      palette,
     );
     await writeFile(path.join(dir, "img", `${base}-final-v2.png`), await readFile(studio.blobs.pathFor(stored.sha256)));
     out.push({ ...r, reportV2: { steps: processed.steps, warnings: processed.warnings } });

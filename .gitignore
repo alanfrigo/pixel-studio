@@ -5,6 +5,9 @@ out/
 build/
 *.tsbuildinfo
 next-env.d.ts
+coverage/
+playwright-report/
+test-results/
 
 # dados locais do Studio (catálogo, blobs, exportações, backups)
 data/
@@ -21,6 +24,8 @@ data/
 python/.venv/
 __pycache__/
 .pytest_cache/
+.coverage
+.coverage.*
 *.pyc
 
 # sistema

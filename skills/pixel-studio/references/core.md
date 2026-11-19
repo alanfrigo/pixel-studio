@@ -53,9 +53,9 @@ An `assetId` identifies the stable entry; a `revisionId` identifies one immutabl
 | POST | /projects/{projectId}/jobs/{jobId}/cancel | No body. Request cancellation if allowed; not a refund or guarantee of stopping an accepted provider request. |
 | POST | /projects/{projectId}/jobs/{jobId}/retry | `{acknowledgePossibleCharge?:boolean}`; defaults to false. Inspect `job.actions.canRetry` and `retryMayCharge`; authorize any possible duplicate charge first. |
 | GET | /projects/{projectId}/jobs/{jobId}/outputs/{index} | Stream PNG for a successful `local_process` job's zero-based output index, not a generic generation result. |
-| GET | /export-profiles | `{profiles}`; currently `portable-v1` only. |
+| GET | /export-profiles | `{profiles}` with supported `kinds`, `supports` and `limitations` per profile. |
 | GET | /projects/{projectId}/exports | `{exports}`. |
-| POST | /projects/{projectId}/exports | `{revisionIds,profile?:"portable-v1"}` → `{export,created}`, 202; optional `Idempotency-Key`, otherwise same selection deduplicates. Free, local job. |
+| POST | /projects/{projectId}/exports | `{revisionIds,profile?}` → `{export,created}`, 202. Profiles: `portable-v1` (default), `tiled-v1`, `godot-v1`, `unity-v1`, `aseprite-v1`, `gif-v1`. Optional `Idempotency-Key`; by default the same profile and selection deduplicate. Free, local job. |
 | GET | /projects/{projectId}/exports/{exportId} | `{export}`; poll `state` until `ready` or `failed`, inspect `report`/`error`. |
 | GET | /projects/{projectId}/exports/{exportId}/download | ZIP when ready. Use a destination path the user requested. |
 
@@ -92,7 +92,7 @@ jq --arg asset "$ASSET" '{kind:"generation",request:{plan:.plan,planDigest:.dige
   curl --fail-with-body -sS "$P/jobs" -H 'Content-Type: application/json' -H "Idempotency-Key: $KEY" --data-binary @-
 ```
 
-Poll the job endpoint; on success inspect `job.result.revisionIds` then `GET …/assets/{assetId}` and download the normalized candidate's `view` or `normalized` media, not the raw output. Review the revision and approve only as authorized. Export the **revision IDs**, not asset IDs: the server validates approved runtime dependencies and coverage before packaging. `portable-v1` supplies `manifest.json` with pinned revisions and assets, not engine-specific Godot, Tiled, or Aseprite files. Reuse exact export selection on retry.
+Poll the job endpoint; on success inspect `job.result.revisionIds` then `GET …/assets/{assetId}` and download the normalized candidate's `view` or `normalized` media, not the raw output. Review the revision and approve only as authorized. Export the **revision IDs**, not asset IDs: the server validates approved runtime dependencies and profile compatibility before packaging. Use `portable-v1` for the source package alone, or query `/export-profiles` and choose a native profile when requested. Native ZIPs keep `manifest.json` and the source assets at the root, alongside the destination files. Reuse the exact profile and selection on retry.
 
 ### Inpaint an approved revision
 

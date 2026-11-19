@@ -74,7 +74,7 @@ def _ghost_font(cap_height: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont
     for size in range(4, 129):
         try:
             font = ImageFont.load_default(size=size)
-        except (TypeError, OSError):  # pragma: no cover - Pillow sem FreeType
+        except (TypeError, OSError):
             return ImageFont.load_default()
         box = font.getbbox("H")
         if box[3] - box[1] <= cap_height:

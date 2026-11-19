@@ -1,8 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { sha256Hex } from "@/domain/manifest/verify-files";
+import { defaultStyle } from "@/domain/style-presets";
+import { createImage, encodePng, setPixel } from "@/lib/media/png";
 import { runAnimation } from "../animation/service";
-import { createAsset, createProject, getAsset, listRevisions, reviewRevision } from "../catalog/catalog";
+import { createAsset, createProject, getAsset, listRevisions, publishStyleRevision, reviewRevision } from "../catalog/catalog";
 import { DomainFailure } from "../errors";
 import type { ProviderAdapter } from "../providers/types";
 import { buildGenerationPlan, submitJob } from "../services";
@@ -141,6 +145,60 @@ describe.skipIf(!hasPython)("geração com provedor simulado", () => {
     const [clip] = listRevisions(studio.db, project.id, animated.targetAssetId);
     expect(clip?.payload).toMatchObject({ pivot: [19, 28], direction: "S" });
     expect(clip?.technicalReport).toMatchObject({ baseRevisionId: candidate!.id });
+  });
+
+  it.each([
+    { spec: { family: "item", kind: "consumable" }, margin: 0 },
+    { spec: { family: "character", kind: "base" }, margin: 2 },
+  ] as const)("respeita a paleta congelada de $spec.family sem alterar a imagem bruta", async ({ spec, margin }) => {
+    studio = makeTestStudio();
+    const project = createProject(studio.db, studio.clock, { name: "Clareira" });
+    const asset = createAsset(studio.db, studio.clock, { projectId: project.id, ...spec, name: "Sprite" });
+    const style = defaultStyle();
+    style.palette.colors = [{ index: 0, hex: "#000000" }, { index: 1, hex: "#ffffff" }];
+
+    const source = createImage(16, 16);
+    setPixel(source, margin, margin, [255, 0, 0, 255]);
+    setPixel(source, 7, 7, [255, 255, 255, 255]);
+    setPixel(source, 15 - margin, 15 - margin, [224, 224, 224, 255]);
+    const raw = encodePng(source);
+    const guidedPixels = source.data.slice();
+    setPixel(source, margin, margin, [0, 0, 0, 255]);
+    setPixel(source, 15 - margin, 15 - margin, [255, 255, 255, 255]);
+    const { adapter } = instrumented(studio.simulated);
+    adapter.fetchResult = async () => ({ images: [{ bytes: raw, mime: "image/png" }], cost: null });
+
+    const input = {
+      operation: "generate_asset",
+      providerProfileId: "simulated",
+      brief: "Sprite para testar a paleta",
+      params: { ...spec, logicalSize: [16, 16], transparent: true, variants: 1 },
+    } satisfies Parameters<typeof buildGenerationPlan>[2];
+    style.palette.policy = "strict";
+    const strict = publishStyleRevision(studio.db, studio.clock, project.id, { payload: style, expectedActiveStyleRevisionId: project.activeStyleRevisionId });
+    const strictPlan = buildGenerationPlan(studio, project.id, input);
+    style.palette.policy = "guided";
+    publishStyleRevision(studio.db, studio.clock, project.id, { payload: style, expectedActiveStyleRevisionId: strict.id });
+
+    for (const [policy, { plan, digest }, expectedPixels, changedPixels] of [
+      ["strict", strictPlan, source.data, 2],
+      ["guided", buildGenerationPlan(studio, project.id, input), guidedPixels, 0],
+    ] as const) {
+      const { job } = submitJob(studio, project.id, { kind: "generation", request: { plan, planDigest: digest, targetAssetId: asset.id } }, policy);
+      await studio.runner("worker-palette", adapter).runOnce();
+      const [candidate] = listRevisions(studio.db, project.id, asset.id);
+      expect(studio.queue.get(job.id)?.state).toBe("succeeded");
+      expect(candidate?.files.find((f) => f.role === "raw")?.sha256).toBe(sha256Hex(raw));
+      const image = candidate!.files.find((f) => f.fileKey === "image")!;
+      const rgba = execFileSync(studio.config.python, [
+        "-c", "from PIL import Image; import sys; sys.stdout.buffer.write(Image.open(sys.stdin.buffer).convert('RGBA').tobytes())",
+      ], { input: await studio.blobs.read(image.sha256) });
+      expect(rgba).toEqual(Buffer.from(expectedPixels));
+      expect(candidate?.technicalReport).toMatchObject({
+        fittedToLogical: { palette: { policy, visiblePixels: 3, offPalettePixels: 2, changedPixels } },
+        warnings: expect.arrayContaining([expect.objectContaining({ en: expect.stringContaining("2 of 3") })]),
+      });
+    }
   });
 
   it("duplo clique gera um job, uma chamada por parte e uma publicação", async () => {

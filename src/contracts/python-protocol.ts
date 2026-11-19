@@ -8,6 +8,7 @@ import { EQUIPMENT_PYTHON_RECIPES } from "./equipment";
 import { TEMPORAL_PYTHON_RECIPES } from "./temporal";
 import { UI_PYTHON_RECIPES } from "./ui";
 import { DIALOGUE_PYTHON_RECIPES } from "./dialogue-audio";
+import { Palette } from "./style";
 
 /**
  * Fronteira Node ↔ Python (05 §entrada e saída). Um subprocesso por tarefa,
@@ -165,6 +166,11 @@ const recipes = {
     exactAspect: z.boolean().optional(),
     /** Measured support point of a cutout on the final logical pixel grid. */
     measureGround: z.boolean().optional(),
+    /** Paleta aplicada ou medida depois do ajuste, na grade final. */
+    palette: z.strictObject({
+      policy: Palette.shape.policy,
+      colors: z.array(HexColor).min(1).max(256),
+    }).optional(),
   }),
   /**
    * Detecta a grade aparente da arte (célula possivelmente fracionária) e

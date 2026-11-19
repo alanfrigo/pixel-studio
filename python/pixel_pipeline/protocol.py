@@ -90,7 +90,7 @@ def rgba_sha256(image: Image.Image) -> str:
 def apply_resource_limits() -> None:
     try:
         import resource
-    except ImportError:  # pragma: no cover - Windows
+    except ImportError:  # Windows
         return
     memory_mb = int(os.environ.get("PIXEL_PIPELINE_MAX_MEMORY_MB", "1024"))
     cpu_seconds = int(os.environ.get("PIXEL_PIPELINE_MAX_CPU_SECONDS", "60"))

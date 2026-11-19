@@ -264,3 +264,89 @@ def test_guide_paints_zone_minus_protect_and_hashes_regions(pipe):
     hashes = pipe.run("equipment_region_hashes", {"regions": [{"key": "a", "inputOrdinal": 0, "rect": [0, 0, 32, 32]}, {"key": "b", "inputOrdinal": 0, "rect": [32, 0, 32, 32]}]}, [("layer", png(atlas))])
     assert hashes["report"]["hashes"]["a"] == hashes["report"]["hashes"]["b"]
     assert hashes["report"]["contentBoxes"]["a"] == [11, 2, 11, 28]
+
+
+def test_compose_reports_fully_offscreen_layer_and_crops_only_available_art(pipe):
+    source = png(Image.new("RGBA", (2, 2), WOOD))
+    layer = {"key": "rigid:shield", "inputOrdinal": 0, "rect": [0, 0, 2, 2], "offset": [4, 0], "mirrored": False}
+    recipe = {"cell": [4, 4], "tolerancePx": 1, "frames": [{"frameId": "idle", "layers": [layer]}]}
+    inputs = [("layer", source)]
+    result = pipe.run("equipment_compose", recipe, inputs)
+    assert result["status"] == "needs_review"
+    assert result["report"]["frames"][0]["layers"][0]["overflow"] == {"left": 0, "top": 0, "right": 2, "bottom": 0}
+    assert result["warnings"][0]["en"] == "idle: outline clipped on rigid:shield (right 2 px)"
+    assert pipe.image(result, "frame", "idle").getbbox() is None
+
+    outside = pipe.run("equipment_compose", {**recipe, "frames": [{"frameId": "idle", "layers": [dict(layer, rect=[1, 0, 2, 2])]}]}, inputs)
+    assert outside["error"]["code"] == "geometry_mismatch"
+    assert outside["error"]["message"]["en"] == "rigid:shield: rectangle [1, 0, 2, 2] outside the 2×2 image"
+    missing = pipe.run("equipment_compose", recipe, [("source", source)])
+    assert missing["error"]["code"] == "invalid_request"
+    assert missing["error"]["message"]["en"] == "Layer rigid:shield references missing input 0"
+
+
+def extract_recipe(**frame_changes):
+    frame = {"frameId": "idle", "baseOrdinal": 0, "candidateOrdinal": 1, "candidateRect": [0, 0, 8, 8],
+             "parts": [{"partId": "torso", "zones": [[1, 1, 6, 6]]}], "protect": []}
+    return {
+        "cell": [8, 8], "frames": [frame | frame_changes], "tolerance": 0, "alphaThreshold": 128,
+        "maxShift": 0, "minComponentPx": 2, "forbidColors": ["#eeeeee"], "forbidTolerance": 0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("changes", "base_size", "code", "message"),
+    [
+        ({"candidateOrdinal": 2}, (8, 8), "invalid_request", "Frame idle: base or candidate missing"),
+        ({}, (7, 8), "geometry_mismatch", "Frame idle: base 7×8, cell 8×8"),
+        ({"candidateRect": [2, 0, 8, 8]}, (8, 8), "geometry_mismatch", "candidate for idle: rectangle [2, 0, 8, 8] outside the 8×8 image"),
+    ],
+)
+def test_extract_reports_missing_cel_and_crop_diagnostics(pipe, changes, base_size, code, message):
+    inputs = [("layer", png(Image.new("RGBA", base_size))), ("candidate", png(Image.new("RGBA", (8, 8))))]
+    result = pipe.run("equipment_extract", extract_recipe(**changes), inputs)
+    assert result["error"]["code"] == code
+    assert result["error"]["message"]["en"] == message
+
+
+def test_extract_ignores_isolated_noise_without_treating_gray_key_as_hue(pipe):
+    base = Image.new("RGBA", (8, 8), TUNIC)
+    candidate = base.copy()
+    candidate.putpixel((3, 3), MAIL)
+    inputs = [("layer", png(base)), ("candidate", png(candidate))]
+
+    result = pipe.run("equipment_extract", extract_recipe(), inputs)
+    frame = result["report"]["frames"][0]
+    assert frame["agreementOutside"] == 1 and frame["outsideChangedPixels"] == 0
+    assert frame["parts"] == [
+        {"partId": "torso", "pixels": 0, "empty": True, "erasedPixels": 0, "protectedKept": 0,
+         "edgeTouches": 0, "edgeSample": [], "rect": None, "offset": None},
+    ]
+    assert [w["en"] for w in result["warnings"]] == [
+        "idle/torso: nothing of the piece inside the zone; if the pose hides it, mark the cell empty",
+    ]
+    assert [o["role"] for o in result["outputs"]] == ["preview", "aligned"]
+    assert pipe.image(result, "preview", "idle").tobytes() == base.tobytes()
+    assert pipe.image(result, "aligned", "idle").getpixel((3, 3)) == MAIL
+
+
+@pytest.mark.parametrize(
+    ("base_ordinal", "at", "message"),
+    [
+        (1, [0, 0], "Frame idle: base missing or outside the 4×4 cell"),
+        (0, [5, 0], "Frame idle: cell at (5, 0) outside the 8×8 canvas"),
+    ],
+)
+def test_equipment_guide_rejects_missing_or_off_canvas_base(pipe, base_ordinal, at, message):
+    recipe = {"cell": [4, 4], "canvas": [8, 8], "scale": 1, "markColor": "#ff00ff", "flattenOnto": None,
+              "frames": [{"frameId": "idle", "baseOrdinal": base_ordinal, "at": at, "zones": [[1, 1, 2, 2]], "protect": []}]}
+    result = pipe.run("equipment_guide", recipe, [("layer", png(Image.new("RGBA", (4, 4))))])
+    assert result["error"]["code"] == "geometry_mismatch"
+    assert result["error"]["message"]["en"] == message
+
+
+def test_equipment_region_hashes_reports_missing_input_ordinal(pipe):
+    result = pipe.run("equipment_region_hashes", {"regions": [{"key": "shield", "inputOrdinal": 1, "rect": [0, 0, 2, 2]}]},
+                      [("layer", png(Image.new("RGBA", (2, 2))))])
+    assert result["error"]["code"] == "invalid_request"
+    assert result["error"]["message"]["en"] == "Region shield references missing input 1"

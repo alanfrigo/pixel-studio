@@ -6,7 +6,7 @@ requires-python = ">=3.14"
 dependencies = ["pillow==13.0.0"]
 
 [dependency-groups]
-dev = ["pytest==9.0.3", "jsonschema==4.25.1"]
+dev = ["pytest==9.0.3", "jsonschema==4.25.1", "coverage==7.17.3"]
 
 [build-system]
 requires = ["uv_build>=0.13,<0.14"]
@@ -17,3 +17,13 @@ module-root = ""
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "../consumers/portable_reader"]
+
+[tool.coverage.run]
+source = ["pixel_pipeline", "../consumers/portable_reader"]
+omit = ["*/test_*.py"]
+branch = true
+patch = ["subprocess"]
+
+[tool.coverage.report]
+fail_under = 100
+precision = 2

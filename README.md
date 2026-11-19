@@ -189,6 +189,7 @@ python/.venv/bin/python -I scripts/showcase-codex.py <date>
 - **Background removal:** chroma key by measured hue, plus flood fill with keep/remove brushes.
 - **Alpha and scale:** alpha binarization, integer-only scaling, crop to content, fit to logical size.
 - **Palette and sheets:** palette quantization with stable tie-breaking, grid slicing for sprite sheets, layer composition.
+- **Project palette for new characters and item icons:** the generation plan pins the style revision. After fitting to the logical grid, **Strict** remaps visible RGB to the nearest palette colors without changing alpha; **Guided** keeps the fitted image unchanged and reports how many visible pixels are outside the palette. Both keep the provider's original image. Palette notices appear under the candidate's warnings in the Library.
 
 ### Inpainting with exact RGBA protection
 - Paint a mask, describe what should be there, and compare source, candidate and result.
@@ -245,7 +246,7 @@ python/.venv/bin/python -I scripts/showcase-codex.py <date>
 - **Rooms:** a 7×6 floor-plan and door editor whose plan goes to the model as a raster guide, top-down, isometric or oblique views, and multi-room buildings with linked doors.
 - **Furniture extraction:** areas that furniture used to cover are reviewed and rebuilt by inpainting, never by just erasing alpha. Each extracted piece becomes a reusable prop with support point, footprint, collision and shadow.
 - **Room kits to editable maps:** walls, floors, corners and doors are cut from the room picture, mapped by key and rebuilt as a tile map in the world editor.
-- **Isometric preview with a character** walking behind and in front of tall props, with world-to-screen direction mapping.
+- **Isometric preview with a character** walking behind and in front of tall props, with world-to-screen direction mapping. The support diagnostic compares the rasterized position with the ideal cell center.
 
 ### Game UI kit: menus, HUD, inventory and dialogue
 - **Nine-slice buttons and panels** with normal/hover/pressed/disabled/selected states, a focus overlay and a separate text slot. Captions are text keys, so translating or lengthening a label never regenerates the art.
@@ -289,6 +290,7 @@ python/.venv/bin/python -I scripts/showcase-codex.py <date>
   - a ZIP with a **JSON manifest v1** and published **JSON Schemas**;
   - the dependency closure of approved revisions;
   - an independent Python reader, and re-import into another project.
+- **Native exports:** choose Tiled, Godot, Unity, Aseprite or GIF in **Export**. Each ZIP includes the destination files and the portable source package.
 
 ## Local installation
 
@@ -400,6 +402,24 @@ python consumers/portable_reader/read_portable.py package.zip out/   # Pillow on
 ```
 
 `manifest.json` lists every asset with logical sizes, pivots, frame durations, atlas rects, tileset rules and map layers. The JSON Schemas live in [`schemas/v1`](schemas/v1).
+Reconstructed loadouts keep their frames separate even when they share a source clip. Follow the frame paths in `out/summary.json`.
+Isometric props are reconstructed at their authored offset relative to the terrain elevation and sorted by the front of their footprint.
+
+### Export to an editor or engine
+
+In **Export**, choose a format and select the approved revisions to convert. Required dependencies are added automatically. The export runs locally without an AI provider. An incompatible selection is rejected instead of silently dropped.
+
+| Profile ID | What opens in the destination |
+|---|---|
+| `tiled-v1` | Open `tiled/*.tmx` or `tiled/*.tmj` in Tiled 1.12 for editable top-down, three-quarter or side-view maps. Open `.tsx` or `.tsj` for corner/side tilesets and non-isometric props. Keep the ZIP's folder structure so relative image paths resolve. |
+| `godot-v1` | Import `godot/project.godot` in Godot 4.3 or newer. The project includes native sprites and clips, orthogonal tilesets, maps and props. Open the resource or scene to edit; the project does not add gameplay. |
+| `unity-v1` | In a Unity 6 project with **2D Sprite** and **2D Tilemap Editor**, merge `unity/Assets/` into the project's `Assets/`. Select `PixelStudio.job.json` under `Assets/PixelStudio/Bundles/` and choose **Assets > Pixel Studio > Import Bundle**. The importer creates editable sprites, clips, prefabs, tiles and orthogonal maps. |
+| `aseprite-v1` | Open `.aseprite` files for character views/clips, item representations and VFX. Files retain RGBA art, editable cels and layers, frame durations, playback tags and pivots. |
+| `gif-v1` | Open an animated `.gif` for each selected character clip or VFX. Frames are composited at their logical size. GIF uses binary transparency, at most 255 visible colors per frame when reserving transparency, and delays rounded to 10 ms (minimum 10 ms). |
+
+Isometric maps and tilesets are not converted by these engine profiles. Gameplay bindings such as input, HUD actions and event dispatch are not generated. The root `manifest.json` remains `portable-v1`, so source art and original metadata can still be re-imported into the Studio.
+
+The API lists profiles at `GET /api/v1/export-profiles`. Pass a profile ID in the export request, for example `{"profile":"godot-v1","revisionIds":["<approved revision id>"]}`. Omitting `profile` keeps the plain portable ZIP.
 
 ### Benchmark models yourself
 
@@ -458,12 +478,41 @@ scripts/         dev launcher, migrations, fixtures, benchmarks and real-model t
 ## Development
 
 ```sh
-npm run check            # typecheck + lint + Vitest + pytest
-npm test                 # Vitest only
-npm run test:python      # pytest only
-npm run schemas:export   # regenerate schemas/v1 after changing a contract
-npm run fixtures:build   # regenerate the deterministic fixture scene
+npx playwright install --only-shell chromium
+npm run check                   # typecheck + lint + TS/Python coverage + browser E2E
+npm test                        # Vitest only
+npm run test:coverage           # TypeScript coverage; HTML in coverage/
+npm run test:python             # raster pipeline and independent portable reader
+npm run test:python:coverage    # require 100% Python lines and branches; HTML in coverage/python/
+npm run test:coverage:100       # require 100% TS lines, branches, functions and statements
+npm run test:e2e                # production build + real Chromium, API, and worker
+npm run schemas:export          # regenerate schemas/v1 after changing a contract
+npm run fixtures:build          # regenerate the deterministic fixture scene
 ```
+
+Behavior changes require automated regression tests in the same change. Browser tests use a temporary database and the simulated provider; they do not use local projects or paid AI. Set `PLAYWRIGHT_PORT` to override their default port (`14831`). GitHub Actions runs the quality checks and enables the native Godot probe. See [AGENTS.md](AGENTS.md#testing--qa) for test placement and focused commands.
+
+### Feature regression coverage
+
+The table lists where each feature area has behavioral checks. A server or pipeline test verifies the contract, not the corresponding browser workflow. `npm run check` requires full line and branch coverage for the Python pipeline and portable reader and enforces the current TypeScript floors. `npm run test:coverage:100` checks the full TypeScript target.
+
+| Feature area | Automated checks |
+| --- | --- |
+| **Projects, onboarding and style** | [Browser onboarding](e2e/studio.spec.ts), [versioned style](src/server/catalog/style.test.ts) and [strict/guided palettes on generated art](src/server/jobs/generation.test.ts). |
+| **Generation and providers** | [Generate, review, export in the browser](e2e/studio.spec.ts), [ordered references](src/server/jobs/generation-references.test.ts), [plan, idempotency and recovery](src/server/regression/routes.test.ts), [provider setup](src/app/settings/provider-settings.test.tsx), [HTTP adapters](src/server/providers/adapters.test.ts) and [Codex CLI](src/server/providers/codex-cli.test.ts). |
+| **Raster post-processing** | [Pipeline outputs](python/tests/test_operations.py) and [upload, process, cache and chain](src/server/jobs/local-process.test.ts). |
+| **Inpainting and comparison** | [Draw a mask on a resized canvas and inspect exact pixel differences in Chromium](e2e/inpaint.spec.ts); [native and local-composite routes](src/server/inpaint.test.ts) verify protected RGBA bytes. |
+| **Animation, views and skeletons** | [Presets, direction gaps, rigs, retiming and playback](src/server/animation/animation.test.ts) and [frame construction](python/tests/test_animation.py). |
+| **Character/object states and library edits** | [States, in-betweens and protected edits](src/server/animation/temporal.test.ts); [tags, mirror, resize, split and deletion](src/server/library/library.test.ts). |
+| **Textures, tilesets and maps** | [World pipeline and passages](src/server/world/world.test.ts), editor [drafts, conflicts and three projections](src/app/projects/%5BprojectId%5D/world/map-editor.test.tsx), [create, paint, undo, reopen and export a map in Chromium](e2e/world.spec.ts). |
+| **Equipment and loadouts** | [Slot conflicts, coverage, alignment, composition and offline swaps](src/server/equipment/equipment.test.ts); [equipment raster operations](python/tests/test_equipment.py). |
+| **Scenes, parallax, rooms and furniture** | [Parallax and scene contracts](src/server/scenes/scenes.test.ts), [room links/extraction/reusable kits](src/server/scenes/rooms.test.ts) and [scene raster operations](python/tests/test_scenes.py). |
+| **UI components and screen composer** | [Nine-slice components](src/server/ui-component.test.ts), [menu, inventory, dialogue and HUD](src/server/ui/ui-kit.test.ts), [renderer geometry](src/app/projects/%5BprojectId%5D/ui/render.test.ts) and [composer edits and preview](src/app/projects/%5BprojectId%5D/ui/screen-composer.test.tsx). |
+| **Portraits, speech and fonts** | [Portraits, stable visemes and offline speech timing](src/server/dialogue/dialogue.test.ts), [bitmap raster operations](python/tests/test_font.py), and [import, diagnose and render a bitmap atlas in Chromium](e2e/font.spec.ts). |
+| **Language and service health** | [Catalog parity](src/i18n/catalogs.test.ts), [localized errors](src/server/i18n-errors.test.ts), [diagnostics and recovery](src/app/client/health-banner.test.tsx) and [browser language persistence](e2e/studio.spec.ts). |
+| **Portable and native exports** | [Review/dependency closure and portable round trip](src/server/export/export.test.ts), [standalone reader](consumers/portable_reader/test_read_portable.py), [Tiled, Godot, Unity, Aseprite and GIF artifacts](src/server/export/native-regression.test.ts), and [native Godot runtime](src/server/export/targets/godot.test.ts). |
+
+Paid-model output quality and imports into editors other than Godot are not asserted by these automated checks. For changes to a feature, add the expected outcome at the narrowest layer that can verify it; also test the browser when an interaction, visual state, or recovery path is the contract.
 
 After changing an API route, update the skill's matching route table. After changing a generation preview or local recipe contract, regenerate the bundled schema snapshot:
 
@@ -489,7 +538,7 @@ Design rules the code follows:
 - [x] UI kits: HUD, inventory, health bars, dialogue boxes
 - [x] Portraits, expressions, speech timing plans and pixel fonts
 - [ ] Music and sound effects
-- [ ] Engine exports: Tiled (TMX/TMJ), Godot, Unity, Aseprite, GIF
+- [x] Native exports: Tiled (TMX/TMJ), Godot, Unity, Aseprite, GIF
 - [x] English and Portuguese UI
 - [x] Local Codex CLI provider (ChatGPT plan, no API key)
 

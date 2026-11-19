@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,8 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 from PIL import Image
+
+from pixel_pipeline.protocol import rgba_sha256
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "fixtures" / "clareira" / "package"
@@ -26,19 +29,27 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def run(workdir: Path, request: object) -> dict:
+def invoke(
+    workdir: Path, request: object, *, bootstrap: str | None = None, env: dict[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[bytes], dict]:
     raw = request if isinstance(request, bytes) else json.dumps(request).encode()
+    command = ["-m", "pixel_pipeline"] if bootstrap is None else ["-c", bootstrap]
     proc = subprocess.run(
-        [sys.executable, "-I", "-m", "pixel_pipeline"],
+        [sys.executable, "-I", *command],
         input=raw,
         cwd=workdir,
+        env=env,
         capture_output=True,
         timeout=60,
         check=True,
     )
     response = json.loads(proc.stdout)
     Draft202012Validator(RESPONSE_SCHEMA).validate(response)
-    return response
+    return proc, response
+
+
+def run(workdir: Path, request: object) -> dict:
+    return invoke(workdir, request)[1]
 
 
 def ingest(workdir: Path, data: bytes, limits: dict | None = None) -> dict:
@@ -80,6 +91,91 @@ def test_unknown_protocol_version(tmp_path):
 
 def test_invalid_json(tmp_path):
     assert run(tmp_path, b"{nope")["error"]["code"] == "invalid_request"
+
+
+@pytest.mark.parametrize(("request_body", "message"), [
+    ([], "Request must be a JSON object"),
+    ({"protocolVersion": 1, "operation": "unknown"}, "Unknown operation: 'unknown'"),
+    (b" " * (1024 * 1024 + 1), "Request exceeds the protocol limit"),
+], ids=["not-an-object", "unknown-operation", "too-large"])
+def test_envelope_validation(tmp_path, request_body, message):
+    response = run(tmp_path, request_body)
+    assert response["status"] == "error"
+    assert response["error"]["code"] == "invalid_request"
+    assert response["error"]["message"]["en"] == message
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize(("paths", "message"), [
+    ([], "requires exactly one input"),
+    (["a.png", "b.png"], "requires exactly one input"),
+    (["missing.png"], "Missing input: missing.png"),
+    (["/absolute.png"], "Invalid path:"),
+    ([r"in\source.png"], "Invalid path:"),
+    ([42], "Invalid path:"),
+])
+def test_ingest_input_role_and_path_errors(tmp_path, paths, message):
+    response = run(tmp_path, {
+        "protocolVersion": 1,
+        "operation": "ingest_inspect",
+        "inputs": [{"role": "source", "relPath": path} for path in paths],
+        "recipe": {"version": 1, "limits": LIMITS},
+    })
+    assert response["error"]["code"] == "invalid_request"
+    assert message in response["error"]["message"]["en"]
+    assert not (tmp_path / "out").exists()
+
+
+def test_rgba_hash_preserves_partial_alpha_and_ignores_hidden_rgb():
+    rgba = Image.new("RGBA", (2, 1))
+    rgba.putdata([(34, 56, 78, 0), (12, 23, 34, 128)])
+    expected = b"RGBA8\x00\x00\x00\x02\x00\x00\x00\x01\0\0\0\0\x0c\x17\x22\x80"
+    assert rgba_sha256(rgba) == sha(expected)
+    with pytest.raises(ValueError, match="RGBA"):
+        rgba_sha256(rgba.convert("RGB"))
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux RLIMIT_AS enforcement")
+def test_memory_limit_returns_structured_error(tmp_path):
+    response = invoke(tmp_path, {
+        "protocolVersion": 1,
+        "operation": "font_guide",
+        "recipe": {
+            "version": 1, "columns": 1, "rows": 1, "cell": [8192, 8192],
+            "baselineY": 11, "padLeft": 1, "capHeight": 8, "codepoints": [65], "scale": 1,
+        },
+    }, env={**os.environ, "PIXEL_PIPELINE_MAX_MEMORY_MB": "128"})[1]
+    assert response["error"]["code"] == "limit_exceeded"
+    assert response["error"]["message"]["en"] == "Not enough memory within the configured limit"
+    assert not (tmp_path / "out").exists()
+
+
+def test_unexpected_error_keeps_traceback_off_stdout(tmp_path):
+    # An operation key that cannot be hashed fails before dispatch.
+    proc, response = invoke(tmp_path, {"protocolVersion": 1, "operation": []})
+    assert response["protocolVersion"] == 1 and response["status"] == "error"
+    assert response["error"]["code"] == "internal"
+    message = response["error"]["message"]
+    assert message.startswith("TypeError:") and "unhashable type: 'list'" in message
+    assert b"Traceback (most recent call last)" in proc.stderr
+    assert message.encode() in proc.stderr
+
+
+def test_cli_still_processes_images_without_posix_resource_module(tmp_path):
+    data = encode(Image.new("RGB", (1, 1), (12, 34, 56)), "PNG")
+    (tmp_path / "input.png").write_bytes(data)
+    proc, response = invoke(tmp_path, {
+        "protocolVersion": 1,
+        "operation": "ingest_inspect",
+        "inputs": [{"role": "source", "relPath": "input.png", "sha256": sha(data)}],
+        "recipe": {"version": 1, "limits": LIMITS},
+    }, bootstrap=(
+        "import sys; sys.modules['resource'] = None; "
+        "from pixel_pipeline.protocol import main; raise SystemExit(main(sys.argv[1:]))"
+    ))
+    assert proc.stderr == b""
+    assert response["status"] == "ok"
+    assert normalized(tmp_path).getpixel((0, 0)) == (12, 34, 56, 255)
 
 
 def test_path_escape_is_rejected(tmp_path):

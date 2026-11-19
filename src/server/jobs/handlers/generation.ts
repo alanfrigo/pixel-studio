@@ -2,10 +2,10 @@ import { pick, type TextValue, tx } from "@/i18n/locales";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { type BasePayload, type CostAmount, type GenerationPlan, GridPoint, gridPointInside } from "@/contracts";
+import { type BasePayload, type CostAmount, type GenerationPlan, type Palette, GridPoint, gridPointInside } from "@/contracts";
 import { canonicalDigest } from "@/domain/canonical-json";
 import { validatePlanReferences } from "@/domain/plan/references";
-import { type AssetView, type BlobRecord, getAsset, publishRevision, recordBlob } from "../../catalog/catalog";
+import { type AssetView, type BlobRecord, getAsset, getStyleRevision, publishRevision, recordBlob } from "../../catalog/catalog";
 import { catalogLookup } from "../../catalog/plan-lookup";
 import { DomainFailure } from "../../errors";
 import { assertPlanCapabilities } from "../../providers/plan-limits";
@@ -49,6 +49,7 @@ export async function generationHandler(ctx: HandlerContext): Promise<void> {
   }
   const asset = getAsset(ctx.db, ctx.job.project_id, request.targetAssetId);
   assertPublishable(ctx, plan, asset);
+  const palette = plan.operation === "generate_asset" ? getStyleRevision(ctx.db, plan.projectId, plan.styleRevisionId).payload.palette : undefined;
 
   ctx.queue.ensureParts(ctx.attempt, plan.parts);
   recordRun(ctx, plan);
@@ -93,7 +94,7 @@ export async function generationHandler(ctx: HandlerContext): Promise<void> {
   ctx.queue.setStage(ctx.attempt, "process");
   for (const part of ctx.queue.parts(ctx.job.id)) {
     if (part.processed_json) continue;
-    await processPart(ctx, plan, part);
+    await processPart(ctx, plan, part, palette);
   }
 
   // ---- publicação: candidatas + conclusão na mesma transação ----
@@ -333,9 +334,9 @@ async function storeResults(ctx: HandlerContext, partKey: string, result: Provid
 
 /**
  * Pipeline de uma imagem recebida: normaliza, recupera a grade, remove a
- * cor-chave e ajusta à escala lógica. Exportado para reprocessar avaliações.
+ * cor-chave, ajusta à escala lógica e trata a paleta, quando fornecida.
  */
-export async function processProviderImage(env: PipelineEnv, plan: GenerationPlan, sha256: string, dir: string) {
+export async function processProviderImage(env: PipelineEnv, plan: GenerationPlan, sha256: string, dir: string, palette?: Palette) {
   if (plan.operation !== "generate_asset") throw new Error("inalcançável");
   const [lw, lh] = plan.params.logicalSize;
   const character = plan.params.family === "character";
@@ -389,7 +390,7 @@ export async function processProviderImage(env: PipelineEnv, plan: GenerationPla
   }
   const isolated = Boolean(key) || plan.params.transparent;
   let groundOrigin: GridPoint | undefined;
-  if (out.width !== lw || out.height !== lh || isolated) {
+  if (out.width !== lw || out.height !== lh || isolated || palette) {
     // A base preserva a margem da pose. O ícone maximiza o conteúdo dentro da célula.
     fit = await step(
       "fit_logical",
@@ -397,6 +398,7 @@ export async function processProviderImage(env: PipelineEnv, plan: GenerationPla
         version: 1,
         targetSize: [lw, lh],
         ...(character ? { measureGround: true, alphaThreshold: 128 } : isolated ? { cropToContent: { padding: 0 }, alphaThreshold: 128 } : {}),
+        ...(palette ? { palette: { policy: palette.policy, colors: palette.colors.map(({ hex }) => hex) } } : {}),
       },
       "fitted",
     );
@@ -425,14 +427,14 @@ export async function processProviderImage(env: PipelineEnv, plan: GenerationPla
 }
 
 /** Normaliza cada imagem recebida e, se preciso, a reduz para a escala lógica. Idempotente por resultado. */
-async function processPart(ctx: HandlerContext, plan: GenerationPlan, part: PartRow) {
+async function processPart(ctx: HandlerContext, plan: GenerationPlan, part: PartRow, palette: Palette | undefined) {
   const env = envOf(ctx);
   for (const row of partResults(ctx, part.part_key)) {
     if (row.processed_json) continue;
     ctx.checkpoint();
     const dir = path.join(ctx.workDir, safeSegment(part.part_key), String(row.idx));
     const pipeline = PIPELINES[plan.operation];
-    const result: ProcessResult = pipeline ? await pipeline.process(env, plan, row.blob_sha256, dir, part) : await processProviderImage(env, plan, row.blob_sha256, dir);
+    const result: ProcessResult = pipeline ? await pipeline.process(env, plan, row.blob_sha256, dir, part) : await processProviderImage(env, plan, row.blob_sha256, dir, palette);
     const { processed, stored } = result;
     ctx.queue.fenced(ctx.attempt, () => {
       recordBlob(ctx.db, ctx.clock, {

@@ -993,6 +993,31 @@
             },
             "measureGround": {
               "type": "boolean"
+            },
+            "palette": {
+              "type": "object",
+              "properties": {
+                "policy": {
+                  "type": "string",
+                  "enum": [
+                    "strict",
+                    "guided"
+                  ]
+                },
+                "colors": {
+                  "minItems": 1,
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema17"
+                  }
+                }
+              },
+              "required": [
+                "policy",
+                "colors"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [

@@ -129,7 +129,7 @@ class Images:
                 self.cache[file_id] = im.convert("RGBA")
         x, y, w, h = rect
         img = self.cache[file_id]
-        if x + w > img.width or y + h > img.height:
+        if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > img.width or y + h > img.height:
             raise Rejected(f"retângulo {rect} fora de {file_id} ({img.width}×{img.height})")
         return img.crop((x, y, x + w, y + h))
 
@@ -148,7 +148,18 @@ def save(img: Image.Image, out: Path, *parts: str) -> str:
     return str(path.relative_to(out))
 
 
-def clip_frames(images: Images, clip: dict, out: Path, rid: str, overlays: list[dict] | None = None, overlay_ids: list[str] | None = None, loadout: dict | None = None) -> list[dict]:
+def clip_frames(
+    images: Images,
+    clip: dict,
+    out: Path,
+    rid: str,
+    overlays: list[dict] | None = None,
+    overlay_ids: list[str] | None = None,
+    loadout: dict | None = None,
+    *,
+    loadout_id: str | None = None,
+) -> list[dict]:
+    folder = ("loadouts", loadout_id, rid) if loadout_id is not None else (rid,)
     frames = []
     for frame in clip["frames"]:
         layers = [(i, layer["partId"], images.crop(layer["fileId"], layer["rect"]), layer["offset"], ("base", layer["partId"])) for i, layer in enumerate(frame["layers"])]
@@ -189,7 +200,7 @@ def clip_frames(images: Images, clip: dict, out: Path, rid: str, overlays: list[
             "durationMs": frame["durationMs"],
             "layers": [name for _, name, _, _, _ in layers],
             "sockets": sockets,
-            "file": save(img, out, rid if overlays is None else f"loadout-{rid}", f"{frame['frameId']}.png"),
+            "file": save(img, out, *folder, f"{frame['frameId']}.png"),
             **({"_image": img} if loadout is not None else {}),
         })
     return frames
@@ -215,6 +226,14 @@ def reconstruct_tilemap(images: Images, entries: dict[str, dict], rid: str, p: d
         canvas = Image.new("RGBA", ((cols + rows) * cw // 2, (cols + rows) * ch // 2 + 4 * ch), (0, 0, 0, 0))
         ox, oy = rows * cw // 2, 4 * ch
         items = []
+
+        def queue(pc, cx, cy, elev, kind, offset=(0, 0)):
+            fw, fh = pc["footprintCells"]
+            depth = cx + fw - 1 + cy + fh - 1
+            sx = ox + (cx - cy) * cw / 2 + (fw - fh) * cw / 4 + offset[0]
+            sy = oy + (cx + cy) * ch / 2 + (fw + fh) * ch / 4 - elev * ts["elevationStepPx"] + offset[1]
+            items.append(((depth, elev, kind), pc, int(sx - pc["supportPoint"][0]), int(sy - pc["supportPoint"][1])))
+
         for i, cell in enumerate(t["cells"]):
             if cell["pieceKey"] is None:
                 continue
@@ -222,17 +241,14 @@ def reconstruct_tilemap(images: Images, entries: dict[str, dict], rid: str, p: d
             if pc is None:
                 missing += 1
                 continue
-            cx, cy = i % cols, i // cols
-            items.append((cx + cy, cell["elevation"], 0, pc, cx, cy, cell["elevation"]))
+            queue(pc, i % cols, i // cols, cell["elevation"], 0 if pc["kind"] == "floor" else 1)
         for o in p["objects"]:
             if o["pieceKey"]:
                 pc = pieces[o["pieceKey"]]
-                items.append((o["cell"][0] + o["cell"][1], 0, 2, pc, o["cell"][0], o["cell"][1], 0))
-        for _, _, _, pc, cx, cy, elev in sorted(items, key=lambda it: it[:3]):
-            fw, fh = pc["footprintCells"]
-            sx = ox + (cx - cy) * cw / 2 + (fw - fh) * cw / 4
-            sy = oy + (cx + cy) * ch / 2 + (fw + fh) * ch / 4 - elev * ts["elevationStepPx"]
-            place(canvas, images.crop(ts["atlas"]["fileId"], pc["rect"]), int(sx - pc["supportPoint"][0]), int(sy - pc["supportPoint"][1]))
+                cx, cy = o["cell"]
+                queue(pc, cx, cy, t["cells"][cy * cols + cx]["elevation"], 2, o["offsetPx"])
+        for _, pc, x, y in sorted(items, key=lambda it: it[0]):
+            place(canvas, images.crop(ts["atlas"]["fileId"], pc["rect"]), x, y)
     else:
         if t["mode"] == "corner":
             by_key = {tile["tileKey"]: tile for tile in ts["tiles"]}
@@ -655,7 +671,7 @@ def reconstruct(entries: dict[str, dict], files: dict[str, dict], out: Path) -> 
             item["sheets"] = []
             for c in p["clips"]:
                 clip = entries[c["clipRevisionId"]]["payload"]
-                frames = clip_frames(images, clip, out, c["clipRevisionId"], overlays, p["overlayRevisionIds"], p)
+                frames = clip_frames(images, clip, out, c["clipRevisionId"], overlays, p["overlayRevisionIds"], p, loadout_id=rid)
                 # S2: a folha achatada precisa ser a recomposição exata das camadas, pixel a pixel.
                 sheet = next((s for s in p.get("sheets", []) if s["clipRevisionId"] == c["clipRevisionId"]), None)
                 if sheet:

@@ -47,14 +47,18 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "python/.venv/bin/python -I -m pixel_pipeline --version && vitest run --coverage",
+    "test:coverage:100": "npm run test:coverage -- --coverage.thresholds.100",
+    "test:e2e": "npm run build && playwright test",
     "fixtures:build": "tsx scripts/build-fixtures.ts",
     "schemas:export": "tsx scripts/export-json-schemas.ts",
-    "check": "npm run typecheck && npm run lint && npm run test && npm run test:python",
+    "check": "npm run typecheck && npm run lint && npm run test:coverage && npm run test:python:coverage && npm run test:e2e",
     "dev:web": "next dev --hostname 127.0.0.1",
     "worker": "tsx src/worker/main.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "python:setup": "cd python && uv sync",
-    "test:python": "cd python && uv run pytest -q"
+    "test:python": "cd python && uv run --locked pytest -q",
+    "test:python:coverage": "cd python && uv run --locked coverage run -m pytest -q && uv run --locked coverage html -d ../coverage/python && uv run --locked coverage report"
   },
   "dependencies": {
     "next": "16.4.6",
@@ -63,11 +67,16 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
     "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@vitest/coverage-v8": "5.1.1",
     "eslint": "10.15.0",
     "eslint-config-next": "16.4.6",
+    "jsdom": "31.0.1",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
     "vitest": "5.1.1"

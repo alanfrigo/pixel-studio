@@ -150,8 +150,9 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
 
   function paintTo(e: React.PointerEvent<HTMLCanvasElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.floor((e.clientX - rect.left) / zoom);
-    const y = Math.floor((e.clientY - rect.top) / zoom);
+    // CSS can shrink the canvas independently of the backing-buffer zoom.
+    const x = Math.floor(((e.clientX - rect.left) * w) / rect.width);
+    const y = Math.floor(((e.clientY - rect.top) * h) / rect.height);
     const [x0, y0] = lastRef.current ?? [x, y];
     // Linha entre amostras do ponteiro: traço contínuo mesmo com movimento rápido.
     const steps = Math.max(Math.abs(x - x0), Math.abs(y - y0), 1);
