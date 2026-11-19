@@ -564,25 +564,25 @@ function buildPlans(files: Map<string, { sha256: string }>, motionDigest: string
     "chainmail-two-refs": {
       ...common,
       operation: "generate_asset",
-      recipeRevisionId: "recipe-equipment-v1",
+      recipeRevisionId: "builtin-character-base-v1",
       providerProfileId: "openrouter-images",
       prompt: {
-        brief: "cota de malha sobre o guerreiro",
-        compiled: "Vista a cota de malha com o material da fonte 2 sobre o torso da fonte 1. Preserve pose, câmera e enquadramento.",
+        brief: "guerreiro de corpo inteiro vestindo uma cota de malha",
+        compiled: "Crie um sprite frontal de corpo inteiro em fundo transparente. Preserve a identidade, a pose e o enquadramento da fonte 1 e use o material da fonte 2 na cota de malha.",
         language: "pt-BR",
       },
       sources: [
         { ordinal: 0, revisionId: "warrior-base-v1", fileId: "warrior-base-s", sha256: sha("warrior-base-s"), role: "identity" },
         { ordinal: 1, revisionId: "metal-ref-v1", fileId: "metal-ref", sha256: sha("metal-ref"), role: "material" },
       ],
-      requiredCapabilities: ["image_references", "alpha_output"],
-      parts: [{ partKey: "image:chainmail", unit: "image", label: "Cota sobre a base" }],
+      requiredCapabilities: ["text_to_image", "image_references", "alpha_output"],
+      parts: [{ partKey: "image:chainmail", unit: "image", label: "Guerreiro com cota de malha" }],
       limits: {
         maxSubmissions: 1,
         costCeiling: { amount: 0.5, unit: "USD" },
         estimate: { kind: "known", amount: { amount: 0.08, unit: "USD" }, basis: "1 imagem com 2 referências (tarifa ilustrativa da fixture)" },
       },
-      params: { family: "equipment", kind: "overlay", logicalSize: [64, 64], transparent: true, variants: 1 },
+      params: { family: "character", kind: "base", logicalSize: [64, 64], transparent: true, variants: 1 },
     },
     "inpaint-lake": {
       ...common,

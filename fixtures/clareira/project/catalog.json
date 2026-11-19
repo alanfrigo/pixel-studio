@@ -18,6 +18,7 @@
       "files": {
         "warrior-base-s": {
           "sha256": "3ad9ba9845f694c3dfbde6909285ead0dd630dcb9a7bca6e8f270c041bb1de8d",
+          "mime": "image/png",
           "width": 64,
           "height": 64
         }
@@ -51,6 +52,7 @@
       "files": {
         "spark-texture": {
           "sha256": "e3847df45fa596cebd14cac5ead04a6c621a32da016b942ee2f072ac00372875",
+          "mime": "image/png",
           "width": 16,
           "height": 8
         }
@@ -65,7 +67,8 @@
       "status": "approved",
       "files": {
         "hit-wav": {
-          "sha256": "dd5d2c1006b3da62ec7e90a15a0b698f0fe88a1b03da823bcb92f1c37d366ce9"
+          "sha256": "dd5d2c1006b3da62ec7e90a15a0b698f0fe88a1b03da823bcb92f1c37d366ce9",
+          "mime": "audio/wav"
         }
       },
       "payloadDigest": "29143ab743ea47992dd1926e07ee08b1a57f25ef314c7fdc4bd635e25be7429f"
@@ -79,6 +82,7 @@
       "files": {
         "warrior-attack-s": {
           "sha256": "67bf0bf8887f86659235506f197d8bcdf561940a995a4b55a37bc6555c8c000d",
+          "mime": "image/png",
           "width": 256,
           "height": 64
         }
@@ -94,6 +98,7 @@
       "files": {
         "chainmail-atlas": {
           "sha256": "0ddfa05cf0cc38550c9a68625763bb40e4b766b4d8c2107de8f2f4b475a0f680",
+          "mime": "image/png",
           "width": 80,
           "height": 28
         }
@@ -118,6 +123,7 @@
       "files": {
         "potion-sheet": {
           "sha256": "da2c5595b5c06f0f87810efa5da58ddc5eac47867c5777f036b4255324f37a40",
+          "mime": "image/png",
           "width": 32,
           "height": 16
         }
@@ -133,6 +139,7 @@
       "files": {
         "grass-water-atlas": {
           "sha256": "ea3154b48b3232b0af5ec5ff72697364fe73faa8fb94088ffc96be485fdf259e",
+          "mime": "image/png",
           "width": 128,
           "height": 128
         }
@@ -148,6 +155,7 @@
       "files": {
         "font-atlas": {
           "sha256": "c735aaca1c14d52b2a9d9ad395b5e8add2a91f0e87ec156af5a68faac0736a9f",
+          "mime": "image/png",
           "width": 42,
           "height": 10
         }
@@ -163,6 +171,7 @@
       "files": {
         "button-atlas": {
           "sha256": "f577c11e52a2d34050458cb30d6c7a445661c1e59fbb44586db513bfc360ab45",
+          "mime": "image/png",
           "width": 160,
           "height": 16
         }
@@ -178,6 +187,7 @@
       "files": {
         "meter-atlas": {
           "sha256": "e33c2fe7bd8e0929dcedc0648c71d40c2a909455714a61e0a658d83b4d5b3308",
+          "mime": "image/png",
           "width": 68,
           "height": 26
         }
@@ -202,6 +212,7 @@
       "files": {
         "metal-ref": {
           "sha256": "d5a8066f386f7782a930c2ac459bf9cd9836f7c59d4604bf88304795e4e6f890",
+          "mime": "image/png",
           "width": 16,
           "height": 16
         }
@@ -216,6 +227,7 @@
       "files": {
         "potion-sheet": {
           "sha256": "da2c5595b5c06f0f87810efa5da58ddc5eac47867c5777f036b4255324f37a40",
+          "mime": "image/png",
           "width": 32,
           "height": 16
         }
@@ -230,6 +242,7 @@
       "files": {
         "dune-ref": {
           "sha256": "03d37eb263b3e7ab9e4c9d1bdcb9381d1dc815e8aaceaed1dedca82a6e034440",
+          "mime": "image/png",
           "width": 16,
           "height": 16
         }
@@ -241,6 +254,8 @@
       "fileId": "lake-mask",
       "projectId": "clareira",
       "sha256": "007ae642c9fd8ae4bfb0fea1a8d1a0c724dd1f8940e1e34dae2c9db1e89ae1a0",
+      "status": "ready",
+      "normalizedRasterSha256": "007ae642c9fd8ae4bfb0fea1a8d1a0c724dd1f8940e1e34dae2c9db1e89ae1a0",
       "width": 128,
       "height": 128
     }

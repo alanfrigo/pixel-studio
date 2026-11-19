@@ -3,11 +3,11 @@
   "projectId": "clareira",
   "styleRevisionId": "clareira-style-a",
   "operation": "generate_asset",
-  "recipeRevisionId": "recipe-equipment-v1",
+  "recipeRevisionId": "builtin-character-base-v1",
   "providerProfileId": "openrouter-images",
   "prompt": {
-    "brief": "cota de malha sobre o guerreiro",
-    "compiled": "Vista a cota de malha com o material da fonte 2 sobre o torso da fonte 1. Preserve pose, câmera e enquadramento.",
+    "brief": "guerreiro de corpo inteiro vestindo uma cota de malha",
+    "compiled": "Crie um sprite frontal de corpo inteiro em fundo transparente. Preserve a identidade, a pose e o enquadramento da fonte 1 e use o material da fonte 2 na cota de malha.",
     "language": "pt-BR"
   },
   "sources": [
@@ -27,6 +27,7 @@
     }
   ],
   "requiredCapabilities": [
+    "text_to_image",
     "image_references",
     "alpha_output"
   ],
@@ -34,7 +35,7 @@
     {
       "partKey": "image:chainmail",
       "unit": "image",
-      "label": "Cota sobre a base"
+      "label": "Guerreiro com cota de malha"
     }
   ],
   "limits": {
@@ -53,8 +54,8 @@
     }
   },
   "params": {
-    "family": "equipment",
-    "kind": "overlay",
+    "family": "character",
+    "kind": "base",
     "logicalSize": [
       64,
       64
