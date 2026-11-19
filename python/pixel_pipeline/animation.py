@@ -65,6 +65,22 @@ def _scale(image: Image.Image, factor: float) -> Image.Image:
     return image.resize(size, Image.Resampling.NEAREST)
 
 
+def grid_crossings(sheet: Image.Image, xs: list[int], ys: list[int], minimum: int = 3) -> list[str]:
+    """Linhas internas da grade atravessadas por conteúdo opaco (o modelo não respeitou as células)."""
+    alpha = sheet.getchannel("A").load()
+    w, h = sheet.size
+    found: list[str] = []
+    for i, x in enumerate(xs[1:-1], start=1):
+        hits = sum(1 for y in range(h) if alpha[x - 1, y] and alpha[x, y])
+        if hits >= minimum:
+            found.append(f"coluna {i}|{i + 1} ({hits} px)")
+    for j, y in enumerate(ys[1:-1], start=1):
+        hits = sum(1 for x in range(w) if alpha[x, y - 1] and alpha[x, y])
+        if hits >= minimum:
+            found.append(f"linha {j}|{j + 1} ({hits} px)")
+    return found
+
+
 def _paste_clipped(canvas: Image.Image, content: Image.Image, dx: int, dy: int) -> None:
     """Compõe `content` em `(dx, dy)` descartando o que sair da tela (contado à parte no relatório)."""
     left, top = max(0, dx), max(0, dy)
@@ -102,6 +118,9 @@ def animation_sheet(request: Json, workdir: Path) -> Json:
     ys = [round(j * sh / rows) for j in range(rows + 1)]
     regions: list[Json] = []
     warnings: list[str] = []
+    crossings = grid_crossings(sheet, xs, ys)
+    if crossings:
+        warnings.append(f"Conteúdo atravessa a divisão da grade ({', '.join(crossings)}): o modelo não respeitou as células; quadros podem sair cortados — revise")
     for index in range(cols * rows):
         r, c = divmod(index, cols)
         rect = (xs[c], ys[r], xs[c + 1], ys[r + 1])
@@ -119,6 +138,11 @@ def animation_sheet(request: Json, workdir: Path) -> Json:
     heights = [g["box"][3] - g["box"][1] for g in measured]
     median_height = median(heights)
     factor = base_height / median_height if median_height else 1.0
+    # Objetos (S3): a tampa que abre muda a altura, não a largura do corpo; a escala comum vem da largura.
+    scale_by = recipe.get("scaleBy", "height")
+    if scale_by == "width":
+        median_width = median(g["box"][2] - g["box"][0] for g in measured)
+        factor = (base_box[2] - base_box[0]) / median_width if median_width else 1.0
     resampled = abs(factor - 1) > tolerance
     if not resampled:
         factor = 1.0
@@ -187,7 +211,7 @@ def animation_sheet(request: Json, workdir: Path) -> Json:
         "grid": [cols, rows],
         "cell": [cw, ch],
         "base": {"contentBox": [base_box[0], base_box[1], base_box[2] - base_box[0], base_box[3] - base_box[1]], "feetX": round(base_feet, 2), "ground": base_bottom},
-        "scale": {"factor": round(factor, 4), "resampled": resampled, "medianHeight": median_height, "baseHeight": base_height},
+        "scale": {"factor": round(factor, 4), "resampled": resampled, "medianHeight": median_height, "baseHeight": base_height, "scaleBy": scale_by},
         "frames": frames,
     }
     return respond(outputs, report, warnings)

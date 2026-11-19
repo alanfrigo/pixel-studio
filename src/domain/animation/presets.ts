@@ -8,9 +8,9 @@ import { DurationMs, Id, Playback, PosInt, Slug } from "@/contracts";
  * uma versão nova com outro ID: planos antigos continuam apontando a versão
  * que congelaram.
  *
- * As contagens são intenção local, não parâmetros universais: `hurt` com três
- * quadros não cabe no texto v3 (4–16 pares) e por isso é um preset de
- * esqueleto, que exige movimento aprovado para a base antes do clique.
+ * As contagens são intenção local, não parâmetros universais: `hurt` tem três
+ * quadros de pose precisa e por isso é um preset de esqueleto, que exige
+ * movimento aprovado para a base antes do clique.
  */
 
 export const PoseRecipe = z.enum(["idle_breath", "walk_cycle", "run_cycle", "attack_swing", "attack_wide", "hurt_recoil"]);
@@ -168,9 +168,4 @@ export function parsePresetRevisionId(revisionId: string): { projectId: string; 
   if (!m) return null;
   const preset = findPreset(m[2]!, Number(m[3]));
   return preset ? { projectId: m[1]!, preset } : null;
-}
-
-/** Texto v3 (PixelLab) aceita 4–16 quadros pares; preset fora disso precisa de outra rota. */
-export function fitsTextV3(frames: number): boolean {
-  return frames >= 4 && frames <= 16 && frames % 2 === 0;
 }

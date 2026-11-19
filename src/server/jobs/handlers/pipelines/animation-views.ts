@@ -56,9 +56,11 @@ function publishView(ctx: HandlerContext, plan: RotatePlan, asset: AssetView, pa
   };
   // Vistas aprovadas seguem com os mesmos blobs e chaves; só a nova entra.
   const kept = base.payload.views.map((v) => base.revision.files.find((f) => f.fileKey === v.fileId)!);
+  // Índice livre no papel `view` (objetos e estados já guardam as vistas nesse papel).
+  const viewIdx = Math.max(-1, ...kept.filter((f) => f.role === "view").map((f) => f.idx)) + 1;
   const files = [
     ...kept.map((f) => ({ fileKey: f.fileKey, role: f.role, idx: f.idx, blob: mustBlob(ctx.db, f.sha256) })),
-    { fileKey, role: "view", idx: 0, blob: mustBlob(ctx.db, viewSha) },
+    { fileKey, role: "view", idx: viewIdx, blob: mustBlob(ctx.db, viewSha) },
     ...rows.map((row) => ({ fileKey: `raw-${direction.toLowerCase()}-${row.idx}`, role: "raw", idx: row.idx, blob: mustBlob(ctx.db, row.blob_sha256) })),
   ];
   const revision = publishRevision(ctx.db, ctx.clock, {

@@ -25,8 +25,9 @@ import { contentBox, errorText } from "./shared";
  * Editor de esqueleto com timeline de keypoints (04 §esqueleto estimado ou
  * custom editável). A pose da referência (o desenho aprovado) fica separada
  * das poses-alvo; cada pose-alvo tem ID e duração próprios. Joints ocultos
- * continuam na sequência. Arrastar um joint muda os dados enviados — no
- * PixelLab como keypoints; numa rota genérica, como guia de poses em imagem.
+ * continuam na sequência. Arrastar um joint muda os dados enviados — numa
+ * rota nativa de esqueleto, como keypoints por quadro; numa rota genérica,
+ * como guia de poses em imagem.
  */
 
 const SIDE_COLOR: Record<string, string> = { right: "#d63031", left: "#2662d6", center: "#28282f" };
@@ -288,7 +289,7 @@ export function SkeletonEditor(props: Props) {
             className="secondary"
             onClick={() => {
               if (skeleton.kind === "humanoid") setSkeleton({ ...skeleton, kind: "custom" });
-              setMessage("Esqueleto custom: nomes, parents e joints editáveis; no PixelLab vai como `rig`.");
+              setMessage("Esqueleto custom: nomes, parents e joints editáveis; vai como hierarquia (rig) para provedores com esqueleto custom.");
             }}
             disabled={skeleton.kind === "custom"}
           >

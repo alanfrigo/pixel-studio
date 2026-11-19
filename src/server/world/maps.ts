@@ -93,6 +93,8 @@ interface ObjectContext {
   status: RevisionView["status"];
   payload: MapObjectPayload;
   mediaId: string;
+  /** T2: sombra separada do prop (desenhada antes dele). */
+  shadowMediaId?: string;
 }
 
 export function tilesetContext(studio: Studio, projectId: string, revisionId: string): TilesetContext {
@@ -111,7 +113,8 @@ export function objectContext(studio: Studio, projectId: string, revisionId: str
   if (asset.family !== "map" || asset.kind !== "object") throw new DomainFailure("validation_failed", `${asset.name} r${revision.number} não é um objeto de mapa`);
   const payload = MapObjectPayload.parse(revision.payload);
   const file = revision.files.find((f) => f.fileKey === payload.fileId)!;
-  return { revisionId, assetId: asset.id, name: asset.name, number: revision.number, status: revision.status, payload, mediaId: file.id };
+  const shadow = payload.shadow ? revision.files.find((f) => f.fileKey === payload.shadow!.fileId) : undefined;
+  return { revisionId, assetId: asset.id, name: asset.name, number: revision.number, status: revision.status, payload, mediaId: file.id, ...(shadow ? { shadowMediaId: shadow.id } : {}) };
 }
 
 export function mapContext(studio: Studio, projectId: string, map: TilemapPayload) {

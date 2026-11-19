@@ -11,7 +11,8 @@
  *   2. texto livre: pulo (4 quadros, folha 2×2);
  *   3. esqueleto via guia de poses em imagem: ataque com escudo (4 poses);
  *   4. vista nova E (arte nova, assimetrias declaradas).
- * O modo esqueleto com poses como DADOS (PixelLab) não tem credencial aqui.
+ * O modo esqueleto com poses como DADOS exige uma rota nativa de esqueleto,
+ * ensaiada só pelo provedor simulado.
  * Sem --yes só estima (descoberta e saldo são gratuitos). Resultados em
  * reports/animacao/<data>/.
  */

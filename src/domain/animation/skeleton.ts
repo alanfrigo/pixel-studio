@@ -8,8 +8,9 @@ import type { PoseRecipe } from "./presets";
  * - Coordenadas de pose contínuas normalizadas na célula de geração (`x/y` em
  *   0–1, origem no canto superior esquerdo); a sobreposição em pixels usa
  *   `(x·W, y·H)` e conserva frações.
- * - O humanoide usa os 18 rótulos do esqueleto v3 como nomes e uma hierarquia
- *   editorial explícita (o schema remoto não tem parent nesses keypoints).
+ * - O humanoide usa 18 rótulos fixos de keypoints (nariz, pescoço, ombros,
+ *   cotovelos, punhos, quadris, joelhos, tornozelos, olhos e orelhas) como
+ *   nomes e uma hierarquia editorial explícita (keypoints soltos não trazem parent).
  * - "Estimar" aqui é um ajuste local do esqueleto padrão à caixa do conteúdo
  *   da base: candidato a corrigir, não verdade anatômica.
  *

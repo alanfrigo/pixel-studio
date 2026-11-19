@@ -204,9 +204,9 @@ export const SideTilesetPayload = z
     projection: z.literal("side"),
     cellSize: Size,
     atlas: AtlasRef,
-    /** Corpo da plataforma (lower_description no PixelLab). */
+    /** Corpo da plataforma (o material de baixo). */
     platformMaterial: z.string().min(1).max(200),
-    /** Superfície caminhável (transition_description no PixelLab). */
+    /** Superfície caminhável (a faixa de transição por cima). */
     surfaceMaterial: z.string().min(1).max(200),
     /** Linha caminhável: y (px) do topo da superfície nas células com topo exposto. */
     walkableLineY: NonNegInt,
@@ -315,7 +315,8 @@ export type IsoTilesetPayload = z.infer<typeof IsoTilesetPayload>;
  */
 export const MapObjectPayload = z
   .strictObject({
-    projection: z.enum(["top_down", "three_quarter", "side"]),
+    /** T2: `isometric` = móvel de sala isométrica (apoio no centro do losango do footprint). */
+    projection: z.enum(["top_down", "three_quarter", "side", "isometric"]),
     fileId: Id,
     rect: Rect,
     logicalSize: Size,
@@ -326,6 +327,23 @@ export const MapObjectPayload = z
     collision: z.array(Rect).max(16),
     /** Pixels com y menor que este (px da imagem) cobrem o personagem atrás (copa). */
     occlusionAboveY: NonNegInt.nullable(),
+    /**
+     * T2: sombra separada (arquivo próprio), desenhada antes do objeto; `offset`
+     * é a posição do canto da sombra relativa ao canto da imagem do objeto.
+     */
+    shadow: z.strictObject({ fileId: Id, rect: Rect, offset: Offset }).nullable().optional(),
+    /** T2: móvel extraído de uma sala (proveniência; o prop é reutilizável em outras salas e mapas). */
+    sourceRoom: z
+      .strictObject({
+        roomRevisionId: Id,
+        pieceName: z.string().min(1).max(64),
+        /** Retângulo da peça na imagem da sala de origem. */
+        rectInRoom: Rect,
+        /** Recorte local revisado com máscara explícita. */
+        method: z.enum(["local_mask_cutout"]),
+      })
+      .nullable()
+      .optional(),
   })
   .superRefine((o, ctx) => {
     const [w, h] = o.logicalSize;

@@ -19,6 +19,24 @@ export interface Migration {
   checksum: string;
 }
 
+/**
+ * Revisões que só mudaram comentários (o SQL executado é idêntico, conferido
+ * em teste pelo SQL sem comentários): o checksum anterior continua aceito e é
+ * atualizado pela próxima `migrate`.
+ */
+export const COMMENT_ONLY_REVISIONS: Readonly<Record<number, readonly string[]>> = {
+  4: ["ca07391a122c510716c0eb98eb9fc089e08c87f324df52b36adc71e4a3fc9294"],
+};
+
+/** SQL sem comentários de linha nem linhas vazias: o que de fato executa. */
+export function executableSql(sql: string): string {
+  return sql
+    .split("\n")
+    .map((line) => line.replace(/--.*$/, "").trimEnd())
+    .filter((line) => line.trim() !== "")
+    .join("\n");
+}
+
 export function loadMigrations(dir = MIGRATIONS_DIR): Migration[] {
   const migrations = readdirSync(/*turbopackIgnore: true*/ dir)
     .filter((f) => /^\d{4}_[a-z0-9_]+\.sql$/.test(f))
@@ -65,7 +83,9 @@ export function migrationStatus(db: Db, migrations = loadMigrations()): Migratio
   for (const a of applied) {
     const m = migrations[a.version - 1];
     if (!m) throw new Error(`Banco tem a migração ${a.version} (${a.name}), desconhecida por este código`);
-    if (m.checksum !== a.checksum) throw new Error(`Migração ${a.version} (${a.name}) foi alterada depois de aplicada`);
+    if (m.checksum !== a.checksum && !COMMENT_ONLY_REVISIONS[a.version]?.includes(a.checksum)) {
+      throw new Error(`Migração ${a.version} (${a.name}) foi alterada depois de aplicada`);
+    }
   }
   return {
     current: applied.length,
@@ -76,6 +96,14 @@ export function migrationStatus(db: Db, migrations = loadMigrations()): Migratio
 
 export function migrate(db: Db, migrations = loadMigrations(), now = () => new Date().toISOString()): Migration[] {
   const { pending } = migrationStatus(db, migrations);
+  // Revisão só de comentário já aceita acima: grava o checksum atual.
+  for (const [version, previous] of Object.entries(COMMENT_ONLY_REVISIONS)) {
+    const m = migrations[Number(version) - 1];
+    if (!m) continue;
+    for (const checksum of previous) {
+      db.run("UPDATE schema_migrations SET checksum = :current WHERE version = :version AND checksum = :checksum", { current: m.checksum, version: Number(version), checksum });
+    }
+  }
   for (const m of pending) {
     db.transaction(() => {
       db.exec(m.sql);

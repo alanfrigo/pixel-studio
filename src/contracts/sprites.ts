@@ -44,6 +44,11 @@ export const BasePayload = z
     state: Slug,
     /** Revisão do estado predecessor quando é um estado derivado. */
     predecessorRevisionId: Id.nullable(),
+    /**
+     * Sujeito das vistas (S3): `object` = prop sem rig anatômico (baú, tocha),
+     * com estados e animação de objeto. Ausente = personagem (pacotes v1 anteriores).
+     */
+    subject: z.enum(["character", "object"]).optional(),
     views: z.array(DirectionalView).min(1).max(8),
     /**
      * Orientação das vistas (04 §isométrico): direção no mundo → vista do
@@ -193,6 +198,12 @@ export const ClipPayload = z
     playback: Playback,
     frames: z.array(ClipFrame).min(1).max(256),
     events: z.array(ClipEvent),
+    /**
+     * Vínculo explícito e revisado de clipe compartilhado (S2, 04 §resolvedor):
+     * posturas adicionais em que este clipe pode ser usado sem variante própria
+     * (ex.: caminhar igual com escudo ou espada longa). Ausente = só `stance`.
+     */
+    sharedStances: z.array(Slug).optional(),
   })
   .superRefine((clip, ctx) => {
     checkUnique(ctx, clip.frames, (f) => f.frameId, "Frame", ["frames"]);
@@ -259,7 +270,30 @@ export const RigidView = z.strictObject({
   rect: Rect,
   /** Pontos de empunhadura na imagem da peça (dupla empunhadura marca dois). */
   grips: z.array(z.strictObject({ socketId: Id, at: PixelIndex })).min(1),
+  /**
+   * Arte simétrica (S2): o espelho horizontal desta vista é derivação
+   * autorizada e revisada. Empunhadura espelhada usa o índice de pixel `W − 1 − x`.
+   */
+  mirrorAllowed: z.boolean().optional(),
 });
+
+/**
+ * Uso de uma vista rígida num frame (S2): a mesma arte aprovada serve a vários
+ * frames que compartilham ângulo. Origem de desenho = socket do frame −
+ * empunhadura da vista. `viewId: null` = peça explicitamente oculta no frame.
+ */
+export const RigidPlacement = z.strictObject({
+  clipRevisionId: Id,
+  frameId: Id,
+  viewId: Id.nullable(),
+  /** Socket do frame (e empunhadura da vista) que ancora a peça. */
+  anchorSocketId: Id,
+  /** Posição na ordem de desenho do frame (camadas da base usam seus índices). */
+  drawIndex: Int,
+  /** Espelho horizontal autorizado; exige `mirrorAllowed` na vista. */
+  mirrored: z.boolean().optional(),
+});
+export type RigidPlacement = z.infer<typeof RigidPlacement>;
 
 export const OverlayPayload = z
   .strictObject({
@@ -270,6 +304,8 @@ export const OverlayPayload = z
     stances: z.array(Slug).min(1),
     parts: z.array(OverlayPart),
     rigidViews: z.array(RigidView),
+    /** Em quais frames cada vista rígida é usada e com qual socket (S2). */
+    rigidPlacements: z.array(RigidPlacement).optional(),
   })
   .superRefine((overlay, ctx) => {
     checkUnique(ctx, overlay.parts, (p) => p.partId, "Parte", ["parts"]);
@@ -277,8 +313,33 @@ export const OverlayPayload = z
     if (overlay.parts.length === 0 && overlay.rigidViews.length === 0) {
       ctx.addIssue({ code: "custom", message: "Peça precisa de partes por frame ou vistas rígidas" });
     }
+    const placements = overlay.rigidPlacements ?? [];
+    checkUnique(ctx, placements, (p) => `${p.clipRevisionId}#${p.frameId}`, "Uso de vista rígida", ["rigidPlacements"]);
+    const views = new Map(overlay.rigidViews.map((v) => [v.viewId, v]));
+    placements.forEach((p, i) => {
+      if (p.viewId === null) return;
+      const view = views.get(p.viewId);
+      if (!view) {
+        ctx.addIssue({ code: "custom", message: `Vista rígida inexistente: ${p.viewId}`, path: ["rigidPlacements", i, "viewId"] });
+        return;
+      }
+      if (!view.grips.some((g) => g.socketId === p.anchorSocketId)) {
+        ctx.addIssue({ code: "custom", message: `A vista ${p.viewId} não tem empunhadura para ${p.anchorSocketId}`, path: ["rigidPlacements", i, "anchorSocketId"] });
+      }
+      if (p.mirrored && !view.mirrorAllowed) {
+        ctx.addIssue({ code: "custom", message: `Espelho da vista ${p.viewId} não foi autorizado`, path: ["rigidPlacements", i, "mirrored"] });
+      }
+    });
   });
 export type OverlayPayload = z.infer<typeof OverlayPayload>;
+
+/** Camada da pilha de um frame, citada por um override de ordem de desenho (S2). */
+export const LayerRef = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("base"), partId: Slug }),
+  z.strictObject({ kind: z.literal("part"), overlayRevisionId: Id, partId: Slug }),
+  z.strictObject({ kind: z.literal("rigid"), overlayRevisionId: Id }),
+]);
+export type LayerRef = z.infer<typeof LayerRef>;
 
 export const LoadoutPayload = z
   .strictObject({
@@ -291,11 +352,41 @@ export const LoadoutPayload = z
         action: Slug,
         direction: Direction,
         clipRevisionId: Id,
+        /** Como o clipe foi resolvido (S2): chave exata, variante escolhida pelo artista ou vínculo compartilhado. */
+        link: z.enum(["exact", "variant", "shared"]).optional(),
       }),
     ),
+    /** Política de resolução da postura (S2): `auto` = única postura comum às peças; `pinned` = escolhida pelo artista. */
+    stancePolicy: z.enum(["auto", "pinned"]).optional(),
+    /**
+     * Override explícito da ordem de desenho num frame (S2): a lista completa,
+     * trás → frente, das camadas desenhadas naquele frame do clipe.
+     */
+    drawOrder: z.array(z.strictObject({ clipRevisionId: Id, frameId: Id, layers: z.array(LayerRef).min(1) })).optional(),
+    /** Subconjunto explicitamente completo (S2): combinações deixadas de fora de propósito. */
+    omitted: z.array(z.strictObject({ action: Slug, direction: Direction, reason: z.string().min(1).max(300) })).optional(),
+    /**
+     * Folha achatada sob demanda (S2): um frame por célula, na ordem do clipe;
+     * reconstruível pixel a pixel pelas camadas e pela ordem exportadas.
+     */
+    sheets: z.array(z.strictObject({ clipRevisionId: Id, fileId: Id, frames: z.array(z.strictObject({ frameId: Id, rect: Rect })).min(1) })).optional(),
   })
   .superRefine((loadout, ctx) => {
     checkUnique(ctx, loadout.overlayRevisionIds, (id) => id, "Peça", ["overlayRevisionIds"]);
     checkUnique(ctx, loadout.clips, (c) => `${c.action}/${c.direction}`, "Combinação ação/direção", ["clips"]);
+    const clipIds = new Set(loadout.clips.map((c) => c.clipRevisionId));
+    const combos = new Set(loadout.clips.map((c) => `${c.action}/${c.direction}`));
+    checkUnique(ctx, loadout.drawOrder ?? [], (o) => `${o.clipRevisionId}#${o.frameId}`, "Ordem de desenho", ["drawOrder"]);
+    (loadout.drawOrder ?? []).forEach((o, i) => {
+      if (!clipIds.has(o.clipRevisionId)) ctx.addIssue({ code: "custom", message: `Ordem de desenho cita clipe fora do conjunto: ${o.clipRevisionId}`, path: ["drawOrder", i] });
+    });
+    checkUnique(ctx, loadout.omitted ?? [], (o) => `${o.action}/${o.direction}`, "Combinação omitida", ["omitted"]);
+    (loadout.omitted ?? []).forEach((o, i) => {
+      if (combos.has(`${o.action}/${o.direction}`)) ctx.addIssue({ code: "custom", message: `Combinação ${o.action}/${o.direction} está no conjunto e na lista de omitidas`, path: ["omitted", i] });
+    });
+    checkUnique(ctx, loadout.sheets ?? [], (s) => s.clipRevisionId, "Folha achatada", ["sheets"]);
+    (loadout.sheets ?? []).forEach((s, i) => {
+      if (!clipIds.has(s.clipRevisionId)) ctx.addIssue({ code: "custom", message: `Folha achatada de clipe fora do conjunto: ${s.clipRevisionId}`, path: ["sheets", i] });
+    });
   });
 export type LoadoutPayload = z.infer<typeof LoadoutPayload>;

@@ -11,11 +11,11 @@ import { colorName } from "@/domain/color-names";
 
 type Lang = "pt-BR" | "en";
 
-function lightPhrase(style: StylePayload, lang: Lang): string {
+export function lightPhrase(style: StylePayload, lang: Lang): string {
   return lang === "en" ? `light coming from the ${style.lighting.lightFrom} of the screen` : `luz vinda de ${style.lighting.lightFrom} na tela`;
 }
 
-function background(key: string | null, lang: Lang): string {
+export function background(key: string | null, lang: Lang): string {
   if (!key) return lang === "en" ? "Transparent background." : "Fundo transparente.";
   const name = colorName(key, lang);
   return lang === "en" ? `Flat solid ${name} background across the whole image, no shadow on it.` : `Fundo chapado ${name} em toda a imagem, sem sombra sobre ele.`;

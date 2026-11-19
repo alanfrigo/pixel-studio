@@ -9,6 +9,9 @@ import { usePoll } from "@/app/client/use-poll";
 import { ClipPlayer } from "./clip-player";
 import { type AssetEntry, DIR_LABEL, DIRS, errorText, estimateText, type Overview, type PlanPreview, type ProfileInfo, review, type RunResult, viewUrl } from "./shared";
 import { SkeletonEditor } from "./skeleton-editor";
+import { LibraryPanel } from "./library-panel";
+import { ObjectsPanel, StatesPanel } from "./states-panel";
+import { TemporalPanel } from "./temporal-panel";
 import { ViewsGrid } from "./views-grid";
 
 /**
@@ -16,9 +19,13 @@ import { ViewsGrid } from "./views-grid";
  * texto livre e esqueleto — mais vistas 4/8 com mapa isométrico. Tudo parte de
  * uma base aprovada; o resultado é revisão candidata, aprovada no fluxo de
  * revisão. A rota de cada perfil é exibida pelo que ela realmente faz.
+ *
+ * Cartão S3: estados (matriz de direções), objetos e sua animação, edição
+ * temporal (interpolar, trecho, correção com máscara, roupa) e biblioteca
+ * (etiquetas, duplicar, separar, excluir parte, espelho explícito, canvas).
  */
 
-type Tab = "preset" | "text" | "skeleton" | "views" | "clips";
+type Tab = "preset" | "text" | "skeleton" | "views" | "clips" | "states" | "objects" | "temporal" | "library";
 
 interface PresetConfig {
   ceilingAmount: number | null;
@@ -81,10 +88,10 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
 
   return (
     <>
-      <h1>Animação</h1>
+      <h1>Animação, estados e edição temporal</h1>
       {bases.length === 0 ? (
         <section>
-          <p className="error">Nenhuma base de personagem aprovada neste projeto. Importe ou gere uma base (character/base) e aprove-a na biblioteca do projeto.</p>
+          <p className="error">Nenhuma base de personagem aprovada neste projeto. Importe ou gere uma base (character/base) e aprove-a na biblioteca do projeto, ou crie um objeto (baú, tocha) a partir de uma imagem na aba Objetos.</p>
         </section>
       ) : (
         <section>
@@ -145,6 +152,10 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
             ["skeleton", "Esqueleto"],
             ["views", "Vistas 4/8"],
             ["clips", "Clipes e revisão"],
+            ["states", "Estados"],
+            ["objects", "Objetos"],
+            ["temporal", "Edição temporal"],
+            ["library", "Biblioteca"],
           ] as [Tab, string][]
         ).map(([key, label]) => (
           <button key={key} type="button" className={tab === key ? "" : "secondary"} onClick={() => setTab(key)}>
@@ -194,6 +205,10 @@ export function AnimationStudio({ projectId }: { projectId: string }) {
           {tab === "clips" && <ClipsTab projectId={projectId} base={base} clips={data.clips} onChanged={refresh} />}
         </>
       )}
+      {profile && tab === "states" && <StatesPanel projectId={projectId} data={data} profile={profile} run={run} onChanged={refresh} />}
+      {profile && tab === "objects" && <ObjectsPanel projectId={projectId} data={data} profile={profile} run={run} onChanged={refresh} />}
+      {profile && tab === "temporal" && <TemporalPanel projectId={projectId} data={data} profile={profile} run={run} onChanged={refresh} />}
+      {tab === "library" && <LibraryPanel projectId={projectId} data={data} onChanged={refresh} />}
       <JobsList jobs={data.jobs} />
     </>
   );
@@ -413,7 +428,7 @@ function TextTab(props: { projectId: string; profile: ProfileInfo; baseRevisionI
           Gerar
         </button>
       </div>
-      <p className="small muted">Texto não garante poses exatas nem contagem arbitrária: o texto v3 nativo aceita 4–16 quadros pares; rotas genéricas desenham uma folha que é fatiada localmente.</p>
+      <p className="small muted">Texto não garante poses exatas: a animação por texto nativa recebe a vista e a ação; rotas genéricas desenham uma folha que é fatiada localmente.</p>
       {message && <p className="small error">{message}</p>}
       {preview && <PlanBox preview={preview} />}
     </section>

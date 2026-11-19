@@ -14,7 +14,7 @@ import {
   type StylePayload,
 } from "@/contracts";
 import { closestView, DIRECTION_LABEL } from "@/domain/animation/directions";
-import { type ActionPreset, findPreset, fitsTextV3, presetRevisionId } from "@/domain/animation/presets";
+import { type ActionPreset, findPreset, presetRevisionId } from "@/domain/animation/presets";
 import { sheetLayout } from "@/domain/animation/timeline";
 import { canonicalDigest } from "@/domain/canonical-json";
 import { validatePlanReferences } from "@/domain/plan/references";
@@ -23,7 +23,6 @@ import { getProject, getStyleRevision } from "../catalog/catalog";
 import { catalogLookup } from "../catalog/plan-lookup";
 import type { Db } from "../db/connection";
 import { DomainFailure } from "../errors";
-import { pixelLabRotateBody, pixelLabSkeletonBody, pixelLabTextAnimationBody } from "../providers/mappings";
 import { getProfileRow } from "../providers/registry";
 import type { ProviderAdapter } from "../providers/types";
 import { chooseKeyColor } from "../services";
@@ -79,7 +78,7 @@ export const AnimateSkeletonPlanInput = z.strictObject({
   ...common,
   motionRevisionId: Id,
   actionText: z.string().trim().min(1).max(1000),
-  /** Aparência (substantivo), não pose: `description` do esqueleto v3. */
+  /** Aparência (substantivo), não pose: o que a rota nativa de esqueleto recebe como descrição. */
   appearance: z.string().trim().min(1).max(300).optional(),
   playback: Playback,
 });
@@ -102,30 +101,28 @@ export interface AnimationPlanResult {
   digest: string;
   destination: { profileId: string; name: string; transport: string; simulated: boolean };
   route: { strategy: AnimationRoute["strategy"]; label: string };
-  summary: { direction: Direction; action: string; frameIds: string[]; durationsMs: number[]; playback: string } | { view: Direction; sourceView: Direction; projection: string };
+  summary: { direction: Direction; action: string; frameIds: string[]; durationsMs: number[]; playback: string } | { view: Direction; sourceView: Direction; projection: string } | Record<string, unknown>;
   /** Atalho de um clique: o plano é enviável sem formulário? (custo conhecido dentro do teto ou desconhecido autorizado). */
   costCheck: { kind: CostEstimate["kind"]; withinCeiling: boolean | null };
 }
 
-interface Env {
+export interface Env {
   studio: Studio;
   projectId: string;
   styleRevisionId: string;
   style: StylePayload;
   adapter: ProviderAdapter;
-  transport: string;
   language: "pt-BR" | "en";
   profileId: string;
 }
 
-function env(studio: Studio, projectId: string, profileId: string, language?: "pt-BR" | "en"): Env {
+export function env(studio: Studio, projectId: string, profileId: string, language?: "pt-BR" | "en"): Env {
   const project = getProject(studio.db, projectId);
   if (!project.activeStyleRevisionId) throw new DomainFailure("validation_failed", "Projeto sem estilo ativo");
   const style = getStyleRevision(studio.db, projectId, project.activeStyleRevisionId).payload;
   studio.providers.assertReady(profileId);
   const adapter = studio.providers.adapterFor(profileId);
-  const transport = getProfileRow(studio.db, profileId).transport;
-  return { studio, projectId, styleRevisionId: project.activeStyleRevisionId, style, adapter, transport, language: language ?? (style.briefLanguage === "en" ? "en" : "pt-BR"), profileId };
+  return { studio, projectId, styleRevisionId: project.activeStyleRevisionId, style, adapter, language: language ?? (style.briefLanguage === "en" ? "en" : "pt-BR"), profileId };
 }
 
 /** Grade e fundo da folha numa rota genérica: alfa nativo quando a rota tem, senão cor-chave fora da paleta. */
@@ -153,7 +150,7 @@ function checkCeiling(estimate: CostEstimate, ceiling: z.infer<typeof CostAmount
   return true;
 }
 
-function finish(e: Env, plan: GenerationPlan, route: AnimationRoute, summary: AnimationPlanResult["summary"], ceiling: z.infer<typeof CostAmount> | null | undefined): AnimationPlanResult {
+export function finish(e: Env, plan: GenerationPlan, route: AnimationRoute, summary: AnimationPlanResult["summary"], ceiling: z.infer<typeof CostAmount> | null | undefined): AnimationPlanResult {
   const withinCeiling = checkCeiling(plan.limits.estimate, ceiling);
   const parsed = GenerationPlan.safeParse(plan);
   if (!parsed.success) {
@@ -187,7 +184,7 @@ function envelope(e: Env, recipe: string, route: AnimationRoute) {
   };
 }
 
-function limits(e: Env, operation: GenerationPlan["operation"], ceiling: z.infer<typeof CostAmount> | null | undefined) {
+export function limits(e: Env, operation: GenerationPlan["operation"], ceiling: z.infer<typeof CostAmount> | null | undefined) {
   return { maxSubmissions: 1, costCeiling: ceiling ?? null, estimate: e.adapter.estimate(operation, 1) };
 }
 
@@ -250,13 +247,6 @@ export function buildAnimatePresetPlan(studio: Studio, projectId: string, raw: A
 
   const route = chooseRoute(e.adapter, "animate_preset", { mode: preset.strategy, customSkeleton: motion?.motion.payload.skeleton.kind === "custom" }, e.profileId);
   const sheet = route.strategy === "reference_sheet" ? sheetFor(e, [...preset.frameIds], size, preset.strategy === "skeleton" ? 2 : 1) : undefined;
-  if (route.strategy === "native" && e.transport === "pixellab_rest_v2") {
-    if (preset.strategy === "text") pixelLabTextAnimationBody({ action: "x", firstFrame: new Uint8Array(), size, frames: preset.frameIds.length });
-    else pixelLabSkeletonBody({ description: "x", firstFrame: new Uint8Array(), motion: motion!.motion.payload });
-  }
-  if (route.strategy === "native" && preset.strategy === "text" && e.transport === "pixellab_rest_v2" && !fitsTextV3(preset.frameIds.length)) {
-    throw new DomainFailure("capability_missing", `O preset ${preset.label} tem ${preset.frameIds.length} quadros; o texto v3 exige 4–16 pares`);
-  }
   const compiled = compilePresetPrompt(e, preset, base, input.direction, route, sheet);
   const plan: GenerationPlan = {
     ...envelope(e, `animate-preset-${preset.key}`, route),
@@ -299,7 +289,7 @@ function compilePresetPrompt(e: Env, preset: ActionPreset, base: LoadedBase, dir
       }),
     };
   }
-  // Nativo: texto v3 recebe a ação; esqueleto v3 recebe a aparência (as poses vão como dados).
+  // Nativo: a animação por texto recebe a ação; a por esqueleto recebe a aparência (as poses vão como dados).
   return { language: "en" as const, text: preset.strategy === "skeleton" ? subject(base) : preset.motion.en };
 }
 
@@ -316,7 +306,6 @@ export function buildAnimateTextPlan(studio: Studio, projectId: string, raw: Ani
   const route = chooseRoute(e.adapter, "animate_text", { mode: "text" }, e.profileId);
   const frameIds = textFrameIds(frames);
   const sheet = route.strategy === "reference_sheet" ? sheetFor(e, frameIds, size, 1) : undefined;
-  if (route.strategy === "native" && e.transport === "pixellab_rest_v2") pixelLabTextAnimationBody({ action: "x", firstFrame: new Uint8Array(), size, frames });
   const compiled =
     route.strategy === "reference_sheet"
       ? compileSheetAnimationPrompt({ lang: e.language, subject: subject(base), motion: input.actionText, frameIds, columns: sheet!.columns, rows: sheet!.rows, direction: input.direction, style: e.style, backgroundKey: sheet!.backgroundKey, poseGuide: false })
@@ -359,7 +348,6 @@ export function buildAnimateSkeletonPlan(studio: Studio, projectId: string, raw:
   const route = chooseRoute(e.adapter, "animate_skeleton", { mode: "skeleton", customSkeleton: m.skeleton.kind === "custom" }, e.profileId);
   const frameIds = m.poses.map((p) => p.poseId);
   const sheet = route.strategy === "reference_sheet" ? sheetFor(e, frameIds, size, 2) : undefined;
-  if (route.strategy === "native" && e.transport === "pixellab_rest_v2") pixelLabSkeletonBody({ description: "x", firstFrame: new Uint8Array(), motion: m });
   const compiled =
     route.strategy === "reference_sheet"
       ? compileSheetAnimationPrompt({ lang: e.language, subject: subject(base, input.appearance), motion: input.actionText, frameIds, columns: sheet!.columns, rows: sheet!.rows, direction: m.direction, style: e.style, backgroundKey: sheet!.backgroundKey, poseGuide: true })
@@ -400,7 +388,6 @@ export function buildRotateViewsPlan(studio: Studio, projectId: string, raw: Rot
   const projection = input.projection ?? base.payload.orientation?.projection ?? e.style.camera.projection.kind;
   const isometric = projection === "isometric";
   const route = chooseRoute(e.adapter, "rotate_views", { mode: "rotation", isometric, diagonal: input.view.length === 2 }, e.profileId);
-  if (route.strategy === "native" && e.transport === "pixellab_rest_v2") pixelLabRotateBody({ source: new Uint8Array(), size, from: sourceView, to: input.view, projection });
   const sheet = route.strategy === "reference_sheet" ? sheetFor(e, ["view"], size, 1) : undefined;
   const compiled =
     route.strategy === "reference_sheet"

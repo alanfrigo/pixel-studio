@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sys
 import wave
 import zipfile
@@ -146,24 +147,49 @@ def save(img: Image.Image, out: Path, *parts: str) -> str:
     return str(path.relative_to(out))
 
 
-def clip_frames(images: Images, clip: dict, out: Path, rid: str, overlays: list[dict] | None = None) -> list[dict]:
+def clip_frames(images: Images, clip: dict, out: Path, rid: str, overlays: list[dict] | None = None, overlay_ids: list[str] | None = None, loadout: dict | None = None) -> list[dict]:
     frames = []
     for frame in clip["frames"]:
-        layers = [(i, layer["partId"], images.crop(layer["fileId"], layer["rect"]), layer["offset"]) for i, layer in enumerate(frame["layers"])]
-        for ov in overlays or []:
+        layers = [(i, layer["partId"], images.crop(layer["fileId"], layer["rect"]), layer["offset"], ("base", layer["partId"])) for i, layer in enumerate(frame["layers"])]
+        sockets = {s["socketId"]: s["at"] for s in frame["sockets"]}
+        for oi, ov in enumerate(overlays or []):
+            oid = overlay_ids[oi] if overlay_ids else str(oi)
             for part in ov["parts"]:
                 for cell in part["coverage"]:
                     if cell["clipRevisionId"] == rid and cell["frameId"] == frame["frameId"] and cell["layer"]:
                         lay = cell["layer"]
-                        layers.append((cell["drawIndex"], part["partId"], images.crop(lay["fileId"], lay["rect"]), lay["offset"]))
+                        layers.append((cell["drawIndex"], part["partId"], images.crop(lay["fileId"], lay["rect"]), lay["offset"], ("part", oid, part["partId"])))
+            # S2: vista rígida usada no frame; origem = socket − empunhadura (espelho: índice W − 1 − x).
+            views = {v["viewId"]: v for v in ov.get("rigidViews", [])}
+            for pl in ov.get("rigidPlacements", []):
+                if pl["clipRevisionId"] == rid and pl["frameId"] == frame["frameId"] and pl["viewId"] is not None:
+                    view = views[pl["viewId"]]
+                    img = images.crop(view["fileId"], view["rect"])
+                    gx, gy = next(g["at"] for g in view["grips"] if g["socketId"] == pl["anchorSocketId"])
+                    if pl.get("mirrored"):
+                        img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                        gx = img.width - 1 - gx
+                    sx, sy = sockets[pl["anchorSocketId"]]
+                    layers.append((pl["drawIndex"], f"rigid:{pl['viewId']}", img, [sx - gx, sy - gy], ("rigid", oid)))
         layers.sort(key=lambda t: t[0])  # ordem de desenho; sort é estável para empates
-        img = compose(clip["logicalSize"], [(im, off) for _, _, im, off in layers])
+        order = next((o["layers"] for o in (loadout or {}).get("drawOrder", []) if o["clipRevisionId"] == rid and o["frameId"] == frame["frameId"]), None)
+        if order:  # S2: override explícito da ordem neste frame
+            key_of = lambda ref: ("base", ref["partId"]) if ref["kind"] == "base" else ("part", ref["overlayRevisionId"], ref["partId"]) if ref["kind"] == "part" else ("rigid", ref["overlayRevisionId"])  # noqa: E731
+            rank = {key_of(ref): n for n, ref in enumerate(order)}
+            layers.sort(key=lambda t: rank.get(t[4], len(rank)))
+        if loadout is None:
+            img = compose(clip["logicalSize"], [(im, off) for _, _, im, off, _ in layers])
+        else:
+            img = Image.new("RGBA", tuple(clip["logicalSize"]), (0, 0, 0, 0))
+            for _, _, im, (ox, oy), _ in layers:
+                place(img, im, ox, oy)
         frames.append({
             "frameId": frame["frameId"],
             "durationMs": frame["durationMs"],
-            "layers": [name for _, name, _, _ in layers],
-            "sockets": {s["socketId"]: s["at"] for s in frame["sockets"]},
+            "layers": [name for _, name, _, _, _ in layers],
+            "sockets": sockets,
             "file": save(img, out, rid if overlays is None else f"loadout-{rid}", f"{frame['frameId']}.png"),
+            **({"_image": img} if loadout is not None else {}),
         })
     return frames
 
@@ -230,6 +256,10 @@ def reconstruct_tilemap(images: Images, entries: dict[str, dict], rid: str, p: d
             ay = (o["cell"][1] + fh / 2) * ch + o["offsetPx"][1]
             placed.append((ay, obj, int(ax - obj["supportPoint"][0]), int(ay - obj["supportPoint"][1])))
         for _, obj, x, y in sorted(placed, key=lambda it: it[0]):
+            # T2: sombra separada desenhada antes do objeto, no offset declarado.
+            if obj.get("shadow"):
+                sh = obj["shadow"]
+                place(canvas, images.crop(sh["fileId"], sh["rect"]), x + sh["offset"][0], y + sh["offset"][1])
             place(canvas, images.crop(obj["fileId"], obj["rect"]), x, y)
     return {
         "projection": p["projection"],
@@ -239,6 +269,65 @@ def reconstruct_tilemap(images: Images, entries: dict[str, dict], rid: str, p: d
         "passages": p["passages"],
         "missingTiles": missing,
         "file": save(canvas, out, rid, "map.png"),
+    }
+
+
+def scene_frame(images: Images, entries: dict[str, dict], p: dict, camera: int) -> Image.Image:
+    """Cena em camadas (T2): cada plano em offset − ⌊câmera × fator⌋, repetido por eixo (trás → frente)."""
+    w, h = p["logicalSize"]
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    for layer in p["layers"]:
+        lp = entries[layer["layerRevisionId"]]["payload"]
+        img = images.crop(lp["fileId"], lp["rect"])
+        ox = layer["offset"][0] - math.floor(camera * layer["parallax"]["x"])
+        oy = layer["offset"][1]
+        xs = [ox] if not layer["repeat"]["x"] else list(range(ox - img.width * math.ceil(ox / img.width), w, img.width))
+        ys = [oy] if not layer["repeat"]["y"] else list(range(oy - img.height * math.ceil(oy / img.height), h, img.height))
+        for y in ys:
+            for x in xs:
+                place(canvas, img, x, y)
+    return canvas
+
+
+def reconstruct_scene(images: Images, entries: dict[str, dict], rid: str, p: dict, out: Path) -> dict:
+    """Cena ilustrada (T2): imagem plana sem mapa, ou planos recompostos pela câmera."""
+    image = images.crop(p["image"]["fileId"], p["image"]["rect"])
+    result = {"outputKind": p["outputKind"], "editable": p["editable"], "supportPoints": [sp["at"] for sp in p["supportPoints"]], "file": save(image, out, rid, "scene.png")}
+    if p["outputKind"] == "layers":
+        frame0 = scene_frame(images, entries, p, 0)
+        span = p["cameraTest"]["spanPx"]
+        result.update(
+            layers=[{"layerId": la["layerId"], "parallax": la["parallax"], "repeat": la["repeat"], "offset": la["offset"]} for la in p["layers"]],
+            matchesImage=frame0.tobytes() == image.tobytes(),
+            cameraSpan=span,
+            frames=[save(scene_frame(images, entries, p, cam), out, rid, f"camera-{cam}.png") for cam in (0, span // 2, span)],
+        )
+    return result
+
+
+def reconstruct_room(images: Images, entries: dict[str, dict], rid: str, p: dict, out: Path) -> dict:
+    """Sala (T2): fundo sem móveis (ou a pintura), sombras e móveis pelo apoio de trás para a frente, muretas por cima."""
+    base = p["background"] or p["picture"]
+    canvas = Image.new("RGBA", (p["picture"]["rect"][2], p["picture"]["rect"][3]), (0, 0, 0, 0))
+    place(canvas, images.crop(base["fileId"], base["rect"]), 0, 0)
+    for f in sorted(p["furniture"], key=lambda f: (f["supportAtPx"][1], f["supportAtPx"][0], f["placementId"])):
+        obj = entries[f["objectRevisionId"]]["payload"]
+        x, y = f["supportAtPx"][0] - obj["supportPoint"][0], f["supportAtPx"][1] - obj["supportPoint"][1]
+        if obj.get("shadow"):
+            sh = obj["shadow"]
+            place(canvas, images.crop(sh["fileId"], sh["rect"]), x + sh["offset"][0], y + sh["offset"][1])
+        place(canvas, images.crop(obj["fileId"], obj["rect"]), x, y)
+    if p["overlay"]:
+        place(canvas, images.crop(p["overlay"]["fileId"], p["overlay"]["rect"]), 0, 0)
+    return {
+        "projection": p["projection"],
+        "floorPlan": p["floorPlan"]["size"],
+        "floorCells": sum(1 for c in p["floorPlan"]["cells"] if c),
+        "doors": {d["doorId"]: d["side"] for d in p["doors"]},
+        "furniture": [f["placementId"] for f in p["furniture"]],
+        "exposedAreas": [a["status"] for a in p["exposedAreas"]],
+        "connections": [[c["doorId"], c["toRoomRevisionId"], c["toDoorId"]] for c in p["connections"]],
+        "file": save(canvas, out, rid, "room.png"),
     }
 
 
@@ -257,12 +346,29 @@ def reconstruct(entries: dict[str, dict], files: dict[str, dict], out: Path) -> 
         elif e["family"] == "character" and e["kind"] == "clip":
             item.update(logicalSize=p["logicalSize"], pivot=p["pivot"], action=p["action"], direction=p["direction"], frames=clip_frames(images, p, out, rid))
             item["events"] = [{"frameId": ev["frameId"], "vfx": (ev["vfx"] or {}).get("revisionId"), "audio": (ev["audio"] or {}).get("revisionId")} for ev in p["events"]]
+            # S3: estado (ex.: baú `closed`), repetição e quantos ms o clipe dura.
+            item.update(state=p["state"], playback=p["playback"], totalMs=sum(f["durationMs"] for f in p["frames"]))
+        elif e["family"] == "character" and e["kind"] == "base":
+            # S3: vistas por direção do estado/objeto, reconstruídas na célula lógica com o apoio no chão.
+            views = {v["direction"]: save(compose(p["logicalSize"], [(images.crop(v["fileId"], v["rect"]), v["sourceOffset"])]), out, rid, f"view-{v['direction']}.png") for v in p["views"]}
+            item.update(logicalSize=p["logicalSize"], groundOrigin=p["groundOrigin"], state=p["state"], subject=p.get("subject", "character"), predecessor=p["predecessorRevisionId"], views=views)
         elif e["family"] == "equipment" and e["kind"] == "loadout":
             overlays = [entries[o]["payload"] for o in p["overlayRevisionIds"]]
             item["clips"] = []
+            item["sheets"] = []
             for c in p["clips"]:
                 clip = entries[c["clipRevisionId"]]["payload"]
-                item["clips"].append({"action": c["action"], "direction": c["direction"], "pivot": clip["pivot"], "frames": clip_frames(images, clip, out, c["clipRevisionId"], overlays)})
+                frames = clip_frames(images, clip, out, c["clipRevisionId"], overlays, p["overlayRevisionIds"], p)
+                # S2: a folha achatada precisa ser a recomposição exata das camadas, pixel a pixel.
+                sheet = next((s for s in p.get("sheets", []) if s["clipRevisionId"] == c["clipRevisionId"]), None)
+                if sheet:
+                    rendered = {f["frameId"]: f["_image"] for f in frames}
+                    bad = [sf["frameId"] for sf in sheet["frames"] if images.crop(sheet["fileId"], sf["rect"]).tobytes() != rendered[sf["frameId"]].tobytes()]
+                    item["sheets"].append({"clipRevisionId": c["clipRevisionId"], "frames": len(sheet["frames"]), "matches": not bad, "mismatchedFrames": bad})
+                for f in frames:
+                    f.pop("_image", None)
+                item["clips"].append({"action": c["action"], "direction": c["direction"], "pivot": clip["pivot"], "logicalSize": clip["logicalSize"], "frames": frames})
+            item.update(stance=p["stance"], omitted=p.get("omitted", []))
         elif e["family"] == "item":
             item["representations"] = [
                 {"role": r["role"], "state": r["state"], "pivot": r["pivot"], "file": save(compose(r["logicalSize"], [(images.crop(r["fileId"], r["rect"]), r["sourceOffset"])]), out, rid, f"{r['role']}-{r['state']}.png")}
@@ -281,9 +387,15 @@ def reconstruct(entries: dict[str, dict], files: dict[str, dict], out: Path) -> 
             masks = sorted({t["mask"] for t in p["tiles"]})
             item.update(cellSize=p["cellSize"], masks=masks, complete=p["complete"] and masks == list(range(16)))
         elif e["family"] == "map" and e["kind"] == "object":
-            item.update(supportPoint=p["supportPoint"], footprintCells=p["footprintCells"], collision=p["collision"])
+            item.update(supportPoint=p["supportPoint"], footprintCells=p["footprintCells"], collision=p["collision"], shadow=bool(p.get("shadow")), sourceRoom=(p.get("sourceRoom") or {}).get("roomRevisionId"))
         elif e["family"] == "map" and e["kind"] == "tilemap":
             item.update(reconstruct_tilemap(images, entries, rid, p, out))
+        elif e["family"] == "map" and e["kind"] == "scene":
+            item.update(reconstruct_scene(images, entries, rid, p, out))
+        elif e["family"] == "map" and e["kind"] == "scene_layer":
+            item.update(depth=p["depth"], obtained=p["obtained"], repeat=p["repeat"], groundLineY=p["groundLineY"], file=save(images.crop(p["fileId"], p["rect"]), out, rid, "layer.png"))
+        elif e["family"] == "map" and e["kind"] == "room":
+            item.update(reconstruct_room(images, entries, rid, p, out))
         elif e["family"] == "audio":
             f = files[p["fileId"]]
             item.update(durationMs=f["durationMs"], sampleRate=f["sampleRate"], channels=f["channels"], loop=p["loop"])

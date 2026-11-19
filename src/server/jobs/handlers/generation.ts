@@ -169,7 +169,7 @@ async function submitPart(ctx: HandlerContext, adapter: ProviderAdapter, plan: G
         operation: plan.operation,
         prompt: plan.prompt.compiled,
         params: plan.params as Record<string, unknown>,
-        references: PIPELINES[plan.operation] ? await PIPELINES[plan.operation]!.loadInputs(ctx, plan, adapter) : await loadReferences(ctx, plan),
+        references: PIPELINES[plan.operation] ? await PIPELINES[plan.operation]!.loadInputs(ctx, plan, adapter, part) : await loadReferences(ctx, plan),
       },
       ctx.signal,
     );
@@ -411,7 +411,7 @@ async function processPart(ctx: HandlerContext, plan: GenerationPlan, part: Part
     ctx.checkpoint();
     const dir = path.join(ctx.workDir, safeSegment(part.part_key), String(row.idx));
     const pipeline = PIPELINES[plan.operation];
-    const result: ProcessResult = pipeline ? await pipeline.process(env, plan, row.blob_sha256, dir) : await processProviderImage(env, plan, row.blob_sha256, dir);
+    const result: ProcessResult = pipeline ? await pipeline.process(env, plan, row.blob_sha256, dir, part) : await processProviderImage(env, plan, row.blob_sha256, dir);
     const { processed, stored } = result;
     ctx.queue.fenced(ctx.attempt, () => {
       recordBlob(ctx.db, ctx.clock, {

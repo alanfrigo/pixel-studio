@@ -22,9 +22,10 @@ export const Capability = z.enum([
   "rotation_4",
   "rotation_8",
   "isometric_views",
-  "character_state",
-  "scene_image",
-  "room_generation",
+  /** Cartão S3: interpolação, edição de trecho e transferência de roupa nativas (estados e objetos usam imagem + referências). */
+  "frame_interpolation",
+  "animation_edit",
+  "outfit_transfer",
   "texture_material",
   "tileset_corner",
   "tileset_sidescroller",
@@ -42,12 +43,12 @@ export type Capability = z.infer<typeof Capability>;
 export const CapabilityStatus = z.enum(["declared", "tested", "unknown", "absent"]);
 export type CapabilityStatus = z.infer<typeof CapabilityStatus>;
 
-export const ProviderTransport = z.enum(["openai_images", "openrouter_images", "openai_chat_multimodal", "pixellab_rest_v2"]);
+export const ProviderTransport = z.enum(["openai_images", "openrouter_images", "openai_chat_multimodal", "codex_cli"]);
 export type ProviderTransport = z.infer<typeof ProviderTransport>;
 
 export const CapabilityRecord = z.strictObject({
   providerProfileId: Id,
-  /** Operação/rota (ex.: `/inpaint-v3`) ou ID de modelo + endpoint. */
+  /** Operação/rota (ex.: `images/edits`) ou ID de modelo + endpoint. */
   operation: z.string().min(1).max(200),
   capability: Capability,
   status: CapabilityStatus,

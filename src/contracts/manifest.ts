@@ -6,6 +6,7 @@ import { BasePayload, ClipPayload, LoadoutPayload, OverlayPayload, RigPayload } 
 import { ButtonPayload, MenuItemPayload, MeterPayload, PanelPayload, ScreenPayload, SlotPayload } from "./ui";
 import { ItemPayload, VfxPayload } from "./vfx-item";
 import { CornerTilesetPayload, IsoTilesetPayload, MapObjectPayload, SideTilesetPayload, TexturePayload, TilemapPayload } from "./world";
+import { RoomPayload, SceneLayerPayload, ScenePayload } from "./scenes";
 
 /**
  * Formato portátil v1 (02a §formato portátil): ZIP com `manifest.json` na raiz.
@@ -131,6 +132,10 @@ export const TilesetEntry = z.discriminatedUnion("kind", [
 export const MapEntry = z.discriminatedUnion("kind", [
   entry("map", z.literal("tilemap"), TilemapPayload),
   entry("map", z.literal("object"), MapObjectPayload),
+  // Cartão T2: cena ilustrada, plano de paralaxe e sala.
+  entry("map", z.literal("scene"), ScenePayload),
+  entry("map", z.literal("scene_layer"), SceneLayerPayload),
+  entry("map", z.literal("room"), RoomPayload),
 ]);
 
 export const ManifestEntry = z.discriminatedUnion("family", [
@@ -160,7 +165,7 @@ export const ASSET_KINDS = {
   portrait: ["portrait", "expression", "speech"],
   font: ["bitmap"],
   audio: ["music", "sfx"],
-  map: ["tilemap", "object"],
+  map: ["tilemap", "object", "scene", "scene_layer", "room"],
 } as const satisfies Record<AssetFamily, readonly string[]>;
 
 export function isKnownKind(family: AssetFamily, kind: string): boolean {

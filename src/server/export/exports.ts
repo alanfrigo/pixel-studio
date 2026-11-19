@@ -13,6 +13,7 @@ import type { HandlerContext } from "../jobs/context";
 import type { JobQueue, JobRow } from "../jobs/queue";
 import { type Clock, iso, newId, parseJson, slugify } from "../util";
 import { buildPortablePackage, type ExportReport, resolveClosure } from "./package";
+import { equipmentExportProblems, exportProblemMessage } from "../equipment/export-check";
 import { EXPORT_PROFILES } from "./profiles";
 
 /**
@@ -104,6 +105,9 @@ export function requestExport(
   if (closure.problems.length > 0) {
     throw new DomainFailure("coverage_incomplete", "A seleção tem revisões que não podem ser exportadas", { problems: closure.problems });
   }
+  // S2: conjuntos equipados só saem completos (ou como subconjunto explícito).
+  const equipment = equipmentExportProblems(deps.db, projectId, closure.revisionIds);
+  if (equipment.length > 0) throw new DomainFailure("coverage_incomplete", exportProblemMessage(equipment), { problems: equipment });
   const key = idempotencyKey ?? `export:${input.profile}:${canonicalDigest(revisionIds)}`;
   return deps.db.transaction(() => {
     const exportId = newId("exp");

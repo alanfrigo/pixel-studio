@@ -9,6 +9,7 @@ import type { ExportView } from "@/server/export/exports";
 import type { JobView } from "@/server/jobs/queue";
 import type { ProviderProfileView } from "@/server/providers/registry";
 import { ApiError, apiFetch, formatBytes, newKey } from "@/app/client/api";
+import { estimateText } from "@/app/client/cost";
 import { usePoll } from "@/app/client/use-poll";
 import { type PreviewBg, RevisionCompare } from "./revision-compare";
 import { StylePanel } from "./style-panel";
@@ -59,9 +60,13 @@ export function Workspace({ projectId }: { projectId: string }) {
     <>
       <h1>{data.project.name}</h1>
       <nav className="row small" aria-label="Ferramentas do projeto">
-        <Link href={`/projects/${projectId}/animation`}>Animação</Link>
+        <Link href={`/projects/${projectId}/animation`}>Animação, estados e edição temporal</Link>
+        <span className="muted">·</span>
+        <Link href={`/projects/${projectId}/equipment`}>Equipamentos e conjuntos</Link>
         <span className="muted">·</span>
         <Link href={`/projects/${projectId}/world`}>Mundo: texturas, tiles e mapas</Link>
+        <span className="muted">·</span>
+        <Link href={`/projects/${projectId}/scenes`}>Cenas, salas e móveis</Link>
       </nav>
       <div className="grid2">
         <GeneratePanel projectId={projectId} library={data.assets} defaultLanguage={data.briefLanguage} onChange={refresh} />
@@ -347,12 +352,7 @@ function GeneratePanel({
         <div className="small">
           <p>
             Destino: <strong>{preview.destination.name}</strong>
-            {preview.destination.simulated && " — nada sai do computador"} · partes: {preview.plan.parts.length} · estimativa:{" "}
-            {preview.plan.limits.estimate.kind === "known"
-              ? `${preview.plan.limits.estimate.amount.amount} ${preview.plan.limits.estimate.amount.unit}`
-              : preview.plan.limits.estimate.kind === "unknown"
-                ? `desconhecida (${preview.plan.limits.estimate.reason})`
-                : "faixa"}
+            {preview.destination.simulated && " — nada sai do computador"} · partes: {preview.plan.parts.length} · estimativa: {estimateText(preview.plan)}
           </p>
           <pre>{preview.plan.prompt.compiled}</pre>
           <p className="muted">

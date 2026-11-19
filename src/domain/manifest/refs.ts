@@ -1,4 +1,5 @@
 import type { AssetFamily, FileModality, ManifestEntry, Rect } from "@/contracts";
+import { mapObjectExtraRefs, sceneEntryRefs } from "../scenes/refs";
 
 /**
  * Referências que um payload faz a outras revisões e a arquivos do pacote.
@@ -42,6 +43,10 @@ export function entryRefs(entry: ManifestEntry): EntryRefs {
   };
   const raster = (fileId: string | null, rect: Rect | null, path: Path) => {
     if (fileId) files.push({ fileId, path, modality: "raster", ...(rect ? { rect } : {}) });
+  };
+  const mergeRefs = (extra: EntryRefs) => {
+    revisions.push(...extra.revisions);
+    files.push(...extra.files);
   };
 
   switch (entry.family) {
@@ -90,6 +95,10 @@ export function entryRefs(entry: ManifestEntry): EntryRefs {
             }),
           );
           entry.payload.rigidViews.forEach((v, i) => raster(v.fileId, v.rect, [P, "rigidViews", i]));
+          // S2: frames em que cada vista rígida é usada.
+          (entry.payload.rigidPlacements ?? []).forEach((p, i) =>
+            rev(p.clipRevisionId, [P, "rigidPlacements", i, "clipRevisionId"], true, [{ family: "character", kinds: ["clip"] }]),
+          );
           break;
         case "loadout":
           rev(entry.payload.rigRevisionId, [P, "rigRevisionId"], true, [{ family: "character", kinds: ["rig"] }]);
@@ -99,6 +108,17 @@ export function entryRefs(entry: ManifestEntry): EntryRefs {
           entry.payload.clips.forEach((c, i) =>
             rev(c.clipRevisionId, [P, "clips", i, "clipRevisionId"], true, [{ family: "character", kinds: ["clip"] }]),
           );
+          // S2: override de ordem por frame e folha achatada sob demanda.
+          (entry.payload.drawOrder ?? []).forEach((o, i) => {
+            rev(o.clipRevisionId, [P, "drawOrder", i, "clipRevisionId"], true, [{ family: "character", kinds: ["clip"] }]);
+            o.layers.forEach((l, li) => {
+              if (l.kind !== "base") rev(l.overlayRevisionId, [P, "drawOrder", i, "layers", li, "overlayRevisionId"], true, [{ family: "equipment", kinds: ["overlay"] }], "overlay");
+            });
+          });
+          (entry.payload.sheets ?? []).forEach((s, i) => {
+            rev(s.clipRevisionId, [P, "sheets", i, "clipRevisionId"], true, [{ family: "character", kinds: ["clip"] }]);
+            s.frames.forEach((f, fi) => raster(s.fileId, f.rect, [P, "sheets", i, "frames", fi]));
+          });
           break;
       }
       break;
@@ -125,6 +145,13 @@ export function entryRefs(entry: ManifestEntry): EntryRefs {
     case "map":
       if (entry.kind === "object") {
         raster(entry.payload.fileId, entry.payload.rect, [P]);
+        // T2: sombra separada e sala de origem (proveniência).
+        mergeRefs(mapObjectExtraRefs(entry));
+        break;
+      }
+      if (entry.kind === "scene" || entry.kind === "scene_layer" || entry.kind === "room") {
+        // T2: cena (planos runtime), plano de paralaxe e sala (móveis/sala vizinha runtime; origem, estilo e inpainting = proveniência).
+        mergeRefs(sceneEntryRefs(entry));
         break;
       }
       // Mapa (T1): o tileset do terreno e cada objeto colocado são dependências runtime.

@@ -1,0 +1,201 @@
+import type { ProjectionKind, RoomProjection, StylePayload } from "@/contracts";
+import { colorName } from "@/domain/color-names";
+import { lightWords, paletteNames } from "../world/core";
+
+/**
+ * Núcleo do cartão T2 sem dependência dos casos de uso HTTP (usado pelos
+ * pipelines do worker e pelos serviços): rótulos de rota e receitas de prompt.
+ * Nunca põe código hex no texto (cores por nome) e nunca promete o que a rota
+ * não faz: imagem plana não é mapa; a planta guia não garante a sala pintada.
+ */
+
+export const SCENE_ROUTE_LABELS = {
+  flat: "Imagem plana gerada por modelo de imagem: não contém mapa, colisões nem objetos editáveis",
+  layer: "Plano de paralaxe gerado separadamente (um arquivo por plano); continuidade da repetição validada localmente",
+  layerImport: "Plano importado; continuidade da repetição validada localmente",
+  layerDerived: "Plano derivado localmente de uma imagem plana com máscara revisada (não é decomposição nativa)",
+  layerSeamFixed: "Plano com a emenda corrigida por inpainting (E1) na faixa central deslocada; continuidade revalidada localmente",
+  composed: "Cena em camadas montada localmente com os planos aprovados: offsets, fatores e repetição declarados",
+} as const;
+
+export const ROOM_ROUTE_LABELS = {
+  generic: "Imagem + referências: a planta vira guia raster e o modelo pinta por cima; não é geração nativa de sala",
+  import: "Sala importada com planta e portas declaradas",
+  cutLocal: "Recorte local revisado com máscara explícita (a peça e a área exposta são medidas localmente)",
+  kitLocal: "Kit derivado localmente da imagem da sala, pela grade declarada",
+} as const;
+
+export const MAP_OBJECT_ROUTE_LABEL = "Modelo de imagem com fundo transparente ou cor-chave removida localmente";
+
+const PROJECTION_WORDS: Record<ProjectionKind, { "pt-BR": string; en: string }> = {
+  side: { "pt-BR": "vista lateral de jogo de plataforma (câmera de frente, horizonte reto)", en: "side view of a platformer (camera facing the scene, level horizon)" },
+  top_down: { "pt-BR": "vista de cima (top-down)", en: "top-down view" },
+  three_quarter: { "pt-BR": "vista de cima inclinada (três quartos)", en: "three-quarter top-down view" },
+  isometric: { "pt-BR": "vista isométrica 2:1", en: "2:1 isometric view" },
+};
+
+const DEPTH_WORDS = {
+  sky: { "pt-BR": "céu ao fundo, o plano mais distante", en: "the sky, the farthest plane" },
+  far: { "pt-BR": "plano distante (silhuetas ao longe)", en: "a far plane (distant silhouettes)" },
+  mid: { "pt-BR": "plano intermediário", en: "a middle plane" },
+  near: { "pt-BR": "plano próximo, à frente da área de jogo", en: "a near plane in front of the play area" },
+  ground: { "pt-BR": "plano do chão onde o personagem anda", en: "the ground plane the character walks on" },
+} as const;
+
+/** O que cada plano NÃO desenha (os modelos tendem a pintar a cena inteira em cada plano). */
+const DEPTH_ONLY = {
+  sky: {
+    "pt-BR": "Só o céu: degradê e nuvens ocupando o quadro todo; sem chão, sem árvores, sem morros, sem construções.",
+    en: "Only the sky: gradient and clouds filling the whole frame; no ground, no trees, no hills, no buildings.",
+  },
+  far: {
+    "pt-BR": "Só silhuetas distantes (montanhas, copas ao longe) na metade de baixo; nada de céu, sol ou nuvens: acima delas fica vazio.",
+    en: "Only distant silhouettes (mountains, far treetops) in the lower half; no sky, sun or clouds: above them stays empty.",
+  },
+  mid: {
+    "pt-BR": "Só morros e árvores intermediários na metade de baixo, numa faixa contínua; nada de céu, sol, nuvens nem chão de primeiro plano: acima fica vazio.",
+    en: "Only middle hills and trees in the lower half, as one continuous band; no sky, sun, clouds or foreground ground: above stays empty.",
+  },
+  near: {
+    "pt-BR": "Só elementos de primeiro plano (folhagens, troncos) nas bordas e embaixo; o resto fica vazio.",
+    en: "Only foreground elements (foliage, trunks) at the edges and bottom; the rest stays empty.",
+  },
+  ground: {
+    "pt-BR": "Só a faixa do chão caminhável no terço de baixo: superfície plana e reta de borda a borda, com a terra embaixo dela; nada de céu, sol, árvores ou morros: acima do chão fica vazio.",
+    en: "Only the walkable ground band in the bottom third: a flat, level surface edge to edge with soil below it; no sky, sun, trees or hills: above the ground stays empty.",
+  },
+} as const;
+
+export interface ScenePromptInput {
+  language: "pt-BR" | "en";
+  brief: string;
+  composition: string;
+  lighting: string;
+  requiredElements: string[];
+  projection: ProjectionKind;
+  size: [number, number];
+  style: StylePayload;
+  references: number;
+  layer?: { name: string; depth: keyof typeof DEPTH_WORDS; repeatX: boolean; transparent: boolean } | undefined;
+  /** Rota sem alfa: fundo de cor-chave (cor por nome no texto). */
+  backgroundKey: string | null;
+  alpha: boolean;
+}
+
+/** Receita de cena (03a): imagem única coerente em 1×, sem prometer mapa nem objetos; ou um plano por vez. */
+export function compileScenePrompt(o: ScenePromptInput): string {
+  const [w, h] = o.size;
+  const en = o.language === "en";
+  const lang = o.language;
+  const parts: string[] = [];
+  if (o.layer) {
+    const depth = DEPTH_WORDS[o.layer.depth][lang];
+    parts.push(
+      en
+        ? `A single parallax background plane for a pixel art game, ${PROJECTION_WORDS[o.projection].en}: ${o.layer.name}, ${depth}, of this scene: ${o.brief}.`
+        : `Um único plano de fundo de paralaxe para jogo em pixel art, ${PROJECTION_WORDS[o.projection]["pt-BR"]}: ${o.layer.name}, ${depth}, desta cena: ${o.brief}.`,
+      en ? "Draw ONLY this plane; the other planes are made separately." : "Desenhe SÓ este plano; os outros planos são feitos separadamente.",
+      DEPTH_ONLY[o.layer.depth][lang],
+    );
+    if (o.layer.repeatX) {
+      parts.push(en ? "It will repeat side by side horizontally: what leaves the left edge continues at the right edge, same height." : "Vai repetir lado a lado na horizontal: o que sai pela borda esquerda continua na borda direita, na mesma altura.");
+    }
+    if (o.layer.transparent) {
+      if (o.alpha) parts.push(en ? "Transparent background wherever this plane has nothing." : "Fundo transparente onde este plano não tem nada.");
+      else if (o.backgroundKey) {
+        const key = colorName(o.backgroundKey, lang);
+        parts.push(en ? `Everything that is not this plane is flat solid ${key}, with no gradient, no shadow and no ${key} inside the plane.` : `Tudo que não for este plano é ${key} chapado, sem degradê nem sombra, e sem ${key} dentro do plano.`);
+      }
+    } else {
+      parts.push(en ? "It fills the whole frame edge to edge." : "Preenche o quadro inteiro de borda a borda.");
+    }
+  } else {
+    parts.push(
+      en
+        ? `A complete pixel art game scene, ${PROJECTION_WORDS[o.projection].en}: ${o.brief}.`
+        : `Uma cena completa em pixel art para jogo, ${PROJECTION_WORDS[o.projection]["pt-BR"]}: ${o.brief}.`,
+      en ? "One single painted image filling the frame: no frame, no text, no interface." : "Uma única imagem pintada preenchendo o quadro: sem moldura, sem texto e sem interface.",
+    );
+  }
+  if (o.composition.trim()) parts.push(en ? `Composition: ${o.composition.trim()}.` : `Composição: ${o.composition.trim()}.`);
+  if (o.requiredElements.length) parts.push(en ? `Must show: ${o.requiredElements.join("; ")}.` : `Precisa mostrar: ${o.requiredElements.join("; ")}.`);
+  parts.push(
+    en
+      ? `Crisp square pixels on a ${w}×${h} grid, readable at 1×, few colors: ${paletteNames(o.style, "en")}.`
+      : `Pixels quadrados e nítidos numa grade de ${w}×${h}, legível em 1×, poucas cores: ${paletteNames(o.style, "pt-BR")}.`,
+  );
+  parts.push(
+    o.lighting.trim()
+      ? en
+        ? `Lighting: ${o.lighting.trim()}.`
+        : `Iluminação: ${o.lighting.trim()}.`
+      : en
+        ? `Light ${lightWords(o.style, "en")}.`
+        : `Luz vinda ${lightWords(o.style, "pt-BR")}.`,
+  );
+  if (o.references) parts.push(en ? `Images 1–${o.references}: approved art of the same game; match pixel size, palette and finish.` : `Imagens 1–${o.references}: arte aprovada do mesmo jogo; siga o tamanho de pixel, a paleta e o acabamento.`);
+  return parts.join(" ");
+}
+
+const ROOM_VIEW_WORDS: Record<RoomProjection, { "pt-BR": string; en: string }> = {
+  top_down: { "pt-BR": "vista de cima com a face das paredes do fundo visível acima do piso", en: "top-down view with the back walls' faces visible above the floor" },
+  isometric: { "pt-BR": "vista isométrica 2:1, paredes norte e oeste altas, paredes sul e leste como muretas baixas", en: "2:1 isometric view, north and west walls tall, south and east walls as low curbs" },
+  oblique: { "pt-BR": "vista oblíqua: piso em grade quadrada visto de cima, alturas inclinadas para cima e para a esquerda", en: "oblique view: a square floor grid seen from above, heights leaning up and to the left" },
+};
+
+/** Rota genérica de sala: a imagem 1 é a planta guia; o texto descreve as cores dela por nome. */
+export function compileRoomPrompt(o: {
+  language: "pt-BR" | "en";
+  theme: string;
+  projection: RoomProjection;
+  pictureSize: [number, number];
+  cellPx: [number, number];
+  colors: { floor: string; wall: string; rock: string; door: string };
+  doors: number;
+  style: StylePayload;
+  styleReferences: number;
+}): string {
+  const lang = o.language;
+  const n = (hex: string) => colorName(hex, lang);
+  const [w, h] = o.pictureSize;
+  if (lang === "en") {
+    return [
+      `Paint one furnished pixel art room for a game: ${o.theme}. ${ROOM_VIEW_WORDS[o.projection].en}.`,
+      `Image 1 is the floor plan guide on the exact pixel grid of the result (${w}×${h}, floor cells of ${o.cellPx[0]}×${o.cellPx[1]} px): ${n(o.colors.floor)} = floor, ${n(o.colors.wall)} = walls, ${n(o.colors.door)} marks = the ${o.doors} doorway(s), flat ${n(o.colors.rock)} = solid rock outside the room.`,
+      `Keep the floor, walls and doorways exactly where the guide puts them; furnish the floor for the theme; keep everything outside the walls flat solid ${n(o.colors.rock)}, with no ${n(o.colors.rock)} inside the room.`,
+      `The ${n(o.colors.door)} marks only say where the doorways are: paint a real door or an open passage there, never a ${n(o.colors.door)} block.`,
+      `Crisp square pixels, few colors: ${paletteNames(o.style, "en")}. Light ${lightWords(o.style, "en")}. No text, no frame, no characters.`,
+      ...(o.styleReferences ? [`Images 2–${o.styleReferences + 1}: approved rooms of the same building; use the same walls, floor, doors and scale.`] : []),
+    ].join(" ");
+  }
+  return [
+    `Pinte uma sala mobiliada em pixel art para jogo: ${o.theme}. ${ROOM_VIEW_WORDS[o.projection]["pt-BR"]}.`,
+    `A imagem 1 é a planta guia na grade exata do resultado (${w}×${h}, células do piso de ${o.cellPx[0]}×${o.cellPx[1]} px): ${n(o.colors.floor)} = piso, ${n(o.colors.wall)} = paredes, marcas ${n(o.colors.door)} = as ${o.doors} passagem(ns), ${n(o.colors.rock)} chapado = rocha fora da sala.`,
+    `Mantenha piso, paredes e passagens exatamente onde a guia mostra; mobilie o piso conforme o tema; deixe tudo fora das paredes ${n(o.colors.rock)} chapado, sem ${n(o.colors.rock)} dentro da sala.`,
+    `As marcas ${n(o.colors.door)} só indicam onde ficam as passagens: pinte ali uma porta de verdade ou uma abertura, nunca um bloco ${n(o.colors.door)}.`,
+    `Pixels quadrados e nítidos, poucas cores: ${paletteNames(o.style, "pt-BR")}. Luz vinda ${lightWords(o.style, "pt-BR")}. Sem texto, sem moldura e sem personagens.`,
+    ...(o.styleReferences ? [`Imagens 2–${o.styleReferences + 1}: salas aprovadas do mesmo edifício; use as mesmas paredes, piso, portas e escala.`] : []),
+  ].join(" ");
+}
+
+/** Prop independente (03a §objetos): forma isolada em escala do personagem; colisão não vem do prompt. */
+export function compileMapObjectPrompt(o: { language: "pt-BR" | "en"; brief: string; projection: "top_down" | "three_quarter" | "side"; size: [number, number]; style: StylePayload; backgroundKey: string | null; alpha: boolean }): string {
+  const en = o.language === "en";
+  const view = PROJECTION_WORDS[o.projection][o.language];
+  const [w, h] = o.size;
+  const bg = o.alpha
+    ? en
+      ? "Transparent background."
+      : "Fundo transparente."
+    : o.backgroundKey
+      ? en
+        ? `Flat solid ${colorName(o.backgroundKey, "en")} background, no shadow on it, no ${colorName(o.backgroundKey, "en")} on the object.`
+        : `Fundo ${colorName(o.backgroundKey, "pt-BR")} chapado, sem sombra nele e sem ${colorName(o.backgroundKey, "pt-BR")} no objeto.`
+      : "";
+  return en
+    ? `A single pixel art map object for a game, ${view}: ${o.brief}. Whole object visible and centered, standing on the bottom of the frame, nothing else. ${bg} Crisp square pixels on a ${w}×${h} grid, few colors: ${paletteNames(o.style, "en")}. Light ${lightWords(o.style, "en")}.`
+    : `Um único objeto de mapa em pixel art para jogo, ${view}: ${o.brief}. Objeto inteiro visível e centralizado, apoiado na base do quadro, nada mais. ${bg} Pixels quadrados e nítidos numa grade de ${w}×${h}, poucas cores: ${paletteNames(o.style, "pt-BR")}. Luz vinda ${lightWords(o.style, "pt-BR")}.`;
+}
+
+/** Cores da guia da planta: claras/escuras e longe da cor-chave da rocha. */
+export const ROOM_GUIDE_COLORS = { floor: "#c8c8c8", wall: "#404040", door: "#ffc800" } as const;

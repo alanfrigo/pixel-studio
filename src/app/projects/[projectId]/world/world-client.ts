@@ -64,12 +64,7 @@ export async function runPlan(projectId: string, preview: PlanPreview, targetAss
   });
 }
 
-export function estimateLabel(plan: GenerationPlan): string {
-  const e = plan.limits.estimate;
-  if (e.kind === "known") return `${e.amount.amount} ${e.amount.unit}`;
-  if (e.kind === "range") return `${e.min.amount}–${e.max.amount} ${e.max.unit}`;
-  return `desconhecida (${e.reason})`;
-}
+export { estimateText as estimateLabel } from "@/app/client/cost";
 
 export function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

@@ -622,8 +622,8 @@ function GuidedForm(props: { projectId: string; profiles: Profile[]; textures: A
         </button>
       </div>
       <p className="small muted">
-        O gabarito aprovado vai como guia; o candidato volta à grade do atlas, a faixa travada é reaplicada e as emendas são conferidas. Rota genérica com referências — não é geração nativa de tileset. Endpoints
-        especializados (PixelLab /tilesets, /create-tiles-pro) exigem perfil próprio.
+        O gabarito aprovado vai como guia; o candidato volta à grade do atlas, a faixa travada é reaplicada e as emendas são conferidas. Rota genérica com referências — não é geração nativa de tileset, que exige um
+        perfil com essa capacidade.
       </p>
       <label>
         Instrução

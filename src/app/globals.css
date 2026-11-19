@@ -398,3 +398,206 @@ a.button.secondary {
 .anim-view-option img {
   image-rendering: pixelated;
 }
+
+/* Estados e edição temporal (cartão S3): matriz de direções, quadros do trecho e pincel de máscara. */
+.anim-matrix {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+
+.anim-matrix th,
+.anim-matrix td {
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  text-align: center;
+}
+
+.anim-matrix td.ok img {
+  image-rendering: pixelated;
+  display: block;
+  margin: auto;
+}
+
+.anim-matrix td.gap {
+  border-style: dashed;
+  color: var(--error);
+}
+
+.anim-matrix td.none {
+  color: var(--muted, #888);
+}
+
+.anim-frames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.anim-frames > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.anim-frame {
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+
+.anim-frame.selected {
+  border-color: var(--accent);
+}
+
+.anim-mask {
+  position: relative;
+  margin: 8px 0;
+}
+
+.anim-mask canvas {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  image-rendering: pixelated;
+}
+
+.anim-mask canvas.anim-frame {
+  position: static;
+  display: block;
+  border: 0;
+  cursor: default;
+}
+
+.anim-plan pre,
+.anim-candidates article {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.anim-candidates article {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+/* Equipamentos e conjuntos (cartão S2): editor, player com camadas, matriz de cobertura. */
+.eq-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(320px, 2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.eq-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.eq-slot {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.eq-slot.conflict {
+  border-color: var(--error);
+  box-shadow: 0 0 0 1px var(--error);
+}
+
+.eq-pend {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.eq-pend > li {
+  border-left: 3px solid var(--warn);
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+
+.eq-pend > li.blocking {
+  border-left-color: var(--error);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+}
+
+.eq-matrix {
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.eq-matrix th,
+.eq-matrix td {
+  border: 1px solid var(--border);
+  padding: 2px 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.eq-matrix td.cell {
+  cursor: pointer;
+  min-width: 18px;
+}
+
+.eq-matrix td.covered {
+  background: color-mix(in srgb, var(--ok) 35%, transparent);
+}
+
+.eq-matrix td.empty {
+  background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ok) 25%, transparent) 0 3px, transparent 3px 6px);
+}
+
+.eq-matrix td.missing {
+  background: color-mix(in srgb, var(--error) 45%, transparent);
+}
+
+.eq-matrix td.stale {
+  background: color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+.eq-matrix td.incompatible {
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+
+.eq-matrix td.selected {
+  outline: 2px solid var(--accent);
+}
+
+.eq-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.eq-layers {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.eq-layers > li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 1px 0;
+}
+
+.pixel.bg-green {
+  background: #3d8b3d;
+}
+
+.eq-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.eq-views figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}

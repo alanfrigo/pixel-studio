@@ -25,6 +25,8 @@ interface ObjectCtx {
   status: string;
   payload: MapObjectPayload;
   mediaId: string;
+  /** T2: sombra separada do prop. */
+  shadowMediaId?: string;
 }
 
 interface Opened {
@@ -128,6 +130,12 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
       const image = new Image();
       image.onload = () => setObjectImages((imgs) => ({ ...imgs, [o.revisionId]: image }));
       image.src = mediaUrl(projectId, o.mediaId);
+      if (o.shadowMediaId) {
+        // T2: sombra separada carregada junto (chave própria no mesmo mapa de imagens).
+        const shadow = new Image();
+        shadow.onload = () => setObjectImages((imgs) => ({ ...imgs, [`${o.revisionId}:shadow`]: shadow }));
+        shadow.src = mediaUrl(projectId, o.shadowMediaId);
+      }
     }
   }, [allObjects, objectImages, projectId]);
 
@@ -221,6 +229,9 @@ export function MapEditor({ projectId, assetId, onCatalogChange, onOpen }: { pro
         const img = objectImages[ctxObj.revisionId];
         const x = (anchor[0] - ctxObj.payload.supportPoint[0]) * z;
         const y = (anchor[1] - ctxObj.payload.supportPoint[1]) * z;
+        const shadowImg = objectImages[`${ctxObj.revisionId}:shadow`];
+        const shadow = ctxObj.payload.shadow;
+        if (shadowImg && shadow) ctx.drawImage(shadowImg, x + shadow.offset[0] * z, y + shadow.offset[1] * z, shadowImg.width * z, shadowImg.height * z);
         if (img) ctx.drawImage(img, x, y, img.width * z, img.height * z);
         if (overlays.collisions) {
           ctx.strokeStyle = "#ff3b3b";

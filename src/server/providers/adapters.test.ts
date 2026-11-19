@@ -2,15 +2,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { canonicalDigest } from "@/domain/canonical-json";
 import { buildClareira } from "@/fixtures/clareira";
 import { createImage, encodePng, fillRect } from "@/lib/media/png";
-import type { MotionPayload } from "@/contracts";
 import { listRevisions } from "../catalog/catalog";
-import { iconPlan, makeTestStudio, seedIconJob, type TestStudio } from "../testing";
-import { iso } from "../util";
-import { OpenAIImagesAdapter, OpenRouterAdapter, PixelLabAdapter } from "./adapters";
-import { pixelLabInpaintBody, pixelLabSkeletonBody } from "./mappings";
+import { makeTestStudio, seedIconJob, type TestStudio } from "../testing";
+import { OpenAIImagesAdapter, OpenRouterAdapter } from "./adapters";
 import { ProviderError, type ProviderSubmitRequest } from "./types";
 
 /** Servidor HTTP local que imita os provedores: sem rede, sem custo, sem credencial real. */
@@ -193,128 +189,19 @@ describe("OpenRouter Images", () => {
   });
 });
 
-describe("PixelLab REST v2", () => {
-  it("202 com job não conclui: consulta até completed e baixa todas as candidatas", async () => {
-    let polls = 0;
-    handlers.set("POST /v2/generate-image-v2", (_req, res) => json(res, 202, { background_job_id: "job-abc", status: "processing", usage: { type: "usd", usd: 0 } }));
-    handlers.set("GET /v2/background-jobs/job-abc", (_req, res) => {
-      polls++;
-      if (polls < 3) return json(res, 200, { id: "job-abc", status: "processing", created_at: "x", last_response: { queue_position: 2 } });
-      json(res, 200, {
-        id: "job-abc",
-        status: "completed",
-        created_at: "x",
-        usage: { type: "generations", generations: 1 },
-        last_response: { images: [1, 2, 3].map(() => ({ type: "base64", base64: `data:image/png;base64,${b64(icon())}`, format: "png" })) },
-      });
-    });
-    const adapter = new PixelLabAdapter(profile("/v2", null), { pollIntervalMs: 200 });
-    const submitted = await adapter.submit(generateRequest(), signal());
-    expect(submitted).toEqual({ kind: "async", remoteId: "job-abc" });
-    expect(JSON.parse(requests[0]!.body.toString())).toEqual({ description: "poção verde", image_size: { width: 16, height: 16 }, no_background: true });
-    expect(await adapter.poll("job-abc", signal())).toEqual({ state: "pending" });
-    expect(await adapter.poll("job-abc", signal())).toEqual({ state: "pending" });
-    expect(await adapter.poll("job-abc", signal())).toEqual({ state: "succeeded" });
-    const result = await adapter.fetchResult("job-abc", signal());
-    expect(result.images).toHaveLength(3);
-    expect(result.cost).toEqual({ amount: 1, unit: "generations" });
-  });
-
-  it("402, 422 e resposta sem job id", async () => {
-    const adapter = new PixelLabAdapter(profile("/v2", null), {});
-    handlers.set("POST /v2/generate-image-v2", (_req, res) => json(res, 402, { detail: "Insufficient credits" }));
+describe("respostas de erro (comuns aos transportes HTTP)", () => {
+  it("402, 402 transitório por pedidos em andamento e 422 com detalhe de validação", async () => {
+    const adapter = new OpenRouterAdapter(profile("/api/v1"), { transparent: true });
+    handlers.set("POST /api/v1/images", (_req, res) => json(res, 402, { detail: "Insufficient credits" }));
     expect((await adapter.submit(generateRequest(), signal()).catch((e) => e)).kind).toBe("balance");
     // OpenRouter: 402 por reserva de pedidos em andamento é transitório (repete com espera).
-    handlers.set("POST /v2/generate-image-v2", (_req, res) =>
+    handlers.set("POST /api/v1/images", (_req, res) =>
       json(res, 402, { detail: "This request would exceed your available credits given your current in-flight requests. Retry after in-flight requests settle." }),
     );
     const inflight = await adapter.submit(generateRequest(), signal()).catch((e) => e);
     expect([inflight.kind, inflight.retryAfterMs]).toEqual(["rate_limited", 15_000]);
-    handlers.set("POST /v2/generate-image-v2", (_req, res) => json(res, 422, { detail: [{ loc: ["body", "image_size"], msg: "too large", type: "x" }] }));
-    expect((await adapter.submit(generateRequest(), signal()).catch((e) => e)).message).toBe("body.image_size: too large");
-    handlers.set("POST /v2/generate-image-v2", (_req, res) => json(res, 200, { status: "processing" }));
-    expect((await adapter.submit(generateRequest(), signal()).catch((e) => e)).kind).toBe("ambiguous");
-  });
-
-  it("saldo separa créditos USD e gerações da assinatura", async () => {
-    handlers.set("GET /v2/balance", (_req, res) =>
-      json(res, 200, { credits: { type: "usd", usd: 10.5 }, subscription: { type: "generations", status: "active", plan: "Tier 2", generations: 450, total: 2000 } }),
-    );
-    expect(await new PixelLabAdapter(profile("/v2", null), {}).balance(signal())).toMatchObject({ credits: { usd: 10.5 }, subscription: { generations: 450 } });
-  });
-});
-
-describe("mapeamentos PixelLab", () => {
-  const motion = () => structuredClone(buildClareira().manifest.entries.find((e) => e.family === "character" && e.kind === "motion")!.payload) as MotionPayload;
-
-  it("esqueleto custom vira rig (pais primeiro) e keypoints por frame, sem depender do prompt", () => {
-    const body = pixelLabSkeletonBody({ description: "guerreiro", firstFrame: icon(), motion: motion() });
-    expect(body).toMatchObject({ action: "attack", direction: "south", view: "low top-down", no_background: true });
-    expect(body.rig?.[0]).toEqual({ name: "Quadril", parent: null, side: "mid" });
-    expect(body.rig?.find((j) => j.name === "Mão direita")).toEqual({ name: "Mão direita", parent: "Ombro direito", side: "near" });
-    expect(body.keypoints).toHaveLength(4);
-    expect(body.keypoints[2]!.find((k) => k.label === "Mão direita")).toMatchObject({ x: 39 / 64, y: 34 / 64 });
-    expect(body.first_frame_keypoints).toHaveLength(7);
-  });
-
-  it("recusa isométrico e joint humanoide desconhecido em vez de improvisar", () => {
-    const iso = motion();
-    iso.projection = "isometric";
-    expect(() => pixelLabSkeletonBody({ description: "x", firstFrame: icon(), motion: iso })).toThrow(/isométrica/);
-    const humanoid = motion();
-    humanoid.skeleton.kind = "humanoid";
-    expect(() => pixelLabSkeletonBody({ description: "x", firstFrame: icon(), motion: humanoid })).toThrow(/18 joints/);
-  });
-
-  it("inpainting envia a máscara sem inverter e respeita 32–512 px", () => {
-    const body = pixelLabInpaintBody({
-      description: "juncos",
-      source: { bytes: icon(), width: 128, height: 128 },
-      editMask: { bytes: new Uint8Array([9, 9]), width: 128, height: 128 },
-    });
-    expect(body.mask_image.image.base64).toBe(Buffer.from([9, 9]).toString("base64"));
-    expect(body.inpainting_image.size).toEqual({ width: 128, height: 128 });
-    expect(() => pixelLabInpaintBody({ description: "x", source: { bytes: icon(), width: 16, height: 16 }, editMask: { bytes: icon(), width: 16, height: 16 } })).toThrow(/32 a 512/);
-  });
-});
-
-describe.skipIf(!existsSync(`${process.cwd()}/python/.venv/bin/python`))("geração pelo worker com PixelLab simulado por HTTP", () => {
-  let studio: TestStudio;
-  afterEach(() => studio?.cleanup());
-
-  it("um job remoto vira várias candidatas; o job local só conclui depois do completed", async () => {
-    studio = makeTestStudio();
-    const now = iso(studio.clock.now());
-    studio.db.run(
-      `INSERT INTO provider_profiles (id, name, transport, base_url, secret_ref, concurrency, config_json, created_at, updated_at)
-       VALUES ('pixellab', 'PixelLab', 'pixellab_rest_v2', :base, 'TEST_PROVIDER_KEY', 1, '{"pollIntervalMs": 200}', :now, :now)`,
-      { base: `${base}/v2`, now },
-    );
-    const seeded = seedIconJob(studio, { variants: 2 });
-    const plan = { ...iconPlan(studio, seeded.project.id, { variants: 2 }), providerProfileId: "pixellab", parts: [{ partKey: "image:v1", unit: "image" as const, label: "Envio 1" }] };
-    const states: string[] = [];
-    let polls = 0;
-    handlers.set("POST /v2/generate-image-v2", (_req, res) => json(res, 202, { background_job_id: "job-xyz", status: "processing" }));
-    handlers.set("GET /v2/background-jobs/job-xyz", (_req, res) => {
-      polls++;
-      const part = studio.db.get<{ remote_state: string; state: string }>(
-        "SELECT p.remote_state, j.state FROM job_parts p JOIN jobs j ON j.id = p.job_id",
-      )!;
-      states.push(`${part.state}/${part.remote_state}`);
-      if (polls < 4) return json(res, 200, { id: "job-xyz", status: "processing" });
-      json(res, 200, { id: "job-xyz", status: "completed", usage: { type: "usd", usd: 0.02 }, last_response: { images: [icon(), icon([200, 50, 50, 255]), icon([50, 50, 200, 255])].map((b) => ({ base64: b64(b) })) } });
-    });
-    const job = studio.queue.enqueue({ projectId: seeded.project.id, kind: "generation", request: { plan, planDigest: canonicalDigest(plan), targetAssetId: seeded.asset.id }, idempotencyKey: "k" }).job;
-    await new (await import("../jobs/runner")).JobRunner({ ...studio.deps, providers: new (await import("./registry")).ProviderRegistry(studio.db, studio.config) }, { workerId: "w", heartbeatMs: 60_000 }).runOnce();
-
-    const final = studio.queue.get(job.id)!;
-    expect(final.state, final.error_json ?? "").toBe("succeeded");
-    // Enquanto o provedor respondia "processing", o job local seguia em execução com a parte só aceita.
-    expect(states.slice(0, 3).every((s) => s === "running/accepted")).toBe(true);
-    expect(listRevisions(studio.db, seeded.project.id, seeded.asset.id)).toHaveLength(2); // 3 candidatas, 2 variantes pedidas
-    expect(studio.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM job_part_results")!.n).toBe(3);
-    expect(JSON.parse(final.result_json!).cost).toEqual([{ unit: "USD", amount: 0.02 }]);
-    expect(requests.filter((r) => r.method === "POST")).toHaveLength(1);
+    handlers.set("POST /api/v1/images", (_req, res) => json(res, 422, { detail: [{ loc: ["body", "aspect_ratio"], msg: "invalid", type: "x" }] }));
+    expect((await adapter.submit(generateRequest(), signal()).catch((e) => e)).message).toBe("body.aspect_ratio: invalid");
   });
 });
 
@@ -322,19 +209,29 @@ describe("cadastro de perfis", () => {
   let studio: TestStudio;
   afterEach(() => studio?.cleanup());
 
-  it("salva perfil, grava capacidades declaradas com data do contrato e verifica saldo sem custo", async () => {
+  it("salva perfil, grava capacidades declaradas com data do contrato e descobre a rota sem custo", async () => {
     const { saveProfile, capabilityMatrix, checkProfile } = await import("./profiles");
     const { ProviderRegistry } = await import("./registry");
     studio = makeTestStudio();
-    const saved = saveProfile(studio.db, studio.clock, { id: "pixellab", name: "PixelLab", transport: "pixellab_rest_v2", baseUrl: `${base}/v2`, secretRef: "TEST_PROVIDER_KEY", config: {} });
-    expect(saved).toMatchObject({ transport: "pixellab_rest_v2", secretConfigured: true });
-    const matrix = capabilityMatrix(studio.db, "pixellab");
-    expect(matrix.filter((m) => m.operation === "inpaint").map((m) => m.capability).sort()).toEqual(["image_edit", "native_mask", "seed"]);
+    const saved = saveProfile(studio.db, studio.clock, {
+      id: "or",
+      name: "OpenRouter",
+      transport: "openrouter_images",
+      baseUrl: `${base}/api/v1`,
+      secretRef: "TEST_PROVIDER_KEY",
+      model: "bytedance-seed/seedream-4.5",
+      config: { maxReferences: 3 },
+    });
+    expect(saved).toMatchObject({ transport: "openrouter_images", secretConfigured: true });
+    const matrix = capabilityMatrix(studio.db, "or");
+    expect(matrix.filter((m) => m.operation === "inpaint").map((m) => m.capability)).toEqual(["image_edit"]);
     expect(matrix.every((m) => m.status === "declared" && m.contractSnapshot?.includes("2026-11-18"))).toBe(true);
 
-    handlers.set("GET /v2/balance", (_req, res) => json(res, 200, { credits: { usd: 3 }, subscription: { status: "active", generations: 10, total: 100 } }));
-    const check = await checkProfile(studio.db, new ProviderRegistry(studio.db, studio.config), "pixellab");
-    expect(check).toMatchObject({ ok: true, message: expect.stringContaining("US$ 3") });
+    handlers.set("GET /api/v1/images/models/bytedance-seed/seedream-4.5/endpoints", (_req, res) =>
+      json(res, 200, { endpoints: [{ provider_tag: "seed", supported_parameters: { input_references: { type: "array", max: 14 } }, pricing: [] }] }),
+    );
+    const check = await checkProfile(studio.db, new ProviderRegistry(studio.db, studio.config), "or");
+    expect(check).toMatchObject({ ok: true, message: expect.stringContaining("1 rota(s)") });
     expect(requests.every((r) => r.method === "GET")).toBe(true);
   });
 
@@ -347,8 +244,8 @@ describe("cadastro de perfis", () => {
     expect(() =>
       saveProfile(studio.db, studio.clock, { id: "c", name: "C", transport: "openrouter_images", secretRef: "KEY_X", model: "m", config: { maxReferences: 99 } }),
     ).toThrow(/Configuração inválida/);
-    expect(ProfileInput.safeParse({ id: "x", name: "X", transport: "pixellab_rest_v2", secretRef: "sk-live-123", config: {} }).success).toBe(false);
-    expect(ProfileInput.safeParse({ id: "simulated", name: "X", transport: "pixellab_rest_v2", secretRef: "KEY_X", config: {} }).success).toBe(false);
+    expect(ProfileInput.safeParse({ id: "x", name: "X", transport: "openrouter_images", secretRef: "sk-live-123", model: "m", config: {} }).success).toBe(false);
+    expect(ProfileInput.safeParse({ id: "simulated", name: "X", transport: "openrouter_images", secretRef: "KEY_X", model: "m", config: {} }).success).toBe(false);
   });
 
   it("credencial ausente bloqueia o planejamento antes de qualquer chamada", async () => {

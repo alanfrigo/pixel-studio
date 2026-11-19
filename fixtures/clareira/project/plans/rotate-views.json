@@ -4,7 +4,7 @@
   "styleRevisionId": "clareira-style-a",
   "operation": "rotate_views",
   "recipeRevisionId": "recipe-rotate-v1",
-  "providerProfileId": "pixellab-rest",
+  "providerProfileId": "provedor-nativo",
   "prompt": {
     "brief": "",
     "compiled": "Guerreiro de túnica azul com escudo no braço esquerdo e espada na mão direita.",

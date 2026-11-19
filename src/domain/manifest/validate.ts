@@ -336,7 +336,8 @@ function checkCrossEntry(
       const clip = getClip(c.clipRevisionId);
       if (!clip) return;
       if (clip.rigRevisionId !== loadout.rigRevisionId) push("rig_mismatch", `Clipe ${c.clipRevisionId} usa outro rig`, ["clips", i]);
-      if (clip.stance && clip.stance !== loadout.stance) {
+      // S2: um clipe de outra postura só vale com vínculo explícito de compartilhamento.
+      if (clip.stance && clip.stance !== loadout.stance && !(clip.sharedStances ?? []).includes(loadout.stance)) {
         push("stance_incompatible", `Clipe ${c.clipRevisionId} é da postura ${clip.stance}`, ["clips", i]);
       }
       if (clip.action !== c.action || clip.direction !== c.direction) {

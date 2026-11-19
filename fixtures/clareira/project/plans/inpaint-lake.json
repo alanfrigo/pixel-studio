@@ -4,7 +4,7 @@
   "styleRevisionId": "clareira-style-a",
   "operation": "inpaint",
   "recipeRevisionId": "recipe-inpaint-v1",
-  "providerProfileId": "pixellab-rest",
+  "providerProfileId": "provedor-nativo",
   "prompt": {
     "brief": "reconstruir a margem do lago com juncos",
     "compiled": "Reconstruir a margem do lago com juncos na região marcada, mantendo grama, água e luz do restante.",
@@ -48,7 +48,7 @@
         "amount": 1,
         "unit": "generations"
       },
-      "basis": "1 chamada /inpaint-v3"
+      "basis": "1 chamada de inpainting com máscara nativa"
     }
   },
   "params": {

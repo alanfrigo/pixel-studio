@@ -20,6 +20,23 @@ import { listProfiles } from "../providers/registry";
 import { jobView, submitJob } from "../services";
 import type { Studio } from "../studio";
 import { chooseRoute, loadBase, loadClip } from "./base";
+import { S3_OPERATIONS } from "./provider-temporal";
+import {
+  AnimateObjectPlanInput,
+  buildAnimateObjectPlan,
+  buildCorrectFramePlan,
+  buildCreateStatePlan,
+  buildEditAnimationPlan,
+  buildInterpolatePlan,
+  buildTransferOutfitPlan,
+  CorrectFramePlanInput,
+  CreateStatePlanInput,
+  EditAnimationPlanInput,
+  InterpolatePlanInput,
+  TransferOutfitPlanInput,
+} from "./temporal-plans";
+import { imageSources, inspectCorrectionMask, stateMatrix, temporalRoutes, temporalTarget } from "./temporal-service";
+import { tagsByAsset } from "../library/library";
 import {
   AnimatePresetPlanInput,
   AnimateSkeletonPlanInput,
@@ -45,7 +62,19 @@ import {
  */
 
 export const RunAnimationInput = z.strictObject({
-  plan: z.discriminatedUnion("operation", [AnimatePresetPlanInput, AnimateTextPlanInput, AnimateSkeletonPlanInput, RotateViewsPlanInput]),
+  plan: z.discriminatedUnion("operation", [
+    AnimatePresetPlanInput,
+    AnimateTextPlanInput,
+    AnimateSkeletonPlanInput,
+    RotateViewsPlanInput,
+    // Cartão S3: estados, objetos, interpolação, edição de trecho, roupa e correção de quadro.
+    CreateStatePlanInput,
+    AnimateObjectPlanInput,
+    InterpolatePlanInput,
+    EditAnimationPlanInput,
+    TransferOutfitPlanInput,
+    CorrectFramePlanInput,
+  ]),
   /** Atalho de um clique: exige custo conhecido dentro do teto, ou custo desconhecido explicitamente aceito. */
   oneClick: z.boolean().default(false),
   allowUnknownCost: z.boolean().default(false),
@@ -64,6 +93,18 @@ export function buildAnimationPlan(studio: Studio, projectId: string, plan: z.in
       return buildAnimateSkeletonPlan(studio, projectId, plan);
     case "rotate_views":
       return buildRotateViewsPlan(studio, projectId, plan);
+    case "create_state":
+      return buildCreateStatePlan(studio, projectId, plan);
+    case "animate_object":
+      return buildAnimateObjectPlan(studio, projectId, plan);
+    case "interpolate_frames":
+      return buildInterpolatePlan(studio, projectId, plan);
+    case "edit_animation":
+      return buildEditAnimationPlan(studio, projectId, plan);
+    case "transfer_outfit":
+      return buildTransferOutfitPlan(studio, projectId, plan);
+    case "correct_frame":
+      return buildCorrectFramePlan(studio, projectId, plan);
   }
 }
 
@@ -106,15 +147,27 @@ export function runAnimation(studio: Studio, projectId: string, raw: RunAnimatio
       });
     }
   }
-  const base = loadBase(studio.db, projectId, input.plan.baseRevisionId);
   // Ponto sem `await`: montar alvo e enfileirar acontecem juntos, sem intercalar com outro clique.
-  const target =
-    planned.plan.operation === "rotate_views"
-      ? base.asset
-      : clipAssetFor(studio, projectId, base.asset, (planned.summary as { action: string }).action, (planned.summary as { direction: string }).direction);
+  let target: AssetView;
+  if ("baseRevisionId" in input.plan) {
+    const base = loadBase(studio.db, projectId, input.plan.baseRevisionId);
+    target =
+      planned.plan.operation === "rotate_views"
+        ? base.asset
+        : clipAssetFor(studio, projectId, base.asset, (planned.summary as { action: string }).action, (planned.summary as { direction: string }).direction);
+  } else {
+    target = temporalTarget(studio, projectId, planned.plan);
+  }
   const key = `animation:${planned.digest}:${input.variation}`;
   const { job, created } = submitJob(studio, projectId, { kind: "generation", request: { plan: planned.plan, planDigest: planned.digest, targetAssetId: target.id } }, key);
   return { job, created, targetAssetId: target.id, idempotencyKey: key, ...planned };
+}
+
+/** Rota HTTP: a correção com máscara confere a máscara antes de enfileirar (máscara vazia = zero envios). */
+export async function runAnimationChecked(studio: Studio, projectId: string, raw: RunAnimationInput) {
+  const input = RunAnimationInput.parse(raw);
+  if (input.plan.operation === "correct_frame") await inspectCorrectionMask(studio, projectId, input.plan.maskUploadId);
+  return runAnimation(studio, projectId, input);
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +311,7 @@ export function composeBaseViews(studio: Studio, projectId: string, raw: z.input
 // Visão geral para a página de animação
 // ---------------------------------------------------------------------------
 
-const ANIMATION_OPS: PlanOperation[] = ["animate_preset", "animate_text", "animate_skeleton", "rotate_views"];
+const ANIMATION_OPS: PlanOperation[] = ["animate_preset", "animate_text", "animate_skeleton", "rotate_views", ...S3_OPERATIONS];
 
 function revisionsOf(studio: Studio, projectId: string, family: "character", kind: string) {
   return studio.db
@@ -293,6 +346,8 @@ export function animationOverview(studio: Studio, projectId: string) {
       routes.skeleton = tryRoute("animate_skeleton", { mode: "skeleton" });
       routes.rotation = tryRoute("rotate_views", { mode: "rotation", isometric: projection === "isometric" });
       routes.rotationIsometric = tryRoute("rotate_views", { mode: "rotation", isometric: true });
+      // Cartão S3: estados, objetos, interpolação, trecho, roupa e correção.
+      Object.assign(routes, temporalRoutes({ adapter, profileId: p.id }));
       if (!ANIMATION_OPS.some((op) => adapter.capabilities(op).length > 0)) unavailable = "Perfil sem operações de animação ou vistas";
     } catch (err) {
       unavailable = err instanceof Error ? err.message : String(err);
@@ -307,6 +362,10 @@ export function animationOverview(studio: Studio, projectId: string) {
     bases: revisionsOf(studio, projectId, "character", "base"),
     clips: revisionsOf(studio, projectId, "character", "clip"),
     motions: revisionsOf(studio, projectId, "character", "motion"),
+    // Cartão S3: matriz de estados × direções, referências de roupa e etiquetas.
+    states: stateMatrix(studio, projectId),
+    imageSources: imageSources(studio, projectId),
+    tags: tagsByAsset(studio, projectId),
     profiles,
     operations: PLAN_OPERATIONS.filter((op) => ANIMATION_OPS.includes(op)),
     jobs: studio.queue

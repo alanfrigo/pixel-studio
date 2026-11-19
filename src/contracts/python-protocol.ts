@@ -2,6 +2,9 @@ import { z } from "zod";
 import { checkOrdinals, GridPoint, HexColor, Id, NonNegInt, Offset, PosInt, RelativePath, Sha256Hex, Size } from "./common";
 import { DurationMs } from "./common";
 import { WORLD_PYTHON_RECIPES } from "./world";
+import { SCENE_PYTHON_RECIPES } from "./scenes";
+import { EQUIPMENT_PYTHON_RECIPES } from "./equipment";
+import { TEMPORAL_PYTHON_RECIPES } from "./temporal";
 
 /**
  * Fronteira Node ↔ Python (05 §entrada e saída). Um subprocesso por tarefa,
@@ -214,6 +217,8 @@ const recipes = {
        * ruído de posicionamento do modelo. A altura (salto) é sempre preservada.
        */
       keepHorizontalOffsets: z.boolean(),
+      /** S3: `width` = escala comum pela largura (objeto cuja altura muda, como a tampa que abre). Padrão `height`. */
+      scaleBy: z.enum(["height", "width"]).optional(),
     })
     .refine((r) => r.frameIds.length <= r.columns * r.rows, { message: "Mais quadros que células na folha" }),
   /** Animação: quadros (`layer`, na ordem) lado a lado em zoom inteiro, para revisão e relatório. */
@@ -228,6 +233,12 @@ const recipes = {
   }),
   /** Mundo (T1): emendas, gabaritos de tileset e losangos isométricos (`world.ts`). */
   ...WORLD_PYTHON_RECIPES,
+  /** Cenas e salas (T2): planos de paralaxe, câmera, guia da planta e recorte de móveis (`scenes.py`). */
+  ...SCENE_PYTHON_RECIPES,
+  /** Equipamentos (S2): compositor, extração de cobertura, guias e digests (`equipment.py`). */
+  ...EQUIPMENT_PYTHON_RECIPES,
+  /** Estados e edição temporal (S3): composição de quadros, casamento de folha, espelho e canvas (`temporal.py`). */
+  ...TEMPORAL_PYTHON_RECIPES,
 } as const;
 
 export type PythonOperation = keyof typeof recipes;
@@ -267,6 +278,21 @@ export const PythonRequest = z
     request("tile_edit_mask"),
     request("iso_pieces"),
     request("iso_check"),
+    request("scene_layer_check"),
+    request("scene_compose"),
+    request("scene_overlay"),
+    request("room_guide"),
+    request("room_cutout"),
+    request("room_compose"),
+    request("scene_fit"),
+    request("equipment_compose"),
+    request("equipment_extract"),
+    request("equipment_guide"),
+    request("equipment_region_hashes"),
+    request("compose_frames"),
+    request("sheet_match"),
+    request("mirror_frames"),
+    request("canvas_fit"),
   ])
   .superRefine((r, ctx) => checkOrdinals(ctx, r.inputs, ["inputs"]));
 export type PythonRequest = z.infer<typeof PythonRequest>;

@@ -139,7 +139,7 @@ export function chooseRoute(
   throw new DomainFailure(
     "capability_missing",
     want.isometric && offered.includes("image_references")
-      ? `O perfil ${profileId} não qualifica vistas isométricas nesta operação; use um perfil com essa capacidade (ex.: rotação PixelLab com a flag isometric)`
+      ? `O perfil ${profileId} não qualifica vistas isométricas nesta operação; use um perfil que declare isometric_views (rotação nativa com vista isométrica)`
       : `O perfil ${profileId} não oferece ${missing.join(", ")} nem imagem + referências para ${operation}`,
     { missing, offered },
   );

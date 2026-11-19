@@ -3,7 +3,8 @@ import type { StudioConfig } from "../config";
 import type { Db } from "../db/connection";
 import { DomainFailure } from "../errors";
 import { type Clock, iso } from "../util";
-import { OpenAIImagesAdapter, OpenRouterAdapter, PixelLabAdapter } from "./adapters";
+import { OpenAIImagesAdapter, OpenRouterAdapter } from "./adapters";
+import { CodexCliAdapter } from "./codex-cli";
 import { FileSimulatedStore, SimulatedProvider } from "./simulated";
 import type { ProviderAdapter } from "./types";
 
@@ -42,7 +43,6 @@ export const SIMULATED_PROFILE_ID = "simulated";
 
 export const DEFAULT_BASE_URLS: Record<string, string> = {
   openrouter_images: "https://openrouter.ai/api/v1",
-  pixellab_rest_v2: "https://api.pixellab.ai/v2",
 };
 
 export function profileView(row: ProviderProfileRow): ProviderProfileView {
@@ -107,8 +107,8 @@ export class ProviderRegistry {
         return new OpenAIImagesAdapter(profile, config);
       case "openrouter_images":
         return new OpenRouterAdapter(profile, config);
-      case "pixellab_rest_v2":
-        return new PixelLabAdapter(profile, config);
+      case "codex_cli":
+        return new CodexCliAdapter(profile, config);
       default:
         throw new DomainFailure("capability_missing", `Transporte desconhecido: ${row.transport}`, { profileId });
     }
@@ -121,5 +121,6 @@ export class ProviderRegistry {
     if (row.transport !== "simulated" && row.secret_ref && !process.env[row.secret_ref]) {
       throw new DomainFailure("capability_missing", `Credencial ausente: defina a variável de ambiente ${row.secret_ref} no servidor`, { profileId });
     }
+    if (row.transport === "codex_cli") CodexCliAdapter.assertInstalled(JSON.parse(row.config_json) as unknown, profileId);
   }
 }

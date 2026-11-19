@@ -3,7 +3,7 @@ import { type ClipPayload, MotionPayload } from "@/contracts";
 import { readPngInfo } from "@/lib/media/png";
 import { closestView, orientationFor, resolveView, viewForWorld, viewSet } from "./directions";
 import { renderPoseGuide } from "./pose-guide";
-import { BUILTIN_PRESETS, findPreset, fitsTextV3, parsePresetRevisionId, presetRevisionId } from "./presets";
+import { BUILTIN_PRESETS, findPreset, parsePresetRevisionId, presetRevisionId } from "./presets";
 import {
   addCustomJoint,
   buildMotion,
@@ -27,10 +27,8 @@ describe("presets de ação versionados", () => {
     expect(byKey.run!.durationsMs).toEqual(Array(6).fill(85));
     expect(byKey["attack-shield"]).toMatchObject({ durationsMs: [140, 80, 60, 160], stance: "one_hand_shield", playback: "once" });
     expect(byKey["attack-two-handed"]!.durationsMs).toEqual([120, 100, 90, 60, 110, 180]);
-    // hurt de 3 quadros não cabe no texto v3: é preset de esqueleto, não "gera 4 e descarta 1".
+    // hurt de 3 quadros de pose precisa: é preset de esqueleto, não "gera 4 e descarta 1".
     expect(byKey.hurt).toMatchObject({ durationsMs: [100, 70, 140], strategy: "skeleton" });
-    expect(fitsTextV3(3)).toBe(false);
-    expect(BUILTIN_PRESETS.filter((p) => p.strategy === "text").every((p) => fitsTextV3(p.frameIds.length))).toBe(true);
     for (const p of BUILTIN_PRESETS) expect(`${p.motion["pt-BR"]} ${p.motion.en}`).not.toMatch(/#[0-9a-f]{3,6}/i);
   });
 
@@ -95,13 +93,13 @@ describe("tempo do clipe", () => {
   it("grade da folha usa proporções aceitas pelos modelos", () => {
     expect([1, 2, 3, 4, 5, 6, 8, 12, 16].map((n) => sheetLayout(n))).toEqual([
       { columns: 1, rows: 1 },
-      { columns: 2, rows: 1 },
+      { columns: 2, rows: 2 },
       { columns: 2, rows: 2 },
       { columns: 2, rows: 2 },
       { columns: 3, rows: 2 },
       { columns: 3, rows: 2 },
       { columns: 3, rows: 3 },
-      { columns: 4, rows: 3 },
+      { columns: 4, rows: 4 },
       { columns: 4, rows: 4 },
     ]);
   });

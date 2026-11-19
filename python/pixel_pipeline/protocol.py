@@ -112,6 +112,48 @@ def operations() -> dict[str, Callable[[Json, Path], Json]]:
         "inpaint_guide": ops.inpaint_guide,
         **_animation_operations(),
         **_world_operations(),
+        **_temporal_operations(),
+        **_scene_operations(),
+        **_equipment_operations(),
+    }
+
+
+def _equipment_operations() -> dict[str, Callable[[Json, Path], Json]]:
+    """Cartão S2: módulo próprio (`equipment.py`)."""
+    from pixel_pipeline import equipment
+
+    return {
+        "equipment_compose": equipment.equipment_compose,
+        "equipment_extract": equipment.equipment_extract,
+        "equipment_guide": equipment.equipment_guide,
+        "equipment_region_hashes": equipment.equipment_region_hashes,
+    }
+
+
+def _scene_operations() -> dict[str, Callable[[Json, Path], Json]]:
+    """Cartão T2: módulo próprio (`scenes.py`)."""
+    from pixel_pipeline import scenes
+
+    return {
+        "scene_layer_check": scenes.scene_layer_check,
+        "scene_compose": scenes.scene_compose,
+        "scene_overlay": scenes.scene_overlay,
+        "room_guide": scenes.room_guide,
+        "room_cutout": scenes.room_cutout,
+        "room_compose": scenes.room_compose,
+        "scene_fit": scenes.scene_fit,
+    }
+
+
+def _temporal_operations() -> dict[str, Callable[[Json, Path], Json]]:
+    """Cartão S3: módulo próprio (`temporal.py`)."""
+    from pixel_pipeline import temporal
+
+    return {
+        "compose_frames": temporal.compose_frames,
+        "sheet_match": temporal.sheet_match,
+        "mirror_frames": temporal.mirror_frames,
+        "canvas_fit": temporal.canvas_fit,
     }
 
 

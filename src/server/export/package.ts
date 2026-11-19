@@ -9,6 +9,7 @@ import { inspectAudio, inspectFont, sniff } from "../media/inspect";
 import type { BlobStore } from "../storage/blob-store";
 import { slugify } from "../util";
 import { EXPORT_PROFILES } from "./profiles";
+import { equipmentExportProblems, exportProblemMessage } from "../equipment/export-check";
 
 /**
  * Montagem do pacote portátil v1 a partir de revisões aprovadas (02a §formato
@@ -160,6 +161,8 @@ export async function buildPortablePackage(db: Db, blobs: BlobStore, projectId: 
   if (closure.problems.length > 0) {
     throw new DomainFailure("coverage_incomplete", closure.problems[0]!.message, { problems: closure.problems });
   }
+  const equipment = equipmentExportProblems(db, projectId, closure.revisionIds);
+  if (equipment.length > 0) throw new DomainFailure("coverage_incomplete", exportProblemMessage(equipment), { problems: equipment });
 
   const files: ManifestFile[] = [];
   const contents: PackageFile[] = [];

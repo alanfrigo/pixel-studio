@@ -4,7 +4,7 @@
   "styleRevisionId": "clareira-style-a",
   "operation": "animate_skeleton",
   "recipeRevisionId": "recipe-animate-skeleton-v1",
-  "providerProfileId": "pixellab-rest",
+  "providerProfileId": "provedor-nativo",
   "prompt": {
     "brief": "golpe curto com escudo junto ao corpo",
     "compiled": "Guerreiro de túnica azul com escudo de madeira; golpe curto de espada mantendo o escudo junto ao corpo.",

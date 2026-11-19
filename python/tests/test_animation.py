@@ -70,7 +70,7 @@ def test_quadros_assentam_no_apoio_da_base_sem_recentralizar(pipe: Pipeline) -> 
     assert frames["c"]["lift"] == 6
     # Deslocamento horizontal relativo também é movimento desenhado: preservado, não recentralizado.
     assert frames["a"]["shift"] < 0 < frames["b"]["shift"]
-    assert res["report"]["scale"] == {"factor": 1.0, "resampled": False, "medianHeight": 24, "baseHeight": 24}
+    assert res["report"]["scale"] == {"factor": 1.0, "resampled": False, "medianHeight": 24, "baseHeight": 24, "scaleBy": "height"}
     strip = Pipeline.image(res, "strip")
     assert strip.size == (128, 32)
 

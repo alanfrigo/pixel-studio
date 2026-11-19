@@ -328,7 +328,7 @@ def test_fit_logical_flags_off_grid_and_aspect(pipe):
 
 
 def test_encode_mask_four_quadrants(pipe):
-    """Plano 03: editar só um quadrante; OpenAI recebe alfa 0 ali, PixelLab recebe branco ali."""
+    """Plano 03: editar só um quadrante; OpenAI recebe alfa 0 ali, máscara P&B recebe branco ali."""
     mask = Image.new("L", (8, 8), 0)
     for y in range(0, 4):
         for x in range(4, 8):
@@ -336,8 +336,8 @@ def test_encode_mask_four_quadrants(pipe):
     openai = pipe.run("encode_mask", {"encoding": "alpha_zero_edits"}, [("editMask", png(mask))])
     alpha = Pipeline.image(openai, "remote_mask").getchannel("A")
     assert alpha.getpixel((5, 1)) == 0 and alpha.getpixel((1, 1)) == 255 and alpha.getpixel((5, 6)) == 255
-    pixellab = pipe.run("encode_mask", {"encoding": "white_edits_black_preserves"}, [("editMask", png(mask))])
-    out = Pipeline.image(pixellab, "remote_mask")
+    white = pipe.run("encode_mask", {"encoding": "white_edits_black_preserves"}, [("editMask", png(mask))])
+    out = Pipeline.image(white, "remote_mask")
     assert out.getpixel((5, 1)) == (255, 255, 255) and out.getpixel((1, 1)) == (0, 0, 0)
     assert openai["report"]["editedPixels"] == 16
 

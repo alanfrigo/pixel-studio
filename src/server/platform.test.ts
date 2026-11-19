@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildClareira } from "@/fixtures/clareira";
 import { Db } from "./db/connection";
-import { assertMigrated, loadMigrations, migrate, migrationStatus } from "./db/migrate";
+import { assertMigrated, COMMENT_ONLY_REVISIONS, executableSql, loadMigrations, migrate, migrationStatus } from "./db/migrate";
 import { inspectAudio, inspectFont, sniff } from "./media/inspect";
 import { pythonInfo, runPython } from "./python/bridge";
 import { BlobStore } from "./storage/blob-store";
@@ -43,6 +43,21 @@ describe("migrações", () => {
     migrate(db, loadMigrations(migrations));
     writeFileSync(path.join(migrations, "0001_x.sql"), "CREATE TABLE x (a TEXT) STRICT;");
     expect(() => migrationStatus(db, loadMigrations(migrations))).toThrow(/alterada depois de aplicada/);
+    db.close();
+  });
+
+  it("revisão só de comentário: SQL executável idêntico, checksum anterior aceito e atualizado", () => {
+    const migrations = loadMigrations();
+    const m4 = migrations[3]!;
+    // Hash do SQL sem comentários da versão aplicada em bancos existentes (antes da edição do comentário).
+    expect(createHash("sha256").update(executableSql(m4.sql)).digest("hex")).toBe("7abe3fbc1f0543b395de45dc25e8e0ba3b1064e16f2baca54ce4610f2201bd45");
+    expect(COMMENT_ONLY_REVISIONS[4]).not.toContain(m4.checksum);
+    const db = new Db(path.join(tmp(), "a.sqlite"));
+    migrate(db);
+    db.run("UPDATE schema_migrations SET checksum = :old WHERE version = 4", { old: COMMENT_ONLY_REVISIONS[4]![0]! });
+    expect(() => assertMigrated(db)).not.toThrow();
+    expect(migrate(db)).toEqual([]);
+    expect(db.get<{ checksum: string }>("SELECT checksum FROM schema_migrations WHERE version = 4")!.checksum).toBe(m4.checksum);
     db.close();
   });
 

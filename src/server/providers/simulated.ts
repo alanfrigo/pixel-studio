@@ -8,6 +8,10 @@ import type { PlanOperation } from "@/contracts";
 import { ProviderError, type ProviderAdapter, type ProviderResult, type ProviderSubmitRequest, type RemoteStatus, type SubmitOutcome } from "./types";
 import { genericWorldCapabilities, isWorldOperation } from "../world/provider-caps";
 import { type SimulatedWorldJob, simulatedWorldImage, simulatedWorldJob } from "../world/simulated-art";
+import { isSimulatedSceneOperation, type SimulatedSceneJob, simulatedSceneCapabilities, simulatedSceneJob, simulatedSceneResult } from "../scenes/simulated-art";
+import { isTemporalOperation, type SimulatedTemporalJob, simulatedTemporalCapabilities, simulatedTemporalImages, simulatedTemporalJob } from "../animation/provider-temporal";
+import { genericEquipmentCapabilities, isEquipmentOperation } from "../equipment/provider-caps";
+import { type SimulatedEquipmentJob, simulatedEquipmentJob } from "../equipment/simulated-art";
 
 /**
  * Provedor SIMULADO para desenvolvimento e testes (08 §pronto para entregar:
@@ -31,6 +35,12 @@ export interface SimulatedRemoteJob {
   animation?: { frames: number; skeleton?: Skeleton; poses?: Record<string, JointPose>[] };
   /** Mundo simulado (T1): material repetível ou eco do gabarito do tileset. */
   world?: SimulatedWorldJob;
+  /** Cenas, planos, salas e props simulados (T2). */
+  scene?: SimulatedSceneJob;
+  /** Estados e edição temporal simulados (S3). */
+  temporal?: SimulatedTemporalJob;
+  /** Candidato vestido ou vista rígida simulados (S2). */
+  equipment?: SimulatedEquipmentJob;
 }
 
 export interface SimulatedState {
@@ -105,6 +115,9 @@ export class SimulatedProvider implements ProviderAdapter {
     if (operation === "inpaint") return ["image_edit", "native_mask"];
     if (SIMULATED_ANIMATION_OPS.includes(operation)) return SIMULATED_ANIMATION_CAPABILITIES;
     if (isWorldOperation(operation)) return genericWorldCapabilities(operation, 16);
+    if (isSimulatedSceneOperation(operation)) return [...simulatedSceneCapabilities(operation)];
+    if (isTemporalOperation(operation)) return simulatedTemporalCapabilities(operation);
+    if (isEquipmentOperation(operation)) return genericEquipmentCapabilities(16);
     return operation === "generate_asset" ? SIMULATED_CAPABILITIES : [];
   }
 
@@ -130,6 +143,11 @@ export class SimulatedProvider implements ProviderAdapter {
     if (animation?.job) state.jobs[id].animation = animation.job;
     const world = simulatedWorldJob(request);
     if (world) state.jobs[id].world = world;
+    if (isSimulatedSceneOperation(request.operation)) state.jobs[id].scene = simulatedSceneJob(request);
+    const temporal = simulatedTemporalJob(request);
+    if (temporal) state.jobs[id].temporal = temporal;
+    const equipment = simulatedEquipmentJob(request);
+    if (equipment) state.jobs[id].equipment = equipment;
     state.charged += 1;
     this.store.write(state);
     if (this.options.failAfterAccept) throw new ProviderError("ambiguous", "Conexão perdida depois do envio (simulado)");
@@ -154,6 +172,9 @@ export class SimulatedProvider implements ProviderAdapter {
       return { images, cost: { amount: 1, unit: "generations" } };
     }
     if (job.world) return { images: [{ bytes: simulatedWorldImage(job), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
+    if (job.scene) return { images: simulatedSceneResult(job.scene), cost: { amount: 1, unit: "generations" } };
+    if (job.equipment) return { images: [{ bytes: new Uint8Array(Buffer.from(job.equipment.png, "base64")), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
+    if (job.temporal) return { images: simulatedTemporalImages(job.temporal, job.prompt).map((bytes) => ({ bytes, mime: "image/png" })), cost: { amount: 1, unit: "generations" } };
     return { images: [{ bytes: simulatedImage(job.prompt, job.size), mime: "image/png" }], cost: { amount: 1, unit: "generations" } };
   }
 

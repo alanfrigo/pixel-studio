@@ -9,8 +9,8 @@
  * gpt-image-2.6-flare, uma árvore (receita de ícone, alfa nativo) e o tileset
  * guiado pelo gabarito no flare. O resto é local. Resultados em
  * reports/mundo/<data>/ (results.json + imagens; o RELATÓRIO é escrito à parte).
- * Endpoints especializados do PixelLab (/tilesets, /create-tiles-pro) NÃO
- * são ensaiados: não há chave PixelLab neste ambiente.
+ * Só a rota genérica (imagem + referências) é ensaiada: tileset nativo
+ * exige um provedor que declare essa capacidade.
  */
 import { execFileSync } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";

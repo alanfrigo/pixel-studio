@@ -1,12 +1,12 @@
 # Models, evals and benchmarks
 
-Pixel Studio is provider-agnostic: every AI route is a **provider profile** (OpenRouter, OpenAI Images, PixelLab REST v2, or the offline simulated provider) with **declared** capabilities. A capability becomes **tested** only after a real run passes. This page summarizes the real-money benchmarks we ran, what they taught us about generating **pixel art with AI**, and which model we recommend for each task.
+Pixel Studio is provider-agnostic: every AI route is a **provider profile** (OpenRouter, OpenAI Images, the local Codex CLI, or the offline simulated provider) with **declared** capabilities. A capability becomes **tested** only after a real run passes. This page summarizes the real-money benchmarks we ran, what they taught us about generating **pixel art with AI**, and which model we recommend for each task.
 
 > All numbers come from real API calls through the full Studio pipeline: the persistent job queue, provider adapter, pixel-grid recovery, background-key removal and fit to logical size. Costs are the provider's billed `usage.cost`, not estimates.
 >
 > Each case was run once (single seed). Artistic scores are provisional technical readings; final art direction belongs to the artist reviewing the candidates in the app.
 
-**Total spent on all benchmarks below: US$ 2.83.**
+**Total spent on all benchmarks below: US$ 5.55.**
 
 | Benchmark | Cost |
 |---|---|
@@ -14,6 +14,11 @@ Pixel Studio is provider-agnostic: every AI route is a **provider profile** (Ope
 | Inpainting | US$ 0.27 |
 | Animation | US$ 0.23 |
 | Worlds (textures, tilesets, props) | US$ 0.34 |
+| Equipment layering (modular outfits and weapons) | US$ 0.38 |
+| States, object animation, interpolation, frame fixes | US$ 0.31 |
+| Scenes, parallax, rooms and furniture | US$ 0.87 |
+| README showcase gallery (22 images + one inpaint) | US$ 1.16 |
+| Codex CLI trial (7 images) | 7 generations of the ChatGPT plan quota |
 
 ---
 
@@ -77,7 +82,7 @@ Pixel Studio is provider-agnostic: every AI route is a **provider profile** (Ope
   - Both models removed the sign and continued the brick-and-mortar pattern with moss: no transparency left and no repeated patch.
   - For the lake, `gpt-image-2.6-flare` produced coherent reeds and pebbles; Gemini came out darker and noisier.
 - **Recommendation for candidate mode:** `openai/gpt-image-2.6-flare`.
-- **Native-mask mode** (PixelLab `/inpaint-v3`, OpenAI Images edits) is implemented and covered by contract tests against a fake HTTP server. A real run needs a PixelLab or OpenAI key.
+- **Native-mask mode** (OpenAI Images edits) is implemented and covered by contract tests against a fake HTTP server. A real run needs an OpenAI key.
 
 ## 3. Sprite animation and 4/8-direction views
 
@@ -100,8 +105,7 @@ Pixel Studio is provider-agnostic: every AI route is a **provider profile** (Ope
 **Recommendation:** `openai/gpt-image-2.6-flare` for sheet-based animation and new views on generic routes.
 
 **What "real" skeleton animation means here.**
-- The skeleton is sent **as data** (per-frame keypoints) only to routes that accept it: PixelLab `/animate-with-skeleton-v3`, plus `/rotate` and text animation v3.
-- Those mappings are implemented and contract-tested against a fake server. A real run needs a PixelLab key.
+- The skeleton is sent **as data** (per-frame keypoints) only to a profile that declares native skeleton animation. None of the real profiles does today; the simulated provider exercises that path.
 - On generic routes, a pose sequence becomes a raster guide image and is labeled accordingly. The trial showed models follow identity more than a raster guide, so the local skeleton estimate must be corrected in the editor before generating.
 
 ## 4. Worlds: seamless textures, autotile tilesets and isometric props
@@ -130,14 +134,88 @@ Pixel Studio is provider-agnostic: every AI route is a **provider profile** (Ope
 **Honest conclusion:** a generic image model follows the 16-mask layout well. Its atlases still need correction before art approval, by one of these routes:
 - inpainting of the flagged tiles;
 - variants of the plain tile;
-- a specialized tileset route (PixelLab `/tilesets`, not yet trialed).
+- a profile that declares native tileset generation (none of the current real profiles does).
 
 **Isometric (local composition).**
 - The approved grass is projected on 64×32 diamonds: IoU 1.0, 0 holes and 0 overlaps across a 4-diamond patch.
 - A tall tree prop (`gpt-image-1-mini`, US$ 0.013) keeps its support point on the cell center: dy 0.
 - Draw order hides a character behind the canopy only where expected.
 
-## 5. What the benchmarks changed in the pipeline
+## 5. Equipment layering: outfits and weapons on a character
+
+**Setup.** "Create a piece for this character" on the synthetic demo warrior (south view, 64×64 cell): a 4-frame shield attack and a 6-frame two-handed swing.
+- **Piece:** "brown leather jerkin with brass rivets and short leather sleeves", with parts `torso` and `sleeve_near`.
+- **Generic route:** the model receives the base frames in a grid on a chroma-key canvas plus a guide with the allowed zone painted, and returns a **dressed candidate**. The piece is then **extracted locally** with an explicit mask: integer registration against the clean base, comparison only inside each part's zone, hands protected, edges validated. The UI labels this as a generic route, never as a native mask or a native modular overlay.
+
+| Model | Cost | Reading |
+|---|---|---|
+| `openai/gpt-image-2.6-flare` | US$ 0.04–0.06 per strip | Jerkin consistent across all 10 frames; poses respected; registration within 1 px. The sleeve zone, derived from a thin chain-mail piece, was too narrow on the first pass. Re-running only the sleeve gaps with the zone grown by 3 px extracted the sleeve in all 4 frames (US$ 0.06). |
+| `openai/gpt-image-1-mini` | US$ 0.009–0.016 | Drew two characters on the proof pose and ignored poses on strips. Only the rigid weapon view was usable. |
+
+After approval, switching loadouts (short sword + shield ↔ longsword, same armor) and exporting made **zero provider calls**; a test asserts it with the adapter switched off.
+
+**Recommendation:** `gpt-image-2.6-flare` for dressed candidates; a wider allowed zone (the "Ampliar zona da roupa" setting, up to +8 px) for sleeves, shoulder pads and capes.
+
+## 6. Character and object states, object animation, interpolation and frame fixes
+
+All runs used the generic route (sheet or single frame drawn by image + references, sliced and matched locally). The UI labels each one as such.
+
+| Scenario | `gpt-image-2.6-flare` | `gpt-image-1-mini` |
+|---|---|---|
+| Closed chest (object, no humanoid rig) | US$ 0.052, clean | US$ 0.009 |
+| "Open" state linked to the closed chest | US$ 0.047: same wood, ironwork and scale, coins revealed. **Usable.** | US$ 0.009, style drift |
+| "Open" animation (frame 0 = closed view, 4 generated frames) | US$ 0.049: usable | US$ 0.009: shadow on the floor, drift |
+| Interpolation between closed and open | US$ 0.028: 2 in-betweens, extremes kept once | refused for a 2:1 sheet (not charged), then drew across grid cells |
+| Fix one arm in one frame of an attack (mask + neighbors as context) | US$ 0.077: **0 protected pixels changed**, 99% candidate agreement; a visible seam on the torso because the mask was wide | US$ 0.019: 0 protected pixels changed, 92% agreement |
+
+Other frames of a fixed clip keep the same geometry digest, and the revision lists the `impact` event and the armor coverage cells that depend on the edited frame.
+
+**Recommendation:** `gpt-image-2.6-flare` for states, object animation and in-betweens.
+
+## 7. Scenes, parallax backgrounds, rooms and furniture
+
+| Output | Model and cost | Reading |
+|---|---|---|
+| Flat scene "bridge in a forest at sunset" (288×192) | flare US$ 0.05, mini US$ 0.01 | Flare: coherent composition, light and reflection at 1×. Published as a **flat image**: trees and bridge are not objects, collisions or terrain. |
+| Parallax planes generated separately (sky, hills, ground) | first recipe: mini; revised recipe: flare (~US$ 0.04 per plane) | With the first recipe, models painted a whole scene in every plane. The revised recipe says what each plane must **not** draw, and the flare then produced clean separate planes. |
+| Two rooms of one building from a floor-plan guide (7×6 cells) | flare ~US$ 0.05 per room | Follows the plan, walls and doors; room B reuses room A's style. The first recipe let the model paint the door marks as yellow blocks; the revised recipe produced real wooden doors. |
+| Furniture cut-out and floor rebuild | flare US$ 0.06 per inpaint | Table + chairs cut out on a red rug, rug rebuilt by inpainting with 0 protected pixels changed, table moved and reused as a prop with support point and footprint. |
+
+**Findings.**
+- **Seams:** only the sky and the revised ground passed the seam test. Fixing seams by inpainting improved the sky from 16.6× to 2.78× and the hills from 3.2× to 1.50× the interior difference, still above the limit, so neither is promised as repeating. The camera test (two background widths, 3,840 px) approves sky + ground and rejects the stack with the hills.
+- **Cut-out masks:** a rectangle mask drags rug pixels into the prop. A mask refined by background color (flood fill from the mask border through rug-colored pixels) gives a clean prop. The rebuild instruction must name the surface ("the same red rug"); "rug and floor continue" made the model paint floor tiles in the middle of the rug.
+
+## 8. README showcase gallery
+
+- **Images:** 22, from text prompts only, through the real job queue with `openai/gpt-image-2.6-flare`, at US$ 0.044 each.
+- **Icons, characters and props:** all usable at the first attempt. Lossless grid recovery happened when the model drew on a clean grid (mushroom, gem). Other images needed a block-majority reduction, flagged in the technical report.
+- **Seamless textures:** at 32×32 the reduction erased the stone shapes (the model drew on a ~4 px grid), so they were redone at 64×64. Cobblestone and lava pass on both axes. Grass fails the Y profile test and is kept as a sample.
+- **Inpainting:** recoloring the knight's cape inside a mask changed 570 pixels inside it and **0 outside** (US$ 0.06).
+
+## 9. Local Codex CLI (ChatGPT plan, no API key)
+
+| | |
+|---|---|
+| Route | Codex CLI 0.169 logged in with ChatGPT; built-in image tool via the `imagegen` skill; one `codex exec` turn per image, read-only sandbox, reasoning effort `low` |
+| Cost | 7 generations of the plan quota (no USD charge) |
+| Time | 33–53 s per image, 2 in parallel |
+
+| Case | Result |
+|---|---|
+| Icons 32×32 (potion, sword), text only, transparent | clean outline and palette; native alpha (1254×1254 PNG) reduced with a block-majority step (flagged) |
+| Mana potion with the red potion as **style reference** | same outline, highlight and pixel size as the reference |
+| Knight and oak 64×64 | full figure and readable silhouette at 1× |
+| Cobblestone texture 64×64 | passes X, **fails the Y seam test**, so it is not promised as two-axis tiling |
+| Inpaint: knight's cape to blue (candidate + local composite) | 691 pixels changed inside the mask, **0 outside**. The candidate redrew the figure (18% agreement in the protected area), which the composite discards. |
+
+**Reading.** On these cases the quality is at the level of `gpt-image-2.6-flare` through OpenRouter, with these trade-offs:
+- slower, because a short agent turn wraps each image;
+- capped at 5 reference images;
+- no per-image price, because it runs on the plan quota.
+
+Use it when you have a ChatGPT plan and do not want to pay per call.
+
+## 10. What the benchmarks changed in the pipeline
 
 | Finding | Fix in Pixel Studio |
 |---|---|
@@ -154,6 +232,12 @@ Pixel Studio is provider-agnostic: every AI route is a **provider profile** (Ope
 | `gpt-image-1-mini` returned an almost fully transparent "grass" material, and a naive seam test approved it | World operations request `background: "opaque"`; materials must be ≥ 99% opaque with more than 2 colors. |
 | A dark border hidden by stone noise passed a per-pixel seam test | Added a row/column color-profile seam test. |
 | A declared prop support point was 3 px off | Default support comes from the measured visual base; an isometric check reports dx/dy. |
+| OpenAI image routes refuse 2:1 and 4:3 canvases (free refusal) | Generic sheets, outfit strips and in-between grids use only 1:1, 3:2 or 2:3 canvases, with empty cells declared. |
+| Object frames shrank ~17% when a chest lid opened (scale by median height) | Objects and states scale by body width, with one common factor per sheet. |
+| A model drew in-betweens across sheet cells, and slicing cut the chest in half | The pipeline measures content crossing inner grid lines and flags the candidate for review. |
+| Anti-aliased chroma-key residue (245,26,214 vs. key 255,0,255) survived a per-channel tolerance in outfit layers | Saturated pixels with the key's hue are also removed as residue, and the count is reported. |
+| The parallax camera test did not catch a non-repeating plane leaving the screen | The test now fails the loop when any plane leaves the viewport. |
+| Room door marks were painted as yellow blocks | The room recipe says the marks only locate doorways and must become a real door or opening. |
 
 ## Reproduce
 
@@ -167,6 +251,12 @@ npx tsx scripts/reprocess-eval.ts <results-folder>                          # re
 npx tsx scripts/inpaint-real.ts --yes --max-usd=1                           # real inpainting trial with independent RGBA check
 npx tsx scripts/animation-real.ts                                           # animation modes + new view (dry run)
 npx tsx scripts/world-real.ts                                               # materials, guided tileset, prop (dry run)
+npx tsx scripts/equipment-real.ts                                           # outfit coverage + rigid weapon (dry run)
+npx tsx scripts/states-real.ts                                              # states, object animation, interpolation, frame fix (dry run)
+npx tsx scripts/scenes-real.ts                                              # flat scene, parallax planes, rooms (dry run)
+npx tsx scripts/showcase-real.ts                                            # README gallery (dry run)
+npx tsx scripts/codex-real.ts                                               # Codex CLI: version, login and skill check (no generation)
+npx tsx scripts/codex-real.ts --yes                                         # 7 images on your ChatGPT plan quota
 ```
 
 Raw outputs, contact sheets and per-case technical reports are written to `reports/` (git-ignored).

@@ -53,7 +53,7 @@ export interface ProviderAdapter {
   estimate(operation: PlanOperation, parts: number): CostEstimate;
   /** Limites declarados por operação (ex.: máximo de referências), conferidos antes de cobrar. */
   limits?(operation: PlanOperation): { maxReferences?: number; /** Alfa nativo só com exatamente N referências. */ alphaReferences?: number };
-  /** Quantos envios produzem `variants` candidatas (PixelLab devolve várias por job). Padrão: um por variante. */
+  /** Quantos envios produzem `variants` candidatas (há provedores que devolvem várias por job). Padrão: um por variante. */
   submissionsFor?(operation: PlanOperation, variants: number): number;
   submit(request: ProviderSubmitRequest, signal: AbortSignal): Promise<SubmitOutcome>;
   poll(remoteId: string, signal: AbortSignal): Promise<RemoteStatus>;

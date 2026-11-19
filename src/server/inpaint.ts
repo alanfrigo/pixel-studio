@@ -17,7 +17,7 @@ import { newId } from "./util";
 /**
  * Inpainting (05 §inpainting, cartão E1): reconstruir só a região marcada.
  *
- * - `native-mask`: o provedor recebe fonte + máscara (PixelLab `/inpaint-v3`, OpenAI com máscara).
+ * - `native-mask`: o provedor recebe fonte + máscara (ex.: API com contrato OpenAI Images e máscara).
  * - `candidate-composite`: o provedor recebe a fonte e uma guia com a região pintada e
  *   devolve o canvas inteiro editado; localmente só os pixels marcados são copiados.
  *   É escolha explícita e identificada, nunca substituto silencioso do modo nativo.

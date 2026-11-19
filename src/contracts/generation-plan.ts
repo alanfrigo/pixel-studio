@@ -22,6 +22,9 @@ import { Playback } from "./sprites";
 import { UiState } from "./ui";
 import { Codepoint } from "./dialogue-audio";
 import { TilesetGuide } from "./world";
+import { OverlayCoverageParams } from "./equipment";
+import { ROOM_MAX_COLS, ROOM_MAX_ROWS, ROOM_PROJECTIONS, SCENE_LAYER_DEPTHS } from "./scenes";
+import { TEMPORAL_PLAN_PARAMS } from "./temporal";
 
 /**
  * Plano de geração congelado (02a §entradas tipadas). Os nomes pertencem ao
@@ -176,6 +179,9 @@ const ops = {
     stateKey: Slug,
     description: z.string().min(1).max(1000),
     directions: z.array(Direction).min(1).max(8),
+    // Cartão S3: sujeito, célula, estado já aprovado mantido e folha desenhada por imagem + referências.
+    ...TEMPORAL_PLAN_PARAMS.create_state,
+    sheet: ReferenceSheet,
   }),
   generate_scene: z.strictObject({
     logicalSize: Size,
@@ -183,15 +189,36 @@ const ops = {
     /** Imagem plana não promete camadas nem mapa editável. */
     outputKind: z.enum(["flat_image", "layers"]),
     requiredElements: z.array(z.string().min(1).max(200)),
+    /** T2: composição e iluminação pedidas (a perspectiva é `projection`; a resolução, `logicalSize`). */
+    composition: z.string().max(500).optional(),
+    lighting: z.string().max(200).optional(),
+    /** T2 · `layers`: o plano gera UM plano declarado; cada plano é gerado separadamente. */
+    layer: z
+      .strictObject({ name: z.string().min(1).max(64), depth: z.enum(SCENE_LAYER_DEPTHS), repeatX: z.boolean(), transparent: z.boolean() })
+      .optional(),
+    /** Rota sem alfa: fundo de cor-chave pedido no prompt e removido localmente. */
+    backgroundKey: HexColor.nullable().optional(),
   }),
   generate_room: z.strictObject({
     theme: z.string().min(1).max(500),
     floorPlan: z.strictObject({ size: Size, cells: z.array(z.boolean()).min(1) }),
     doors: z.array(z.strictObject({ doorId: Id, cell: z.tuple([NonNegInt, NonNegInt]), side: z.enum(["N", "E", "S", "W"]) })),
-    projection: z.enum(["top_down", "isometric", "oblique"]),
+    projection: z.enum(ROOM_PROJECTIONS),
     tileSize: PosInt,
     styleRoomRevisionId: Id.nullable(),
-    requestFurniturePieces: z.boolean(),
+    /**
+     * T2: a planta vira guia raster (primeira referência) na grade declarada
+     * da imagem; o modelo pinta por cima. Não é geração nativa de sala.
+     */
+    guide: z.strictObject({ pictureSize: Size, cellPx: Size, gridOrigin: z.tuple([z.number().int(), z.number().int()]), backgroundKey: HexColor }),
+  }),
+  /** T2: prop independente (árvore, baú, coluna); colisão e apoio são revisados depois, não vêm do prompt. */
+  generate_map_object: z.strictObject({
+    logicalSize: Size,
+    projection: z.enum(["top_down", "three_quarter", "side"]),
+    transparent: z.boolean(),
+    backgroundKey: HexColor.nullable(),
+    variants: z.number().int().min(1).max(4),
   }),
   generate_texture: z.strictObject({
     materialBrief: z.string().min(1).max(500),
@@ -266,6 +293,14 @@ const ops = {
     lyrics: z.string().max(10_000).nullable(),
     loop: z.boolean(),
   }),
+  /** Cartão S2: cobertura de roupa por frame ou vista rígida de uma peça ("Criar peça para este personagem"). */
+  generate_overlay_coverage: OverlayCoverageParams,
+  /** Cartão S3: animação de objeto (folha por imagem + referências), interpolação, edição de trecho, roupa e correção de quadro. */
+  animate_object: z.strictObject({ ...TEMPORAL_PLAN_PARAMS.animate_object, sheet: ReferenceSheet }),
+  interpolate_frames: z.strictObject({ ...TEMPORAL_PLAN_PARAMS.interpolate_frames, sheet: ReferenceSheet.optional() }),
+  edit_animation: z.strictObject({ ...TEMPORAL_PLAN_PARAMS.edit_animation, sheet: ReferenceSheet.optional() }),
+  transfer_outfit: z.strictObject({ ...TEMPORAL_PLAN_PARAMS.transfer_outfit, sheet: ReferenceSheet.optional() }),
+  correct_frame: z.strictObject({ ...TEMPORAL_PLAN_PARAMS.correct_frame, sheet: ReferenceSheet.optional() }),
 } as const;
 
 export type PlanOperation = keyof typeof ops;
@@ -309,6 +344,13 @@ export const GenerationPlan = z
     plan("generate_visemes"),
     plan("generate_pixel_font"),
     plan("generate_audio"),
+    plan("generate_overlay_coverage"),
+    plan("generate_map_object"),
+    plan("animate_object"),
+    plan("interpolate_frames"),
+    plan("edit_animation"),
+    plan("transfer_outfit"),
+    plan("correct_frame"),
   ])
   .superRefine((p, ctx) => {
     checkOrdinals(ctx, p.sources, ["sources"]);
@@ -371,13 +413,73 @@ export const GenerationPlan = z
         }
         break;
       }
+      // Cartão S3: rota nativa exige a capacidade própria; a folha por imagem + referências exige `image_references`.
+      // Estado e animação de objeto só existem como folha desenhada por imagem + referências.
+      case "create_state":
+        requires("image_references");
+        checkSheetCells(ctx, p.params.sheet, p.params.directions.length);
+        break;
+      case "animate_object":
+        requires("image_references");
+        checkSheetCells(ctx, p.params.sheet, p.params.durationsMs.length);
+        if (p.params.endFrame && p.params.endFrame.direction !== p.params.direction) {
+          ctx.addIssue({ code: "custom", message: "O quadro final da interpolação usa a mesma direção", path: ["params", "endFrame"] });
+        }
+        break;
+      case "interpolate_frames":
+        requires(p.params.sheet ? "image_references" : "frame_interpolation");
+        if (p.params.sheet && p.params.count === null) ctx.addIssue({ code: "custom", message: "Rota genérica declara a contagem de intermediários", path: ["params", "count"] });
+        if (p.params.sheet) checkSheetCells(ctx, p.params.sheet, p.params.count ?? 0);
+        break;
+      case "edit_animation":
+      case "transfer_outfit":
+        requires(p.params.sheet ? "image_references" : p.operation === "edit_animation" ? "animation_edit" : "outfit_transfer");
+        checkSheetCells(ctx, p.params.sheet, p.params.frameIds.length);
+        if (p.params.frames.map((f) => f.frameId).join("|") !== p.params.frameIds.join("|")) {
+          ctx.addIssue({ code: "custom", message: "Composição congelada diverge dos quadros selecionados", path: ["params", "frames"] });
+        }
+        break;
+      case "correct_frame":
+        requires(p.params.mode === "native-mask" ? "native_mask" : "image_edit");
+        if (p.params.frames[0]?.frameId !== p.params.frameId) ctx.addIssue({ code: "custom", message: "O quadro alvo vem primeiro na composição", path: ["params", "frames"] });
+        if (p.params.editMaskFileId && !p.sources.some((s) => s.role === "edit_mask" && s.fileId === p.params.editMaskFileId)) {
+          ctx.addIssue({ code: "custom", message: "A máscara de edição deve estar congelada nas fontes", path: ["sources"] });
+        }
+        break;
+      case "generate_overlay_coverage": {
+        // Cartão S2: a cobertura parte de frames aprovados da base (congelados nas fontes); a vista rígida, de texto.
+        if (p.params.mode === "coverage") {
+          requires("image_references");
+          const frozen = new Set(p.sources.map((s) => s.revisionId));
+          p.params.strips.forEach((strip, i) => {
+            if (!frozen.has(strip.clipRevisionId)) ctx.addIssue({ code: "custom", message: `Clipe ${strip.clipRevisionId} da tira deve estar congelado nas fontes`, path: ["params", "strips", i] });
+            if (strip.frames.length > strip.columns * strip.rows) ctx.addIssue({ code: "custom", message: `Tira ${strip.stripKey} não comporta ${strip.frames.length} frames`, path: ["params", "strips", i] });
+          });
+        } else {
+          requires("text_to_image");
+        }
+        break;
+      }
       case "generate_room": {
         const [cols, rows] = p.params.floorPlan.size;
         if (p.params.floorPlan.cells.length !== cols * rows) {
           ctx.addIssue({ code: "custom", message: `Planta deve ter ${cols * rows} células`, path: ["params", "floorPlan", "cells"] });
         }
+        // T2: a planta vai como guia raster (referência visual) na grade declarada.
+        requires("image_references");
+        if (cols > ROOM_MAX_COLS || rows > ROOM_MAX_ROWS) {
+          ctx.addIssue({ code: "custom", message: `Planta limitada a ${ROOM_MAX_COLS} × ${ROOM_MAX_ROWS} células`, path: ["params", "floorPlan", "size"] });
+        }
         break;
       }
+      case "generate_scene":
+        if ((p.params.outputKind === "layers") !== Boolean(p.params.layer)) {
+          ctx.addIssue({ code: "custom", message: "Cena em camadas gera um plano declarado por vez (e só ela declara plano)", path: ["params", "layer"] });
+        }
+        break;
+      case "generate_map_object":
+        requires("text_to_image");
+        break;
       default:
         break;
     }

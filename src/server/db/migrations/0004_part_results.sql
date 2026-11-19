@@ -1,5 +1,5 @@
 -- Resultados por parte (cartão I1): um envio pode devolver várias candidatas
--- (PixelLab devolve até 64 por job; OpenRouter pode devolver menos que n).
+-- (há provedores que devolvem várias por job; outros podem devolver menos que n).
 -- Cada resposta bruta é gravada assim que chega; o processamento local fica por resultado.
 CREATE TABLE job_part_results (
   job_id TEXT NOT NULL,

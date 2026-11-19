@@ -5,11 +5,13 @@ import type { ClipPayload } from "@/contracts";
 import { averageFps, frameAt, totalMs } from "@/domain/animation/timeline";
 import type { RevisionView } from "@/server/catalog/catalog";
 import { apiFetch } from "@/app/client/api";
-import { clipFrameUrls, errorText } from "./shared";
+import { clipFrameLayers, errorText } from "./shared";
 
 /**
  * Prévia do clipe (04 §revisar): reproduz com o `durationMs` de cada quadro,
- * em zoom inteiro, com onion skin e fundo escolhido. As durações são editáveis
+ * em zoom inteiro, com onion skin e fundo escolhido. Cada quadro é composto
+ * pelas suas camadas (arquivo, retângulo e posição na célula), como no pacote
+ * exportado — atlas e canvas ampliado aparecem certos. As durações são editáveis
  * localmente; "Salvar tempos" publica revisão nova com os mesmos quadros —
  * nenhum pixel é gerado e nenhum provedor é chamado.
  */
@@ -18,7 +20,7 @@ type Bg = "checker" | "dark" | "light";
 
 export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string; revision: RevisionView; onSaved: (revisionId: string) => void }) {
   const clip = revision.payload as ClipPayload;
-  const urls = clipFrameUrls(projectId, revision);
+  const frames = clipFrameLayers(projectId, revision);
   const [w, h] = clip.logicalSize;
   const [durations, setDurations] = useState(() => clip.frames.map((f) => f.durationMs));
   const [playback, setPlayback] = useState(clip.playback);
@@ -28,18 +30,20 @@ export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string
   const [zoom, setZoom] = useState(Math.max(1, Math.floor(256 / Math.max(w, h))));
   const [current, setCurrent] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
-  const images = useRef<HTMLImageElement[]>([]);
+  const images = useRef<Map<string, HTMLImageElement>>(new Map());
   const canvas = useRef<HTMLCanvasElement>(null);
   const [loaded, setLoaded] = useState(0);
 
   useEffect(() => {
     let alive = true;
-    images.current = urls.map((src) => {
+    const map = new Map<string, HTMLImageElement>();
+    for (const src of new Set(frames.flat().map((l) => l.src))) {
       const img = new Image();
       img.onload = () => alive && setLoaded((n) => n + 1);
       img.src = src;
-      return img;
-    });
+      map.set(src, img);
+    }
+    images.current = map;
     return () => {
       alive = false;
     };
@@ -69,10 +73,13 @@ export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, c.width, c.height);
     const draw = (i: number, alpha: number) => {
-      const img = images.current[i];
-      if (!img?.complete || !img.naturalWidth) return;
       ctx.globalAlpha = alpha;
-      ctx.drawImage(img, 0, 0, w * zoom, h * zoom);
+      for (const layer of frames[i] ?? []) {
+        const img = images.current.get(layer.src);
+        if (!img?.complete || !img.naturalWidth) continue;
+        const [rx, ry, rw, rh] = layer.rect;
+        ctx.drawImage(img, rx, ry, rw, rh, layer.offset[0] * zoom, layer.offset[1] * zoom, rw * zoom, rh * zoom);
+      }
     };
     if (onion && current > 0) draw(current - 1, 0.3);
     draw(current, 1);
@@ -85,6 +92,8 @@ export function ClipPlayer({ projectId, revision, onSaved }: { projectId: string
     ctx.moveTo(clip.pivot[0] * zoom, clip.pivot[1] * zoom - 4);
     ctx.lineTo(clip.pivot[0] * zoom, clip.pivot[1] * zoom + 4);
     ctx.stroke();
+    // Quadros mudam só com a revisão (mesma chave do efeito de carga).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current, onion, zoom, w, h, loaded, clip.pivot]);
 
   const changed = durations.some((d, i) => d !== clip.frames[i]!.durationMs) || playback !== clip.playback;

@@ -4,7 +4,7 @@
   "styleRevisionId": "clareira-style-a",
   "operation": "generate_pixel_font",
   "recipeRevisionId": "recipe-font-v1",
-  "providerProfileId": "pixellab-rest",
+  "providerProfileId": "provedor-nativo",
   "prompt": {
     "brief": "fonte pixel de metal forjado",
     "compiled": "Fonte pixel regular, glyph de 8 px, traço de metal forjado.",

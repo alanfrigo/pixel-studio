@@ -61,15 +61,14 @@ export function retimeClip(clip: ClipPayload, durations: readonly number[]): Cli
 }
 
 /**
- * Grade da folha pedida a uma rota genérica: proporções que os modelos de
- * imagem aceitam (1:1, 3:2, 4:3), com células sobrando declaradas vazias.
+ * Grade da folha pedida a uma rota genérica: só proporções que as rotas de
+ * imagem aceitam (1:1 e 3:2; o OpenAI recusa 2:1 e 4:3 — ensaio real do S3),
+ * com células sobrando declaradas vazias.
  */
 export function sheetLayout(frames: number): { columns: number; rows: number } {
   if (frames <= 1) return { columns: 1, rows: 1 };
-  if (frames === 2) return { columns: 2, rows: 1 };
   if (frames <= 4) return { columns: 2, rows: 2 };
   if (frames <= 6) return { columns: 3, rows: 2 };
   if (frames <= 9) return { columns: 3, rows: 3 };
-  if (frames <= 12) return { columns: 4, rows: 3 };
   return { columns: 4, rows: 4 };
 }

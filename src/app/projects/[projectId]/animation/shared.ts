@@ -60,12 +60,7 @@ export async function review(projectId: string, assetId: string, revisionId: str
   return apiFetch(`/projects/${projectId}/assets/${assetId}/reviews`, { method: "POST", json: { revisionId, decision, reason, expectedActiveRevisionId } });
 }
 
-export function estimateText(plan: GenerationPlan): string {
-  const e = plan.limits.estimate;
-  if (e.kind === "known") return `${e.amount.amount} ${e.amount.unit}`;
-  if (e.kind === "range") return `${e.min.amount}–${e.max.amount} ${e.max.unit}`;
-  return `desconhecida (${e.reason})`;
-}
+export { estimateText } from "@/app/client/cost";
 
 /** Caixa do conteúdo (alfa > 0) de uma imagem, para ajustar o esqueleto padrão à base. */
 export function contentBox(img: HTMLImageElement): [number, number, number, number] | null {
@@ -87,4 +82,60 @@ export function contentBox(img: HTMLImageElement): [number, number, number, numb
     }
   }
   return x1 < 0 ? null : [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
+}
+
+// ---------------------------------------------------------------------------
+// Cartão S3: quadros por camada, uploads e busca de revisões na visão geral
+// ---------------------------------------------------------------------------
+
+export interface LayerDraw {
+  src: string;
+  rect: [number, number, number, number];
+  offset: [number, number];
+}
+
+/** Camadas de cada quadro (trás → frente) com o arquivo, o retângulo e a posição na célula. */
+export function clipFrameLayers(projectId: string, revision: RevisionView): LayerDraw[][] {
+  const clip = revision.payload as ClipPayload;
+  return clip.frames.map((f) =>
+    f.layers.map((l) => {
+      const file = revision.files.find((x) => x.fileKey === l.fileId);
+      return { src: file ? mediaUrl(projectId, file.id) : "", rect: l.rect, offset: l.offset };
+    }),
+  );
+}
+
+/** Envia um PNG como upload do projeto e espera a normalização (máscara, imagem de objeto). */
+export async function uploadPng(projectId: string, bytes: Uint8Array | Blob, name: string): Promise<string> {
+  const form = new FormData();
+  form.append("file", bytes instanceof Blob ? bytes : new Blob([bytes as BlobPart], { type: "image/png" }), name);
+  const res = await fetch(`/api/v1/projects/${projectId}/uploads`, { method: "POST", body: form });
+  const body = (await res.json()) as { upload?: { id: string }; message?: string };
+  if (!res.ok || !body.upload) throw new Error(body.message ?? "Falha ao enviar a imagem");
+  for (let i = 0; i < 60; i++) {
+    const { upload } = await apiFetch<{ upload: { id: string; status: string } }>(`/projects/${projectId}/uploads/${body.upload.id}`);
+    if (upload.status === "ready") return upload.id;
+    if (upload.status === "rejected") throw new Error("A imagem não pôde ser importada");
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  throw new Error("A importação demorou demais");
+}
+
+export function findRevision(data: Overview, revisionId: string | null | undefined): { asset: AssetEntry["asset"]; revision: RevisionView } | null {
+  if (!revisionId) return null;
+  for (const entry of [...data.bases, ...data.clips]) {
+    const revision = entry.revisions.find((r) => r.id === revisionId);
+    if (revision) return { asset: entry.asset, revision };
+  }
+  return null;
+}
+
+export function isObject(entry: AssetEntry): boolean {
+  return entry.revisions.some((r) => (r.payload as BasePayload).subject === "object");
+}
+
+export function routeLabel(profile: ProfileInfo, key: string): { ok: boolean; text: string; strategy?: string } {
+  const r = profile.routes[key];
+  if (!r) return { ok: false, text: "indisponível" };
+  return "label" in r ? { ok: true, text: r.label, strategy: r.strategy } : { ok: false, text: r.unavailable };
 }

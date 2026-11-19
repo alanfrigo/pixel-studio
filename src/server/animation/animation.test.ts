@@ -18,7 +18,7 @@ import { exportFilePath, getExport, requestExport } from "../export/exports";
 import { importPortablePackage } from "../export/import";
 import { saveProfile } from "../providers/profiles";
 import { makeTestStudio, type TestStudio } from "../testing";
-import { buildAnimatePresetPlan, buildAnimateSkeletonPlan, buildAnimateTextPlan, buildRotateViewsPlan } from "./plans";
+import { buildAnimateSkeletonPlan, buildAnimateTextPlan, buildRotateViewsPlan } from "./plans";
 import { composeBaseViews, retimeClipRevision, runAnimation, saveMotion } from "./service";
 
 const PYTHON = path.join(process.cwd(), "python", ".venv", "bin", "python");
@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Servidor HTTP local que imita OpenRouter e PixelLab (sem rede, sem custo)
+// Servidor HTTP local que imita o OpenRouter (sem rede, sem custo)
 // ---------------------------------------------------------------------------
 
 interface Recorded {
@@ -391,47 +391,6 @@ describe.skipIf(!existsSync(PYTHON))("animação (cartão S1)", () => {
     const sentSkel = recorded.find((r) => r.path === "/api/v1/images")!.body as { aspect_ratio: string; input_references: unknown[] };
     expect(sentSkel.input_references).toHaveLength(2);
     expect(sentSkel.aspect_ratio).toBe("3:2");
-  });
-
-  it("PixelLab (servidor falso): esqueleto envia keypoints por quadro; texto v3 e /rotate com direções explícitas", async () => {
-    const { project, base } = await setup();
-    saveProfile(studio.db, studio.clock, { id: "pl", name: "PixelLab teste", transport: "pixellab_rest_v2", baseUrl: `${baseUrl}/v2`, secretRef: "TEST_PROVIDER_KEY", config: { pollIntervalMs: 200 } });
-    const frame = b64(encodePng(createImage(64, 64)));
-    let jobs = 0;
-    respond = (req) => {
-      if (req.method === "POST" && req.path === "/v2/rotate") return { status: 200, body: { image: { type: "base64", base64: frame }, usage: { type: "usd", usd: 0.01 } } };
-      if (req.method === "POST") return { status: 200, body: { background_job_id: `bg_${++jobs}` } };
-      const n = (recorded.filter((r) => r.method === "POST").at(-1)!.body as { keypoints?: unknown[]; frame_count?: number });
-      const count = n.keypoints?.length ?? n.frame_count ?? 1;
-      return { status: 200, body: { id: "x", status: "completed", created_at: "", usage: { type: "generations", generations: 2 }, last_response: { images: Array.from({ length: count }, () => ({ type: "base64", base64: frame })) } } };
-    };
-    const motion = humanoidMotion([64, 64], 3);
-    const saved = saveMotion(studio, project.id, { baseRevisionId: base.id, motion, presetKey: "hurt" });
-    approve(project.id, saved.revision.id);
-    const runSkel = runAnimation(studio, project.id, { plan: { operation: "animate_skeleton", providerProfileId: "pl", baseRevisionId: base.id, motionRevisionId: saved.revision.id, actionText: "recua", appearance: "guerreiro de túnica azul", playback: "once" } });
-    expect(runSkel.route.strategy).toBe("native");
-    await runAll();
-    expect(clipOf(project.id, runSkel.job.id).status).toBe("candidate");
-    const body = recorded.find((r) => r.path === "/v2/animate-with-skeleton-v3")!.body as { description: string; keypoints: { label: string; x: number }[][]; first_frame_keypoints: unknown[]; direction: string; view: string };
-    expect(body).toMatchObject({ description: "guerreiro de túnica azul", direction: "south", view: "low top-down" });
-    expect(body.keypoints).toHaveLength(3);
-    expect(body.keypoints[1]!.find((k) => k.label === "RIGHT ELBOW")!.x).toBeCloseTo(motion.poses[1]!.joints.elbow_r!.x, 6);
-    expect(body.first_frame_keypoints).toHaveLength(18);
-
-    // Texto v3: 4–16 pares; o preset de 3 quadros não vai para essa rota.
-    const textRun = runAnimation(studio, project.id, { plan: { operation: "animate_text", providerProfileId: "pl", baseRevisionId: base.id, direction: "S", actionText: "waving", durationsMs: [100, 100, 100, 100, 100, 100], playback: "loop" } });
-    await runAll();
-    expect((clipOf(project.id, textRun.job.id).payload as ClipPayload).frames).toHaveLength(6);
-    expect(recorded.find((r) => r.path === "/v2/animate-with-text-v3")!.body).toMatchObject({ action: "waving", frame_count: 6, no_background: true });
-    expect(() => buildAnimateTextPlan(studio, project.id, { operation: "animate_text", providerProfileId: "pl", baseRevisionId: base.id, direction: "S", actionText: "x", durationsMs: [100, 100, 100], playback: "once" })).toThrow(/4–16 quadros pares/);
-
-    // /rotate: síncrono, origem e destino explícitos, flag isometric documentada.
-    const rot = runAnimation(studio, project.id, { plan: { operation: "rotate_views", providerProfileId: "pl", baseRevisionId: base.id, view: "NE", projection: "isometric" } });
-    await runAll();
-    expect(clipOf(project.id, rot.job.id).status).toBe("candidate");
-    expect(recorded.find((r) => r.path === "/v2/rotate")!.body).toMatchObject({ from_direction: "south", to_direction: "north-east", isometric: true, image_size: { width: 64, height: 64 } });
-    // Preset de texto num perfil PixelLab cai no texto v3 com a contagem do preset.
-    expect(buildAnimatePresetPlan(studio, project.id, { operation: "animate_preset", providerProfileId: "pl", baseRevisionId: base.id, direction: "S", presetKey: "walk" }).route.strategy).toBe("native");
   });
 
   it("revisões candidatas não servem de fonte; movimento precisa estar aprovado", async () => {

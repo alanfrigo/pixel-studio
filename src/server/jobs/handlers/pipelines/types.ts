@@ -25,10 +25,13 @@ export interface ProcessResult {
 export interface OperationPipeline {
   /** Web (antes de enfileirar) e worker (antes de cobrar): o asset alvo combina com o plano? Lança DomainFailure. */
   validateTarget(input: { db: Db; projectId: string; plan: GenerationPlan; asset: AssetView }): void;
-  /** Referências em bytes, na ordem e codificação que o adaptador espera. */
-  loadInputs(ctx: HandlerContext, plan: GenerationPlan, adapter: ProviderAdapter): Promise<{ role: string; mime: string; bytes: Uint8Array }[]>;
-  /** Uma imagem recebida → resultado local (idempotente, sem tocar o banco). */
-  process(env: PipelineEnv, plan: GenerationPlan, sha256: string, dir: string): Promise<ProcessResult>;
+  /**
+   * Referências em bytes, na ordem e codificação que o adaptador espera.
+   * `part` = a parte sendo enviada (planos com várias partes de entradas distintas, ex.: tiras do S2).
+   */
+  loadInputs(ctx: HandlerContext, plan: GenerationPlan, adapter: ProviderAdapter, part?: PartRow): Promise<{ role: string; mime: string; bytes: Uint8Array }[]>;
+  /** Uma imagem recebida → resultado local (idempotente, sem tocar o banco). `part` = a parte da imagem. */
+  process(env: PipelineEnv, plan: GenerationPlan, sha256: string, dir: string, part?: PartRow): Promise<ProcessResult>;
   /** Dentro da transação de conclusão: publica revisões a partir das linhas processadas da parte. */
   publish(ctx: HandlerContext, plan: GenerationPlan, asset: AssetView, part: PartRow, perPart: number): string[];
 }

@@ -7,6 +7,7 @@ import type { AssetView, RevisionView, UploadView } from "@/server/catalog/catal
 import type { JobView } from "@/server/jobs/queue";
 import type { ProviderProfileView } from "@/server/providers/registry";
 import { ApiError, apiFetch } from "@/app/client/api";
+import { estimateText } from "@/app/client/cost";
 import { usePoll } from "@/app/client/use-poll";
 import { type PreviewBg, RevisionCompare } from "../revision-compare";
 
@@ -324,8 +325,7 @@ export function InpaintEditor({ projectId, assetId, revisionId, fileKey }: { pro
             <div className="small">
               <p>
                 <strong>{preview.modeLabel}</strong> · destino {preview.destination.name}
-                {preview.destination.simulated ? " (simulado, nada sai do computador)" : ""} · estimativa{" "}
-                {preview.plan.limits.estimate.kind === "known" ? `${preview.plan.limits.estimate.amount.amount} ${preview.plan.limits.estimate.amount.unit}` : "desconhecida"}
+                {preview.destination.simulated ? " (simulado, nada sai do computador)" : ""} · estimativa {estimateText(preview.plan)}
               </p>
               <p>{preview.scope}</p>
               <pre>{preview.plan.prompt.compiled}</pre>

@@ -25,7 +25,7 @@ export const InpaintMaskConvention = z.literal("white_edits_black_preserves");
 
 /**
  * Codificação efetivamente enviada a um provedor (registrada na tentativa).
- * PixelLab `/inpaint-v3` usa branco = gerar; OpenAI Images usa alfa 0 = editar.
+ * Máscara em preto e branco usa branco = gerar; OpenAI Images usa alfa 0 = editar.
  */
 export const RemoteMaskEncoding = z.enum(["white_edits_black_preserves", "alpha_zero_edits"]);
 export type RemoteMaskEncoding = z.infer<typeof RemoteMaskEncoding>;
